@@ -23,6 +23,7 @@ pressed: .res 1
 
 .include "fixed-hud.inc"
 .include "horizontal-scroll.inc"
+.include "two-axis-scroll.inc"
 .include "playable-scene.inc"
 
 .segment "CODE"
@@ -150,6 +151,8 @@ same_scene:
 :
     lda scene
     beq sound_screen
+    cmp #3
+    beq pan_screen
     cmp #2
     bne free_camera
     jsr update_game
@@ -172,7 +175,16 @@ render_terrain:
     jsr upload_sprites
 :
     jmp audio_tick
+pan_screen:
+    jsr advance_pan
+    jmp audio_tick
 sound_screen:
+    lda pressed
+    and #$80           ; A opens the two-axis camera from the audio screen.
+    beq :+
+    jsr show_pan
+    jmp audio_tick
+:
     jsr wait_frame
     lda pressed
     and #$07
@@ -384,19 +396,20 @@ next_line:
     bne :-
 :
     iny
-    cpy #6
+    cpy #7
     bne next_line
     rts
 
 .segment "RODATA"
-text_address: .byte $08, $68, $88, $a8, $c8, $e8
-text_start: .byte 0, line2-screen_text, line3-screen_text, line4-screen_text, line5-screen_text, line6-screen_text
+text_address: .byte $08, $68, $88, $a8, $c8, $e8, $48
+text_start: .byte 0, line2-screen_text, line3-screen_text, line4-screen_text, line5-screen_text, line6-screen_text, line7-screen_text
 screen_text: .byte $15, $11, $04, $01, $02, $00, $12, $0f, $14, $0e, $05, $00, $13, $06, $12, $13, $ff
 line2: .byte $0c, $06, $07, $13, $00, $07, $0d, $ff
 line3: .byte $11, $0a, $08, $09, $13, $00, $02, $10, $14, $ff
 line4: .byte $05, $0f, $16, $0e, $00, $03, $0f, $13, $09, $ff
 line5: .byte $12, $06, $0c, $06, $04, $13, $00, $13, $06, $11, $11, $02, $0a, $0e, $ff ; SELECT TERRAIN
 line6: .byte $12, $13, $02, $11, $13, $00, $10, $0c, $02, $17, $ff ; START PLAY
+line7: .byte $02, $00, $19, $05, $00, $04, $02, $0d, $06, $11, $02, $ff ; A 2D CAMERA
 error_text: .byte $03, $02, $0e, $0b, $00, $0f, $11, $00, $11, $02, $0d, $00, $06, $11, $11, $0f, $11
 error_length = * - error_text
 pulse_period:
@@ -430,6 +443,7 @@ glyphs:
     .byte $00, $00, $04, $04, $1f, $04, $04, $00, $00, $00, $00, $00, $00, $00, $00, $00 ; +
     .byte $00, $11, $11, $0a, $04, $04, $04, $04, $00, $00, $00, $00, $00, $00, $00, $00 ; Y
     .byte $00, $07, $02, $02, $02, $12, $12, $0c, $00, $00, $00, $00, $00, $00, $00, $00 ; J
+    .byte $00, $0e, $11, $01, $02, $04, $08, $1f, $00, $00, $00, $00, $00, $00, $00, $00 ; 2
 terrain_tiles:
     ; Pebbles, ledge, and two alternating rock textures.
     .byte $00, $00, $10, $38, $10, $00, $02, $00, $00, $00, $00, $10, $00, $00, $00, $00

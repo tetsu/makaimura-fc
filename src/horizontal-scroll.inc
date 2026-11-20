@@ -41,6 +41,8 @@ blank_scene:
     sta $f000
     sta $2001
     sta $2000
+    lda #$80
+    sta $e000           ; Restore left/right nametables for the other scenes.
     rts
 
 show_sound_screen:
@@ -68,6 +70,20 @@ draw_terrain:
     sta camera_low
     sta camera_high
     sta world_column
+    jsr load_terrain_palette
+fill_ring:
+    jsr prepare_column
+    lda #4
+    jsr upload_column
+    inc world_column
+    lda world_column
+    cmp #32
+    bne fill_ring
+    lda #0
+    sta $2000
+    rts
+
+load_terrain_palette:
     lda #$3f
     sta $2006
     lda #0
@@ -79,16 +95,6 @@ draw_terrain:
     inx
     cpx #16
     bne :-
-fill_ring:
-    jsr prepare_column
-    lda #4
-    jsr upload_column
-    inc world_column
-    lda world_column
-    cmp #32
-    bne fill_ring
-    lda #0
-    sta $2000
     rts
 
 ; Prepare new tiles before waiting for VBlank. The existing column stays
