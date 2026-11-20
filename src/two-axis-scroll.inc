@@ -7,7 +7,6 @@ pan_no_update = $ff
 
 .segment "ZEROPAGE"
 pan_x: .res 2
-pan_y: .res 1                 ; PPU Y within a 240 px nametable
 pan_y_page: .res 1
 pan_tile_x: .res 1
 pan_tile_y: .res 1
@@ -26,6 +25,9 @@ pan_addr_hi: .res 1
 pan_addr_lo: .res 1
 pan_attrib: .res 1
 pan_ctrl: .res 1
+pan_directions: .res 1
+pan_top_rows: .res 1
+pan_col_length: .res 1
 
 .segment "BSS"
 pan_row_tiles: .res 32
@@ -36,6 +38,17 @@ show_pan:
     jsr blank_display
     lda #3
     sta scene
+    jsr draw_pan
+    jsr enable_screen
+    lda #$08            ; BG on, left eight pixels masked.
+    sta $2001
+    lda #0
+    sta terrain_frame
+    lda #$80
+    sta pan_ctrl
+    jmp apply_pan
+
+draw_pan:
     lda #$81
     sta $e000           ; Horizontal mirroring: upper/lower nametables.
     lda #0
@@ -46,6 +59,17 @@ show_pan:
     sta pan_tile_x
     sta pan_need_row
     sta pan_ctrl
+    ldx #0
+    lda scene
+    cmp #4
+    bne :+
+    ldx #hud_rows
+:
+    stx pan_top_rows
+    lda #31
+    sec
+    sbc pan_top_rows
+    sta pan_col_length
     jsr load_terrain_palette
 pan_initial_rows:
     jsr prepare_pan_row
@@ -54,16 +78,17 @@ pan_initial_rows:
     lda pan_need_row
     cmp #pan_page_rows
     bne pan_initial_rows
-    jsr enable_screen
-    lda #$08            ; BG on, left eight pixels masked.
-    sta $2001
-    lda #0
-    sta terrain_frame
-    lda #$80
-    sta pan_ctrl
-    jmp apply_pan
+    rts
 
 advance_pan:
+    lda pad
+    sta pan_directions
+    jsr prepare_pan
+    jsr wait_terrain_frame
+    jsr upload_pan
+    jmp apply_pan
+
+prepare_pan:
     lda #pan_no_update
     sta pan_need_row
     sta pan_need_col
@@ -95,6 +120,11 @@ advance_pan:
     bmi :+
     clc
     adc pan_row_offset,x
+    cpx #1
+    bne pan_row_ready
+    clc
+    adc pan_top_rows     ; The playable viewport starts below the HUD.
+pan_row_ready:
     sta pan_need_row
     jsr prepare_pan_row
 :
@@ -106,7 +136,9 @@ advance_pan:
     sta pan_need_col
     jsr prepare_pan_column
 :
-    jsr wait_terrain_frame
+    rts
+
+upload_pan:
     lda pan_need_row
     bmi :+
     jsr upload_pan_row
@@ -115,10 +147,10 @@ advance_pan:
     bmi :+
     jsr upload_pan_column
 :
-    jmp apply_pan
+    rts
 
 pan_move_x:
-    lda pad
+    lda pan_directions
     and #3
     cmp #2
     beq pan_left
@@ -156,7 +188,7 @@ pan_x_done:
     rts
 
 pan_move_y:
-    lda pad
+    lda pan_directions
     and #$0c
     cmp #$08
     beq pan_up
@@ -294,6 +326,9 @@ pan_row_data:
 
 prepare_pan_column:
     lda pan_tile_y
+    clc
+    adc pan_top_rows
+    sta pan_data_y
     jsr pan_address_for_row
     lda pan_addr_hi
     sta pan_col_addr+1
@@ -307,18 +342,20 @@ prepare_pan_column:
     sec
     lda #pan_page_rows
     sbc pan_local_y
+    cmp pan_col_length
+    bcc :+
+    lda pan_col_length
+:
     sta pan_col_split_count
     lda pan_need_col
     sta pan_data_x
-    lda pan_tile_y
-    sta pan_data_y
     ldx #0
 :
     jsr pan_tile
     sta pan_col_tiles,x
     inc pan_data_y
     inx
-    cpx #31
+    cpx pan_col_length
     bne :-
     rts
 
@@ -397,6 +434,8 @@ upload_pan_column:
     inx
     cpx pan_col_split_count
     bne :-
+    cpx pan_col_length
+    beq pan_column_done
     lda pan_col_split_hi
     sta $2006
     lda pan_col_addr
@@ -406,8 +445,9 @@ upload_pan_column:
     lda pan_col_tiles,x
     sta $2007
     inx
-    cpx #31
+    cpx pan_col_length
     bne :-
+pan_column_done:
     rts
 
 apply_pan:

@@ -20,6 +20,7 @@ phrase: .res 1
 note_index: .res 1
 scene: .res 1
 pressed: .res 1
+pan_y: .res 1          ; Current Y within a 240 px nametable.
 
 .include "fixed-hud.inc"
 .include "horizontal-scroll.inc"
@@ -102,7 +103,7 @@ reset:
     sta channel
     sta phrase
     sta scene
-    jsr enable_screen
+    jsr enable_audio_screen
     jmp main
 
 memory_error:
@@ -154,7 +155,10 @@ same_scene:
     cmp #3
     beq pan_screen
     cmp #2
+    beq game_screen
+    cmp #4
     bne free_camera
+game_screen:
     jsr update_game
     jmp render_terrain
 free_camera:
@@ -163,15 +167,24 @@ free_camera:
     jsr step_camera
 render_terrain:
     jsr wait_terrain_frame
+    lda scene
+    cmp #4
+    bne :+
+    jsr upload_pan
+    jmp commit_render
+:
     lda column_pending
-    beq :+
+    beq commit_render
     lda #$84
     jsr upload_column
-:
+commit_render:
     jsr apply_camera
     lda scene
     cmp #2
-    bne :+
+    beq :+
+    cmp #4
+    bne :++
+:
     jsr upload_sprites
 :
     jmp audio_tick
@@ -185,7 +198,7 @@ sound_screen:
     jsr show_pan
     jmp audio_tick
 :
-    jsr wait_frame
+    jsr wait_terrain_frame
     lda pressed
     and #$07
     beq audio_tick

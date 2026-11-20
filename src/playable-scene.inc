@@ -34,9 +34,25 @@ sprites: .res 256
 .segment "CODE"
 show_game:
     jsr blank_display
+    lda scene
+    cmp #3
+    beq show_pan_game
+    cmp #4
+    beq show_pan_game
     lda #2
     sta scene
     jsr draw_terrain
+    jmp setup_game
+show_pan_game:
+    lda #4
+    sta scene
+    jsr draw_pan
+    lda #0
+    sta camera_low
+    sta camera_high
+    lda #$a0
+    sta pan_ctrl
+setup_game:
     jsr draw_hud
     jsr draw_sprite_patterns
     ldx #0
@@ -100,7 +116,36 @@ follow_right:
 follow_left:
     lda #2
 camera_ready:
+    ldx scene
+    cpx #4
+    beq follow_both_axes
     jsr step_camera
+    jmp draw_sprites
+
+follow_both_axes:
+    ; Follow the player's feet toward scanline 160 by at most one pixel.
+    ; Floors in this scene end at Y=208, so the camera stays on page zero.
+    sta pan_directions
+    sec
+    lda player_feet
+    sbc pan_y
+    bcc pan_game_up
+    cmp #160
+    beq pan_game_ready
+    bcc pan_game_up
+    lda #$04
+    bne pan_game_y
+pan_game_up:
+    lda #$08
+pan_game_y:
+    ora pan_directions
+    sta pan_directions
+pan_game_ready:
+    jsr prepare_pan
+    lda pan_x
+    sta camera_low
+    lda pan_x+1
+    sta camera_high
     jmp draw_sprites
 
 move_player:
@@ -319,7 +364,7 @@ draw_sprites:
     sec
     lda player_feet
     sbc #player_height+1
-    sta draw_y
+    jsr set_sprite_y
     lda #1
     sta draw_tile
     lda player_x
@@ -332,7 +377,7 @@ draw_sprites:
     lda #1
     sta draw_palette
     lda #enemy_feet-player_height-1
-    sta draw_y
+    jsr set_sprite_y
     lda #5
     sta draw_tile
     lda #<enemy_x
@@ -350,7 +395,7 @@ draw_shot:
     lda shot_y
     sec
     sbc #2
-    sta draw_y
+    jsr set_sprite_y
     lda shot_x
     ldx shot_x+1
     jsr set_sprite_x
@@ -440,11 +485,23 @@ set_sprite_x:
     sta draw_x+1
     rts
 
+set_sprite_y:
+    ldx scene
+    cpx #4
+    bne :+
+    sec
+    sbc pan_y
+:
+    sta draw_y
+    rts
+
 emit_sprite:
     ldx draw_slot
     lda draw_x+1
     bne next_sprite
     lda draw_y
+    cmp #hud_rows*8-1
+    bcc next_sprite
     sta sprites,x
     lda draw_tile
     sta sprites+1,x

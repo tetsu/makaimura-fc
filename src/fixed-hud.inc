@@ -6,6 +6,7 @@ hud_irq_lines = 52          ; (262 - 241) + 31 NTSC scanlines
 
 .segment "ZEROPAGE"
 split_x: .res 1
+split_y: .res 1
 split_address_high: .res 1
 split_address_low: .res 1
 
@@ -56,7 +57,7 @@ hud_irq:
     bit $2002           ; First write of the $2006/$2005 sequence.
     lda split_address_high
     sta $2006
-    lda #hud_y
+    lda split_y
     sta $2005
     lda split_x
     sta $2005

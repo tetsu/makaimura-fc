@@ -29,13 +29,7 @@ toggle_scene:
     jmp enable_terrain
 
 blank_display:
-    lda scene
-    beq :+
     jsr wait_terrain_frame
-    jmp blank_scene
-:
-    jsr wait_frame
-blank_scene:
     sei
     lda #0
     sta $f000
@@ -49,7 +43,13 @@ show_sound_screen:
     lda #0
     sta scene
     jsr draw_screen
-    jmp enable_screen
+enable_audio_screen:
+    jsr enable_screen
+    lda #0
+    sta terrain_frame
+    lda #$80
+    sta $2000
+    rts
 
 enable_terrain:
     jsr enable_screen
@@ -58,11 +58,17 @@ enable_terrain:
     jsr apply_camera
     lda scene
     cmp #2
-    bne :+
+    beq enable_hud_sprites
+    cmp #4
+    bne terrain_enabled
+    lda #$18            ; Match the clipped left edge of the two-axis camera.
+    jmp enable_terrain_sprites
+enable_hud_sprites:
     lda #$1e
+enable_terrain_sprites:
     sta $2001
     cli
-:
+terrain_enabled:
     rts
 
 draw_terrain:
@@ -269,6 +275,8 @@ apply_camera:
     ldx scene
     cpx #2
     beq reset_hud_scroll
+    cpx #4
+    beq reset_hud_scroll
     lda camera_high
     and #1
     ora #$80
@@ -280,17 +288,38 @@ apply_camera:
     rts
 
 reset_hud_scroll:
+    lda #hud_y
+    cpx #4
+    bne :+
+    clc
+    adc pan_y
+:
+    sta split_y
     lda camera_high
     and #1
     asl a
     asl a
     sta split_address_high
+    lda split_y
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora split_address_high
+    sta split_address_high
+    lda split_y
+    and #$38
+    asl a
+    asl a
+    sta split_address_low
     lda camera_low
     sta split_x
     lsr a
     lsr a
     lsr a
-    ora #(hud_y / 8) * 32
+    ora split_address_low
     sta split_address_low
     lda #$a0            ; Nametable 0, 8x16 sprites, NMI enabled.
     sta $2000
@@ -310,7 +339,10 @@ terrain_nmi:
     pha
     lda scene
     cmp #2
-    bne :+
+    beq :+
+    cmp #4
+    bne :++
+:
     lda #2              ; One IRQ in scanline mode, then disable on ack.
     sta $f000
 :

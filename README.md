@@ -39,6 +39,10 @@ Mesen 2.1.1 で、固定画面・切り替え・リセットを検証した。�
 
 音源テスト画面で 1P の **A** を押すと、縦・斜めスクロール試験に切り替わる。十字キーで768×720 pxの仮地形を移動し、SELECT で音源テスト画面に戻る。この試験では水平ミラーリングで上下2面を使い、左端8 pxを隠して画面外の列を書き換える。
 
+縦・斜めスクロール試験から **START** を押すと、同じ地形で固定 HUD 付きの操作試作を開始する。左右で移動、A でジャンプ、B で射撃。カメラは横移動と段差・ジャンプによる高さの変化に追従する。上端32 pxには HUD 用の4行を確保する。縦追従範囲はこのコースの地形に合わせた0〜48 px。
+
+この操作試作では、行40バイト・列27バイト・スクロール設定の後に OAM DMA を行う。同時更新で DMA 開始までを Mesen で測り、最大514サイクルの DMA を加えた所要時間は1,847 CPUサイクルだった。NTSC の約2,273サイクルに対し約426サイクルの余裕がある。固定 HUD、地形の追従、スプライト、FM＋APU の更新間隔は `Mesen.exe --testRunner --timeout=40 tools/mesen/playable-two-axis-smoke.lua build/vrc7a-test.nes` で再検証できる。
+
 新しい領域が見えるフレームの転送量は、縦移動で行と属性の40バイト、横移動で列の31バイト。同時更新の71バイトとスクロール設定は、Mesen 2.1.1 の NTSC 計測で VBlank の開始から約1,250 CPUサイクル以内に収まった。テストでは縦移動と斜め移動の往復に加え、240 px と480 pxの縦境界で地形と色が期待どおり移動することを確認した。再検証には `Mesen.exe --testRunner --timeout=45 tools/mesen/two-axis-scroll-smoke.lua build/vrc7a-test.nes` を使う。1P に NES コントローラーを設定し、フレームバッファを256×240にする。
 
 操作試作の上端32 pxに操作案内を固定表示する。各 NMI の同じ箇所で VRC7 の IRQ を設定し、走査線31で地形のスクロール座標へ切り替える。操作試作の列転送では HUD の4タイル行を保持し、タイル52バイトと属性7バイトを更新する。Mesen 2.1.1 の NTSC 設定でネームテーブルの境界を往復し、HUD 全体の画素が同じ位置に残り、地形が1 pxずつ移動することを確認した。再検証には `Mesen.exe --testRunner --timeout=30 tools/mesen/fixed-hud-smoke.lua build/vrc7a-test.nes` を使う。[PPU の途中スクロール](https://www.nesdev.org/wiki/PPU_scrolling) · [VRC IRQ のカウンタ](https://www.nesdev.org/wiki/VRC_IRQ)
