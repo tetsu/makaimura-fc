@@ -5,9 +5,15 @@ local oldX, oldY, oldPixels
 local hud
 local writes, irqCount, dmaCount = 0, 0, 0
 local frameBudget, worstBudget = 0, 0
+local worstBusyBudget = 0
 local combined, rose, sank = false, false, false
+local fullyLoaded = false
+local musicDuringShot = false
 local selected, fm, apu = nil, 0, false
 local lastNote
+local shotEnds, shotPeriod
+local shotEnabled = false
+local shotTriggers = 0
 
 local function fail(code, message)
     emu.log(message)
@@ -67,11 +73,30 @@ watch(0x9030, function(_, value)
         if (value & 16) ~= 0 then fm = fm | bit else fm = fm & ~bit end
     end
 end)
-watch(0x4015, function(_, value) apu = (value & 1) ~= 0 end)
+watch(0x4015, function(_, value)
+    apu = (value & 1) ~= 0
+    shotEnabled = (value & 2) ~= 0
+    if shotEnds and frame < shotEnds and frame < 650 and not shotEnabled then
+        fail(100, "music cut off the shot sound")
+    end
+end)
+watch(0x4007, function()
+    shotTriggers = shotTriggers + 1
+    shotEnds = frame + 6
+    shotPeriod = 0
+end)
+watch(0x4006, function(_, value)
+    if not shotEnabled or not shotEnds or frame >= shotEnds or value <= shotPeriod then
+        fail(101, "shot pitch did not sweep down on pulse 2")
+        return
+    end
+    shotPeriod = value
+end)
 watch(0x4003, function()
     if frame >= 160 and frame < 650 then
         if lastNote and frame - lastNote > 30 then fail(94, "audio phrase fell behind") end
         lastNote = frame
+        if shotEnabled then musicDuringShot = true end
     end
 end)
 
@@ -80,7 +105,8 @@ emu.addEventCallback(function()
         a = frame == 122 or (frame >= 314 and frame < 620 and frame % 19 == 0),
         start = frame == 144,
         right = frame >= 160 and frame < 620,
-        b = frame == 238,
+        b = frame == 238 or (frame >= 285 and frame < 620 and frame % 13 == 0),
+        up = frame == 170,
         select = frame == 650,
     }, 0)
 end, emu.eventType.inputPolled)
@@ -105,13 +131,17 @@ emu.addEventCallback(function()
                 if dx == 0 or dy == 0 then fail(88, "wrong frame for both uploads"); return end
                 combined = true
                 worstBudget = math.max(worstBudget, frameBudget)
+                if shotEnabled and frame > 171 then
+                    fullyLoaded = true
+                    worstBusyBudget = math.max(worstBusyBudget, frameBudget)
+                end
             end
             for i, pixel in ipairs(hud) do
                 if image[i] ~= pixel then fail(89, "HUD moved"); return end
             end
-            -- The left part of the field has terrain only during this route.
+            -- This strip lies between the stress markers and all moving actors.
             for y = 40, 236 do
-                for x = 9, 54 do
+                for x = 132, 154 do
                     if image[y * 256 + x + 1] ~= oldPixels[(y + dy) * 256 + x + dx + 1] then
                         fail(90, "terrain did not follow the camera")
                         return
@@ -126,6 +156,14 @@ emu.addEventCallback(function()
             fail(91, "player sprite missing or encounter failed")
             return
         end
+        if frame >= 172 then
+            for offset = 20, 48, 4 do
+                if emu.read(0x0200 + offset, emu.memType.nesMemory) ~= playerY then
+                    fail(102, "stress markers left the player's scanline")
+                    return
+                end
+            end
+        end
         if frame == 160 then
             local playerX = emu.read(0x0203, emu.memType.nesMemory)
             if image[(playerY + 5) * 256 + playerX + 5] == image[1] then
@@ -136,8 +174,13 @@ emu.addEventCallback(function()
     end
     if frame == 675 then
         if not combined or not rose or not sank then fail(92, "missing combined transfer or vertical travel"); return end
+        if not fullyLoaded or not musicDuringShot or shotTriggers < 2 then
+            fail(103, "no simultaneous transfer, OAM load and shot sound")
+            return
+        end
         if irqCount ~= 0 then fail(93, "IRQ remained active in audio screen"); return end
         emu.log("Combined transfer budget (CPU cycles): " .. worstBudget)
+        emu.log("Combined transfer with shot sound (CPU cycles): " .. worstBusyBudget)
         emu.stop(0)
     end
     irqCount, dmaCount, writes = 0, 0, 0

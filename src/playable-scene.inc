@@ -271,6 +271,8 @@ update_shot:
     sta shot_left
     lda #48
     sta shot_life
+    lda #1
+    sta shot_sound_pending
 travel_shot:
     lda shot_left
     bne shot_moves_left

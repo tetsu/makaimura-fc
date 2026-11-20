@@ -22,6 +22,9 @@ scene: .res 1
 pressed: .res 1
 pan_y: .res 1          ; Current Y within a 240 px nametable.
 glyph_source: .res 2
+apu_channels: .res 1
+shot_sound_pending: .res 1
+shot_sound_frames: .res 1
 
 .include "fixed-hud.inc"
 .include "scenery.inc"
@@ -105,6 +108,9 @@ reset:
     sta channel
     sta phrase
     sta scene
+    sta apu_channels
+    sta shot_sound_pending
+    sta shot_sound_frames
     jsr enable_audio_screen
     jmp main
 
@@ -215,11 +221,12 @@ sound_screen:
     ldx #3              ; down: both
 select_mode:
     stx mode
-    jsr silence
+    jsr silence_music
     lda #0
     sta phrase
     sta frames
 audio_tick:
+    jsr tick_shot_sound
     lda frames
     beq play
     dec frames
@@ -227,7 +234,7 @@ audio_tick:
 play:
     lda mode
     bne play_phrase
-    jsr silence
+    jsr silence_music
     ldx channel
     txa
     tay
@@ -244,7 +251,7 @@ solo_wait:
     jmp main
 
 play_phrase:
-    jsr silence
+    jsr silence_music
     lda mode
     and #1
     beq play_apu
@@ -261,8 +268,9 @@ play_apu:
     lda mode
     and #2
     beq next_phrase
-    lda #1
-    sta $4015
+    lda apu_channels
+    ora #1
+    jsr set_apu_channels
     lda #$b5
     sta $4000
     lda #0
@@ -307,9 +315,10 @@ note_on:
     ldy note_index
     rts
 
-silence:
-    lda #0
-    sta $4015
+silence_music:
+    lda apu_channels
+    and #2
+    jsr set_apu_channels
     ldx #5
 :
     txa
@@ -318,6 +327,50 @@ silence:
     jsr fm_write
     dex
     bpl :-
+    rts
+
+; Pulse 2 is reserved for the shot. Keep it enabled when music retriggers
+; the VRC7 voices or changes the note on pulse 1.
+tick_shot_sound:
+    lda shot_sound_pending
+    beq shot_sound_playing
+    lda #0
+    sta shot_sound_pending
+    sta $4005
+    lda apu_channels
+    ora #2
+    jsr set_apu_channels
+    lda #0
+    sta $4007
+    lda #shot_sound_length
+    sta shot_sound_frames
+shot_sound_playing:
+    ldx shot_sound_frames
+    beq mute_shot_channel
+    lda shot_sound_level-1,x
+    sta $4004
+    lda shot_sound_period-1,x
+    sta $4006
+    dec shot_sound_frames
+    rts
+
+stop_shot_sound:
+    lda #0
+    sta shot_sound_pending
+    sta shot_sound_frames
+mute_shot_channel:
+    lda apu_channels
+    and #2
+    beq shot_channel_muted
+    lda apu_channels
+    and #1
+    jmp set_apu_channels
+shot_channel_muted:
+    rts
+
+set_apu_channels:
+    sta apu_channels
+    sta $4015
     rts
 
 ; A = register, Y = value. Preserve X and Y.
@@ -442,6 +495,10 @@ error_text: .byte $03, $02, $0e, $0b, $00, $0f, $11, $00, $11, $02, $0d, $00, $0
 error_length = * - error_text
 pulse_period:
     .byte $fc, 0, 0, 0, 0, 0, $d0, 0, 0, 0, 0, 0, $e0
+; Table playback goes from the last entry to the first.
+shot_sound_period: .byte $ea, $c8, $aa, $8c, $71, $58
+shot_sound_length = * - shot_sound_period
+shot_sound_level: .byte $71, $72, $73, $74, $76, $78
 note_low: .byte $ac, $d9, $02, $59, $b3, $05, $c2, $e6, $22, $83, $cc, $44, $a3, $c2, $02, $46, $83, $05
 note_high: .byte $16, $16, $17, $17, $17, $16, $16, $16, $17, $17, $17, $16, $16, $16, $17, $17, $17, $16
 glyphs:

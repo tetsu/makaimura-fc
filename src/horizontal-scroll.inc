@@ -37,7 +37,7 @@ blank_display:
     sta $2000
     lda #$80
     sta $e000           ; Restore left/right nametables for the other scenes.
-    rts
+    jmp stop_shot_sound
 
 show_sound_screen:
     lda #0
