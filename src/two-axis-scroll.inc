@@ -285,13 +285,13 @@ pan_attr_palette:
     lsr a
     and #3
     tax
-    lda pan_palette_pairs,x
+    lda terrain_palette_half,x
     sta pan_attrib
     inx
     txa
     and #3
     tax
-    lda pan_palette_pairs,x
+    lda terrain_palette_half,x
     asl a
     asl a
     asl a
@@ -366,7 +366,8 @@ pan_tile:
     lda pan_data_y
     jsr scenery_tile
     bcs pan_scenery
-    lda terrain_heights,y
+    lda terrain_columns,y
+    and #cliff_height_mask
     asl a
     cmp pan_data_y
     beq pan_ledge
@@ -374,26 +375,36 @@ pan_tile:
     sbc #1              ; The sky tile immediately above the ledge has gravel.
     cmp pan_data_y
     beq pan_gravel
-    lda #0
-    rts
+    ldy #metatile_sky
+    beq pan_metatile_tile
 pan_gravel:
-    lda #(terrain_tiles-glyphs)/16
-    rts
+    ldy #metatile_gravel
+    jmp pan_metatile_tile
 pan_scenery:
     rts
 pan_ledge:
-    lda #(terrain_tiles-glyphs)/16+1
-    rts
+    ldy #metatile_ledge
+    jmp pan_metatile_tile
 pan_rock:
     lda pan_data_y
     eor pan_data_x
     ; Diagonal bands make a row error or an attribute seam easy to see.
     and #4
     beq :+
-    lda #(terrain_tiles-glyphs)/16+3
-    rts
+    ldy #metatile_rock_dark
+    bne pan_metatile_tile
 :
-    lda #(terrain_tiles-glyphs)/16+2
+    ldy #metatile_rock_light
+pan_metatile_tile:
+    sty pan_attrib
+    lda pan_data_x
+    lsr a               ; Carry holds the left/right bit.
+    lda pan_data_y
+    rol a               ; Combine the upper/lower and left/right bits.
+    and #3
+    ora pan_attrib
+    tay
+    lda terrain_metatiles,y
     rts
 
 upload_pan_row:
@@ -469,4 +480,3 @@ apply_pan:
 pan_page_tiles: .byte 0, 30, 60
 pan_row_offset: .byte 30, 0
 pan_col_offset: .byte 32, 1
-pan_palette_pairs: .byte $00, $05, $0a, $0f

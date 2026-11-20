@@ -1,6 +1,5 @@
 ; At most one 16-pixel column becomes visible per frame at 1 px/frame.
 ; Vertical mirroring gives a 32-metatile ring across $2000 and $2400.
-terrain_width = 48
 camera_limit_high = (terrain_width - 16) / 16
 
 .segment "ZEROPAGE"
@@ -18,6 +17,7 @@ column_first_row: .res 1
 
 .segment "BSS"
 column_tiles: .res 30
+column_right_tiles: .res 30
 
 .segment "CODE"
 toggle_scene:
@@ -182,32 +182,59 @@ prepare_column:
     sta attribute_address
 
     ; Both neighbors in each 32-pixel attribute cell use the same palette.
-    lda world_column
-    lsr a
-    tax
-    lda terrain_attributes,x
-    sta attribute_value
     ldx world_column
-    lda terrain_heights,x
+    lda terrain_columns,x
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda terrain_palette_full,y
+    sta attribute_value
+    lda terrain_columns,x
+    and #cliff_height_mask
     asl a
     tay
     ldx #0
-    lda #0
 :
+    lda terrain_metatiles+metatile_sky
     sta column_tiles,x
+    lda terrain_metatiles+metatile_sky+1
+    sta column_right_tiles,x
+    inx
+    lda terrain_metatiles+metatile_sky+2
+    sta column_tiles,x
+    lda terrain_metatiles+metatile_sky+3
+    sta column_right_tiles,x
     inx
     dey
+    dey
     bne :-
-    lda #(terrain_tiles - glyphs) / 16
+    lda terrain_metatiles+metatile_gravel+2
     sta column_tiles-1,x
-    clc
-    adc #1
+    lda terrain_metatiles+metatile_gravel+3
+    sta column_right_tiles-1,x
+    lda terrain_metatiles+metatile_ledge
     sta column_tiles,x
+    lda terrain_metatiles+metatile_ledge+1
+    sta column_right_tiles,x
     inx
-    lda #(terrain_tiles - glyphs) / 16 + 2
-:
+    lda terrain_metatiles+metatile_ledge+2
     sta column_tiles,x
-    eor #1              ; Alternate between the two rock textures.
+    lda terrain_metatiles+metatile_ledge+3
+    sta column_right_tiles,x
+    inx
+    cpx #30
+    beq decorate_column
+    ldy #metatile_rock
+:
+    lda terrain_metatiles,y
+    sta column_tiles,x
+    lda terrain_metatiles+1,y
+    sta column_right_tiles,x
+    tya
+    eor #2              ; Alternate upper and lower rows of the rock cell.
+    tay
     inx
     cpx #30
     bne :-
@@ -227,6 +254,7 @@ stage_scenery:
     jsr scenery_tile
     bcc :+
     sta column_tiles,x
+    sta column_right_tiles,x
 :
     inx
     cpx #carving_row+1
@@ -266,7 +294,7 @@ set_column_control:
     lda tile_address_low
     ora #1
     sta $2006
-    jsr write_tiles
+    jsr write_right_tiles
     lda tile_address_high
     ora #3
     tay
@@ -288,6 +316,16 @@ write_tiles:
     ldx column_first_row
 :
     lda column_tiles,x
+    sta $2007
+    inx
+    cpx #30
+    bne :-
+    rts
+
+write_right_tiles:
+    ldx column_first_row
+:
+    lda column_right_tiles,x
     sta $2007
     inx
     cpx #30
@@ -408,21 +446,3 @@ nmi_commit:
 nmi_done:
     pla
     rti
-
-.segment "RODATA"
-terrain_colors:
-    .byte $0f, $2a, $09, $19,  $0f, $38, $17, $27
-    .byte $0f, $31, $11, $21,  $0f, $34, $14, $24
-
-; Original terraced terrain. Each height counts 16-pixel rows from the top.
-terrain_heights:
-    .byte 12, 12, 11, 11, 10, 10, 11, 12, 12, 13, 11, 11, 11, 11, 11, 11
-    .byte 11, 11, 12, 12, 12, 12, 12, 11, 11, 10, 9,  8,  8,  9,  10, 11
-    .byte 12, 13, 12, 11, 10, 9,  8,  9,  9,  10, 11, 12, 11, 10, 10, 11
-.assert * - terrain_heights = terrain_width, error, "Unexpected terrain width"
-
-terrain_attributes:
-    .byte $00, $00, $55, $55, $ff, $ff, $aa, $aa
-    .byte $ff, $ff, $aa, $55, $55, $00, $ff, $ff
-    .byte $55, $55, $aa, $aa, $ff, $00, $55, $55
-.assert * - terrain_attributes = terrain_width / 2, error, "Unexpected attribute count"

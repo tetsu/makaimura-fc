@@ -211,7 +211,8 @@ floor_height:
     lsr a
     ora page_columns,x
     tax
-    lda terrain_heights,x
+    lda terrain_columns,x
+    and #cliff_height_mask
     asl a
     asl a
     asl a
@@ -538,17 +539,17 @@ upload_sprites:
     rts
 
 draw_sprite_patterns:
-    lda #$10
+    lda #>chr_sprite_address
     sta $2006
-    lda #0
+    lda #<chr_sprite_address
     sta $2006
-    ldx #0
-:
-    lda sprite_patterns,x
-    sta $2007
-    inx
-    cpx #sprite_pattern_size
-    bne :-
+    lda #<sprite_patterns
+    sta chr_source
+    lda #>sprite_patterns
+    sta chr_source+1
+    ldx #>CHR_SPRITE_BYTES
+    lda #<CHR_SPRITE_BYTES
+    jsr upload_chr_patterns
     lda #$3f
     sta $2006
     lda #$10
@@ -593,4 +594,7 @@ sprite_patterns:
     .byte $00, $f0, $f0, $00, $00, $00, $00, $00
     .byte $00, $00, $00, $00, $00, $00, $00, $00
     .byte $00, $00, $00, $00, $00, $00, $00, $00
-sprite_pattern_size = * - sprite_patterns
+CHR_SPRITE_BYTES = * - sprite_patterns
+.export CHR_SPRITE_BYTES
+.assert CHR_SPRITE_BYTES <= chr_table_bytes, error, "Sprites exceed their pattern table"
+.assert CHR_SPRITE_BYTES .mod (2 * chr_tile_bytes) = 0, error, "Incomplete 8x16 sprite"

@@ -28,10 +28,23 @@ if ($Hardware) {
 }
 $object = Join-Path $buildDir "$basename.o"
 $rom = Join-Path $buildDir "$basename.nes"
+$labels = Join-Path $buildDir "$basename.lbl"
 & $assembler @assembleOptions (Join-Path $sourceDir 'vrc7a-test.s') -o $object
 if ($LASTEXITCODE -ne 0) { throw "ca65 exited with code $LASTEXITCODE" }
-& $linker @linkOptions -C (Join-Path $sourceDir 'vrc7a-test.cfg') -o $rom $object
+& $linker @linkOptions -C (Join-Path $sourceDir 'vrc7a-test.cfg') -Ln $labels -o $rom $object
 if ($LASTEXITCODE -ne 0) { throw "ld65 exited with code $LASTEXITCODE" }
+
+$chrUsage = @{}
+foreach ($line in [IO.File]::ReadLines($labels)) {
+    if ($line -match '^al ([0-9a-fA-F]+) \.CHR_(TEXT|TERRAIN|SPRITE)_BYTES$') {
+        $chrUsage[$Matches[2]] = [Convert]::ToInt32($Matches[1], 16)
+    }
+}
+if ($chrUsage.Count -ne 3) { throw 'Missing CHR-RAM usage symbols in the linker labels.' }
+$backgroundBytes = $chrUsage.TEXT + $chrUsage.TERRAIN
+$totalBytes = $backgroundBytes + $chrUsage.SPRITE
+Write-Host "CHR-RAM: HUD/text $($chrUsage.TEXT) B, terrain $($chrUsage.TERRAIN) B, sprites $($chrUsage.SPRITE) B"
+Write-Host "Background table: $backgroundBytes / 4096 B, sprite table: $($chrUsage.SPRITE) / 4096 B, total: $totalBytes / 8192 B"
 if ($Hardware) {
     $headerSize = 16
     $prgSize = 512KB

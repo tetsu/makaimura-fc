@@ -24,13 +24,14 @@ note_index: .res 1
 scene: .res 1
 pressed: .res 1
 pan_y: .res 1          ; Current Y within a 240 px nametable.
-glyph_source: .res 2
 apu_channels: .res 1
 shot_sound_pending: .res 1
 shot_sound_frames: .res 1
 
 .include "fixed-hud.inc"
+.include "chr-layout.inc"
 .include "scenery.inc"
+.include "terrain-data.inc"
 .include "horizontal-scroll.inc"
 .include "two-axis-scroll.inc"
 .include "playable-scene.inc"
@@ -430,35 +431,17 @@ read_pad:
     rts
 
 draw_screen:
-    lda #0
+    lda #>chr_background_address
     sta $2006
+    lda #<chr_background_address
     sta $2006
     lda #<glyphs
-    sta glyph_source
+    sta chr_source
     lda #>glyphs
-    sta glyph_source+1
-    ldy #0
-    ldx #>glyph_size
-    beq glyph_tail
-glyph_page:
-:
-    lda (glyph_source),y
-    sta $2007
-    iny
-    bne :-
-    inc glyph_source+1
-    dex
-    bne glyph_page
-glyph_tail:
-    cpy #<glyph_size
-    beq glyphs_loaded
-:
-    lda (glyph_source),y
-    sta $2007
-    iny
-    cpy #<glyph_size
-    bne :-
-glyphs_loaded:
+    sta chr_source+1
+    ldx #>CHR_BACKGROUND_BYTES
+    lda #<CHR_BACKGROUND_BYTES
+    jsr upload_chr_patterns
     lda #$3f
     sta $2006
     lda #0
@@ -560,7 +543,13 @@ scenery_patterns:
     .byte $14, $08, $f7, $00, $08, $14, $14, $08, $08, $1c, $1c, $ff, $1c, $08, $08, $1c
     .byte $08, $14, $36, $2a, $2a, $6b, $c1, $ff, $1c, $08, $08, $1c, $1c, $1c, $3e, $00
     .byte $00, $24, $00, $14, $4a, $28, $42, $ff, $00, $00, $08, $08, $1c, $1c, $3c, $00
-glyph_size = * - glyphs
+CHR_TEXT_BYTES = terrain_tiles - glyphs
+CHR_TERRAIN_BYTES = * - terrain_tiles
+CHR_BACKGROUND_BYTES = CHR_TEXT_BYTES + CHR_TERRAIN_BYTES
+.export CHR_TEXT_BYTES, CHR_TERRAIN_BYTES
+.assert CHR_BACKGROUND_BYTES <= chr_table_bytes, error, "Text and terrain exceed the background pattern table"
+.assert CHR_TEXT_BYTES .mod chr_tile_bytes = 0, error, "Incomplete text tile"
+.assert CHR_TERRAIN_BYTES .mod chr_tile_bytes = 0, error, "Incomplete terrain tile"
 
 .segment "VECTORS"
 .word terrain_nmi, reset, hud_irq
