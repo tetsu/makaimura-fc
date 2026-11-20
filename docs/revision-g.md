@@ -118,7 +118,7 @@ MAME 0.289 の既定 DIP で、最初の無入力デモが越える墓石を調�
 | 1312 | 268 | +12 px | Y=81で接地を維持 |
 | 1313 | 269 | +13 px | 接地を失い、次の更新で下降 |
 
-墓石を離れて4フレーム後の通知1317の後に、通常の地面側の処理 `$9054` が Y=62を書き込んだ。翌サンプルで空中状態が解除された。墓石から地面への高さの差は19 pxだった。
+墓石を離れて4フレーム後の通知1317の後に、通常地面への接地が成立した。翌サンプルで空中状態が解除された。墓石から地面への高さの差は19 pxだった。[通常地面の着地境界](#通常地面の着地境界)
 
 通知1291の判定だけを使う境界試験では、MAME の読み出しフックで `$052B` または `$052D` の値を1回の座標比較に渡すときに差し替えた。横は墓石から±12 pxで接地補正があり、±13 pxで補正がなかった。縦比較に使う補助座標では墓石から±19 pxで補正があり、±20 pxで補正がなかった。通常の RAM とプレイヤーの現在座標を維持しているため、縦の値はこの比較が受け付ける範囲を表す。下から進入した場合や、通常地面・壁・穴の境界には別の試験が必要。[MAME の読み出しフック](https://docs.mamedev.org/luascript/ref-mem.html)
 
@@ -131,7 +131,108 @@ Remove-Item Env:REVG_TERRAIN, Env:REVG_OFFSET
 
 [地形計測スクリプト](../tools/mame/measure-revg-terrain.lua)は `natural` で無介入のデモを追い、`x` または `y` で片軸だけ差し替える。ログの `compare` は軸、元の座標の下位バイト、墓石の基準座標、有効な下位バイト、符号付きの座標差の順。比較と書き込みの番号は直前のフレーム通知を指す。無介入と境界8条件の各2回でログが一致した。
 
+## 通常地面の着地境界
+
+同じ無入力デモで、墓石を降りた先の平地を調べた。空中状態のプレイヤーは通知1317の時点で X=269、Y=67にいた。続く更新で落下処理が Y=62に進め、地面の判定が成立すると次の通知1318で空中状態が解除された。
+
+固定 ROM の `$8B0A` では、この姿勢の足元をプレイヤーの X−8 px、Y−16 pxで調べ、接地できなければ16 px右の候補を調べる。この場面の候補は X=261と277。2つの背景タイルはいずれも番号 `$06`、属性 `$09` で、タイル内の高さの上限は14だった。Y の正は上で、判定が読む Y=62はタイル内の高さ14、Y=63は15に相当する。
+
+| 条件 | 左側の判定 | 右側の判定 | 次の通知 |
+| --- | --- | --- | --- |
+| `natural` 無介入 | 高さ14で接地 | 比較なし | 接地 |
+| `above` 読み取る Y を1 px上げる | 高さ15で範囲外 | 高さ15で範囲外 | 空中 |
+| `right` 左側だけ属性で除外 | 属性で除外 | 高さ14で接地 | 接地 |
+| `neither` 両側を属性で除外 | 属性で除外 | 属性で除外 | 空中 |
+
+MAME の読み出しフックを通知1317の判定だけに適用した。`above` は地面判定が読む整数 Y だけを差し替え、`right` と `neither` は該当タイルの属性の上位2ビットを立てた。背景 RAM やプレイヤーの実座標への書き込みは行っていない。接地は書き込みフックが報告する PC `$9054` と、次の通知での空中状態の解除を照合した。4条件をコールドブートから2回ずつ実行し、条件ごとにログが一致した。[MAME の読み出しフック](https://docs.mamedev.org/luascript/ref-mem.html)
+
+```powershell
+$env:REVG_GROUND = 'right'
+mame makaimurg -rompath reference -noreadconfig -video none -sound none -nothrottle -skip_gameinfo -autoboot_delay 0 -autoboot_script tools/mame/measure-revg-ground.lua -cfg_directory build/mame-cfg -nvram_directory build/mame-nvram -seconds_to_run 25
+Remove-Item Env:REVG_GROUND
+```
+
+[地面計測スクリプト](../tools/mame/measure-revg-ground.lua)の `tile` は足元の左右、背景タイルのアドレス、タイル番号、元の属性、判定に渡した属性を示す。`depth` はタイル内の高さとその上限。
+
+### 片側が途切れる足場
+
+同じ平地の判定で、ワールド X=272 を境に片側のタイルだけを有効にした。境界の近くで整数 X を判定に渡し、両側で1 px違う条件を比べた。Y の比較には無介入と同じ62を使った。
+
+| 有効な側 | 接地した中心 X | 空中のままの中心 X |
+| --- | ---: | ---: |
+| 左側 `edge_left` | 279 | 280 |
+| 右側 `edge_right` | 264 | 263 |
+
+左足は X=271から272に移った時点で左側のタイルを外れ、右足は X=271から272に移った時点で右側のタイルに入った。再現するには上のコマンドで `REVG_GROUND` を表の条件に変え、`REVG_GROUND_X` に比較する中心 X を指定する。各条件を2回実行し、ログが一致した。この試験では足場が途切れたときの接地判定を観測した。実際の穴に落ちた場合の死亡・復帰条件は未測定。
+
+## 壁の左右判定
+
+右移動は墓石を降りた後の無入力デモ（通知1320）、左移動は1P開始後の左歩行（通知1160）で測った。固定 ROM の `$8B7D` と `$8BAF` は、それぞれプレイヤーの右・左16 px、下8 pxの背景を調べる。通行を妨げない元の地点で、判定が読むタイル番号だけを左右の境界値が8の `$2E` に差し替え、属性の上位2ビットをクリアした。タイル内 X の比較値を7、8、9と変え、実際の X の書き込みで接触を判定した。
+
+| 移動方向 | タイル内 X=7 | X=8 | X=9 |
+| --- | --- | --- | --- |
+| 右 | 通過 | 接触、補正0 px | 接触、左へ1 px補正 |
+| 左 | 接触、右へ1 px補正 | 接触、補正0 px | 通過 |
+
+```powershell
+$env:REVG_WALL = 'right'
+$env:REVG_WALL_X = '9'
+mame makaimurg -rompath reference -noreadconfig -video none -sound none -nothrottle -skip_gameinfo -autoboot_delay 0 -autoboot_script tools/mame/measure-revg-wall.lua -cfg_directory build/mame-cfg -nvram_directory build/mame-nvram -seconds_to_run 25
+Remove-Item Env:REVG_WALL, Env:REVG_WALL_X
+```
+
+[壁計測スクリプト](../tools/mame/measure-revg-wall.lua)で方向を `left` または `right` に変更できる。`REVG_WALL_X` を省略すると無介入に戻る。両方向の無介入と6つの境界条件を各2回実行し、条件ごとにログが一致した。[MAME の読み出しフック](https://docs.mamedev.org/luascript/ref-mem.html)
+
+## 敵弾の発射と被弾境界
+
+1P開始後、右を保持し、通知番号が49の倍数のときにジャンプ、22の倍数のときに射撃して進んだ。通知1845の後に段上の植物型の敵が弾を生成した。発射元は (816, 138)、次の通知での弾の座標は (815, 143)。最初の弾は左下へ進み、両軸とも毎フレーム408/256 pxずつ座標が減った。通知1874の後、空中のプレイヤーに敵弾が当たり、鎧状態が変わった。この判定に渡された座標はプレイヤー (774, 94)、弾 (768, 96) だった。ここまでの再現はコントローラー入力だけで行った。
+
+同じ弾について、立ち・しゃがみは通知1854から右入力を止め、しゃがみでは下を押した。通知1874の被弾判定が読む弾の座標だけを差し替え、境界の両側を24条件で測った。差は弾からプレイヤーを引いた値で、Y の正は上。
+
+| 姿勢 | 被弾する X 差 | 被弾する Y 差 |
+| --- | ---: | ---: |
+| 立ち・空中 | −6〜+6 px | −8〜+8 px |
+| しゃがみ | −6〜+6 px | −8〜+2 px |
+
+両端を含む。無介入の被弾後、鎧状態は通知1893の後に1へ戻り、敵弾の判定は通知1994の後に再開した。最初の被弾から120フレーム（約2.01秒）後だった。
+
+同じ入力を続けると、通知2635の後にレッドアリーマーが種別7の弾を生成した。発射時の敵は (1525, 62) にいて、弾は毎フレーム578/256 px左へ進み、縦位置は維持された。通知2640では弾が右に34 px離れており、被弾しなかった。同じ判定に座標差 (0, 0) を渡すと被弾した。両者の発射を再現できた入力は記録済みで、発射を決める距離・状態・経過時間の条件は未確定。
+
+```powershell
+$env:REVG_PROJECTILE = 'crouch'
+$env:REVG_DX = '0'
+$env:REVG_DY = '3'
+mame makaimurg -rompath reference -noreadconfig -video none -sound none -nothrottle -skip_gameinfo -autoboot_delay 0 -autoboot_script tools/mame/measure-revg-projectile.lua -cfg_directory build/mame-cfg -nvram_directory build/mame-nvram -seconds_to_run 46
+Remove-Item Env:REVG_PROJECTILE, Env:REVG_DX, Env:REVG_DY
+```
+
+[敵弾計測スクリプト](../tools/mame/measure-revg-projectile.lua)では、両オフセットを省くと入力だけで再現する。`air` は植物型の敵の弾による被弾、`recovery` はその後の判定再開、`followup` は種別7の弾を追う。`sample` の弾の座標は1/256 px単位、`compare` は整数座標と判定に渡した差を示す。[MAME の読み出しフック](https://docs.mamedev.org/luascript/ref-mem.html)
+
+## FC 試験コースとの比較
+
+自作の VRC7a 試作を Mesen 2.1.1 の NTSC 設定で起動し、STARTで入る横スクロールの操作試作を測った。32 KiB版と512 KiB版でログは一致した。ジャンプの距離は、ジャンプ状態に入った更新から接地した更新までのワールド X の差。実時間は MAME の59.637405 Hz、Mesen の約60.1 Hzで換算した。
+
+| 観測項目 | Revision G | FC 試作 |
+| --- | --- | --- |
+| 平地の移動速度 | 1.125 px/フレーム、約67.1 px/秒 | 1 px/フレーム、約60.1 px/秒 |
+| 歩き始め・反転 | 最初の入力読み出しから2フレーム | 読んだ入力と同じ更新で移動 |
+| 停止・射撃 | 最初の入力読み出しから1フレーム | 読んだ入力と同じ更新で停止・発射 |
+| 垂直・前進ジャンプの状態継続 | 35フレーム、約587 ms | 33フレーム、約549 ms |
+| 最高到達点 | 地面から39 px | 地面から40 px |
+| 前進ジャンプでの水平距離 | 右を先に押すと約38 px | 右とジャンプの同時入力で33 px |
+
+静止状態から右とジャンプを同時に押すと、Revision G の測定条件では X が変わらず、FC では前進した。応答の記録には表示や入力機器の遅延を含めていない。FC の試作にはしゃがみと敵弾がなく、地形判定は中心 X の列を使うため、これらの条件比較は未実施。
+
+[FC 操作計測スクリプト](../tools/mesen/measure-player.lua)は同名の ca65 デバッグシンボルを読み、Lua コンソールに入力と座標、離陸・着地時刻、最高到達点、弾の生成時刻を出力する。1P に NES コントローラーを割り当てる。Windows でツールが PATH にある場合は次の手順で32 KiB版を測れる。512 KiB版では ca65 に `-D 'PRG_ROM_UNITS=32'`、ld65 に `-D 'PRG_PADDING=$78000'` を加える。[Mesen の Lua API](https://github.com/SourMesen/Mesen2/blob/master/UI/Debugger/Documentation/LuaDocumentation.json)
+
+```powershell
+New-Item -ItemType Directory -Force build | Out-Null
+ca65 -g src/vrc7a-test.s -o build/player-measure.o
+ld65 -C src/vrc7a-test.cfg -o build/player-measure.nes --dbgfile build/player-measure.dbg build/player-measure.o
+Mesen.exe --testRunner --timeout=20 tools/mesen/measure-player.lua build/player-measure.nes
+```
+
 ## 次の比較実験
 
-1. **敵弾とその他の地形の当たり判定。** 敵弾を使う個体は発射までの状態を追い、立ち・しゃがみ・空中で被弾境界を測る。地面・壁・穴の境界では、接地や移動が切り替わる位置を対で測る。
-2. **レベルデザインと各面。** 面と復帰地点ごとに、足場間の距離とジャンプ到達距離の比、カメラが止まる位置、敵の出現条件、死亡後の復帰条件を記録する。進入速度を変えて位置依存と時間依存を切り分ける。
+1. **発射条件。** プレイヤーの待機位置と接近時刻を変え、同じ敵がいつ発射するかを比較する。
+2. **レベルデザインと各面。** 面と復帰地点ごとに、足場間の距離とジャンプ到達距離の比、カメラが止まる位置、敵の出現条件を記録する。実際の穴では落下から死亡・復帰まで追う。
