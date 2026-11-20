@@ -22,6 +22,12 @@
 
 ## 1. 起動と拡張音声
 
+Windows PowerShell から `./build.ps1` を実行すると、`build/vrc7a-test.nes` が生成される。確認に使ったツールは ca65／ld65 V2.19（Git `52727a5`）。`PATH` 上のツールを使い、見つからなければ `%USERPROFILE%\tools\cc65\bin` を参照する。別の場所にある場合は `-Cc65Bin` で指定する。
+
+試作 ROM は PRG-ROM 32 KiB、WRAM 8 KiB、CHR-RAM 8 KiB。起動後に FM 6声を順に鳴らし、その後は FM と APU で3つの和音を繰り返す。1P の左で FM 単独、右で APU 単独、下で同時発音に切り替わる。画面に `BANK OR RAM ERROR` が出た場合は、起動時の PRG バンクまたは WRAM の検査で失敗している。
+
+Mesen 2.1.1 で、固定画面・切り替え・リセットを検証した。再検証には 1P に NES コントローラーを割り当てて `Mesen.exe --testRunner --timeout=10 tools/mesen/vrc7a-smoke.lua build/vrc7a-test.nes` を実行する。Mesen のミキサー出力の録音でも、同じ区間に FM の和音と APU のパルス音が出ることを確認した。
+
 - 起動時にマッパーと PPU を初期化し、仮タイルを CHR-RAM に転送する。固定画面を出し、PRG バンクと WRAM のアクセスを確認する。
 - VRC7 の FM 6声を順番に鳴らした後、本体 APU と同時に鳴らすモードを用意する。BGM の旋律とベースは FM、打楽器と効果音は APU を基本にし、実機で音量差と音割れを確認する。
 - 音源ドライバは `$9010` への書き込み後に最低6 CPUサイクル、`$9030` の後に最低42 CPUサイクルを空ける。音源更新はメイン処理で行い、描画転送用の NMI から外す。
