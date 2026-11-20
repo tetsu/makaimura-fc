@@ -22,7 +22,10 @@ local upper_input = requested_upper_input or "stand"
 local upper_wall = upper_input == "wall-walk" or upper_input == "wall-jump"
 local ladder_exit_fire = upper_input == "ladder-exit-fire"
 local ladder_exit_jump = upper_input == "ladder-exit-jump"
-local ground_shot = upper_input == "ladder-exit-ground-shot"
+local ground_exit_jump = upper_input == "ladder-exit-bank-jump"
+local ground_exit = upper_input == "ladder-exit-bank-walk" or ground_exit_jump
+local ground_exit_jump_delay = 333
+local ground_shot = upper_input == "ladder-exit-ground-shot" or ground_exit
 local ground_ladder = upper_input == "ladder-exit-ground-jump" or ground_shot
 local lower_ladder = upper_input == "ladder-exit-lower-down" or ground_ladder
 local next_ladder = upper_input == "ladder-exit-next-down" or lower_ladder
@@ -48,7 +51,7 @@ assert(not requested_upper_input or upper_projectile and
     "Expected REVG_UPPER_INPUT=stand, crouch, jump, late-jump, resume-walk, resume-early-jump, resume-jump, "
         .. "wall-walk, wall-jump, ladder-down, ladder-pause, ladder-pause-104, ladder-pause-112, "
         .. "ladder-exit-walk, ladder-exit-fire, ladder-exit-jump, ladder-exit-next-down, ladder-exit-lower-down, "
-        .. "ladder-exit-ground-jump or ladder-exit-ground-shot "
+        .. "ladder-exit-ground-jump, ladder-exit-ground-shot, ladder-exit-bank-walk or ladder-exit-bank-jump "
         .. "with section1-upper-projectile")
 local requested_camera = os.getenv("REVG_SECTION1_CAMERA_X")
 local test_camera = tonumber(requested_camera)
@@ -326,7 +329,8 @@ local descent_started, descent_paused_at, descent_bottom_at
 local next_ladder_x = 5712
 local next_descent_started, next_descent_bottom_at
 local lower_descent_started, lower_descent_bottom_at
-local ground_descent_started
+local ground_descent_started, ground_descent_bottom_at
+local ground_wall_passed, ground_exit_airborne, ground_bank_landed
 if ground_ladder then
     revg_ground_enemy_hp = mem:install_write_tap(0x0e46, 0x0e46, "lower floor enemy HP", function(addr, value)
         if lower_descent_bottom_at and cpu.state.PC.value == 0xef2a then
@@ -401,6 +405,12 @@ if ladder_exit_fire then
 end
 
 local function ground_ladder_inputs(player_x, player_y)
+    if ground_descent_bottom_at then
+        local jumping = ground_exit_jump and frame - ground_descent_bottom_at == ground_exit_jump_delay
+        if jumping then record_section1("ground_exit_jump", "-") end
+        return true, jumping, false, false
+    end
+
     local jumping = frame - lower_descent_bottom_at == 4
     if jumping then record_section1("ground_ladder_jump", ground_shot and "fire" or "-") end
 
@@ -582,6 +592,7 @@ if upper_resumes or upper_ladder then last = 11500 end
 if ladder_exit then last = 11600 end
 if next_ladder then last = 11710 end
 if lower_ladder then last = 11940 end
+if ground_exit then last = 12400 end
 if section1_respawn_climb then last = 20500 end
 if section1_normal_hp then last = 21800 end
 local previous_camera
@@ -666,10 +677,30 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
                 lower_descent_bottom_at = frame
                 record_section1("lower_ladder_bottom", "-")
             end
-            if ground_descent_started and player_x == next_ladder_x and player_y <= 79
+            if ground_descent_started and not ground_descent_bottom_at and player_x == next_ladder_x and player_y <= 79
                 and mem:read_u8(0x0504) == 0 then
+                ground_descent_bottom_at = frame
                 record_section1("ground_ladder_bottom", "-")
-                trial_finished = true
+                trial_finished = not ground_exit
+            end
+            if ground_exit and ground_descent_bottom_at then
+                if not ground_wall_passed and player_x > 5736 then
+                    ground_wall_passed = true
+                    record_section1("ground_wall_passed", "-")
+                end
+                if ground_exit_jump and not ground_bank_landed
+                    and frame - ground_descent_bottom_at > ground_exit_jump_delay then
+                    if mem:read_u8(0x0504) ~= 0 then
+                        ground_exit_airborne = true
+                    elseif ground_exit_airborne and player_x >= 6080 and player_y == 79 then
+                        ground_bank_landed = true
+                        record_section1("ground_bank_landed", "-")
+                    end
+                end
+                if ground_bank_landed and player_x >= 6180 then
+                    record_section1("ground_exit_sample", "-")
+                    trial_finished = true
+                end
             end
         end
     end
@@ -698,7 +729,7 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
         record_section1("camera_limit", previous_camera)
     end
     previous_camera = camera
-    if frame == last or respawn_observed or trial_finished or upper_ladder_finished then
+    if frame == last or respawn_observed or trial_finished or upper_ladder_finished or ground_exit and section1_dead then
         print("end," .. frame)
         machine:exit()
         return
