@@ -12,6 +12,12 @@
 
 [実基板の部品構成と写真](https://nescartdb.com/profile/view/3951/lagrange-point) · [VRC7a のバンク構成とレジスタ](https://www.nesdev.org/wiki/VRC7) · [NES 2.0 ヘッダー仕様](https://www.nesdev.org/wiki/NES_2.0)
 
+## 調査ツールの使い分け
+
+- 試作は VRC7a の起動と FM・APU の同時発音から始める。対応エミュレーターで動作を確認し、実機では音量バランスと描画の安定性を確認する。
+- アーケード基板の挙動を参照する際は、`mame -rompath reference -verifyroms makaimurg` で ROM セットを照合する。メモリマップと描画順は公開ドライバを参照し、実行時のレジスタ書き込みは必要に応じて MAME のデバッガーで観測する。[MAME のコマンドライン仕様](https://docs.mamedev.org/commandline/commandline-all.html#verifyroms) · [MAME デバッガー](https://docs.mamedev.org/debugger/)
+- REA は、追加の解析で確かめたい点が具体化した場合に使う。たとえば試作 ROM が実機でだけ音切れする場合は、取得済みのバス波形を対象に、VRC7 へのレジスタ書き込み順と間隔を調べる。
+
 ## 1. 起動と拡張音声
 
 - 起動時にマッパーと PPU を初期化し、仮タイルを CHR-RAM に転送する。固定画面を出し、PRG バンクと WRAM のアクセスを確認する。
