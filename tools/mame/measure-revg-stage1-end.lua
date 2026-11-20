@@ -4,9 +4,10 @@ local cpu = machine.devices[":maincpu"]
 local mem = cpu.spaces.program
 local frame = 0
 local trial = os.getenv("REVG_STAGE1_END") or "key"
-assert(trial == "key" or trial == "straight" or trial == "controller",
-    "Expected REVG_STAGE1_END=key, straight, or controller")
-local controller_only = trial == "controller"
+local section1_trial = trial == "section1-fall" or trial == "section1-jump"
+assert(trial == "key" or trial == "straight" or trial == "controller" or section1_trial,
+    "Expected REVG_STAGE1_END=key, straight, controller, section1-fall, or section1-jump")
+local controller_only = trial == "controller" or section1_trial
 local observation_start = controller_only and 6900 or 4900
 local boss, cleared
 local stopped_at_key, reached_limit = false, false
@@ -33,6 +34,39 @@ local function record(event, value)
         cpu.state.PC.value, word(0x0506), word(0x0509), word(0x009c), word(0x005a),
         section, boss_slot and word(boss_slot + 6) or 0, boss_slot and word(boss_slot + 9) or 0,
         word(0x0536), word(0x0539)))
+end
+
+local section1_dead, section1_sample_at
+local function record_section1(event, value)
+    print(string.format("section1,%s,%d,%s,%04x,%d,%d,%d,%d,%d,%d,%04x", event, frame, value,
+        cpu.state.PC.value, word(0x0506), word(0x0509), word(0x009c),
+        mem:read_u8(0x0072), mem:read_u8(0x0081), mem:read_u8(0x0060), word(0x00aa)))
+end
+
+if section1_trial then
+    revg_section1_restart = mem:install_read_tap(0x6cf2, 0x6d11, "section 1 restart table", function(addr, value)
+        local pc = cpu.state.PC.value
+        if mem:read_u8(0x0072) == 1 and (pc == 0x6d39 or pc == 0x6d42 or pc == 0x6d47) then
+            record_section1("restart_byte", string.format("%04x=%02x", addr, value))
+        end
+    end)
+    revg_section1_death = mem:install_write_tap(0x0008, 0x0008, "section 1 death", function(_, value)
+        if value == 3 and cpu.state.PC.value == 0x7110 and mem:read_u8(0x0072) == 1 then
+            section1_dead = true
+            record_section1("death", value)
+        end
+    end)
+    revg_section1_lives = mem:install_write_tap(0x0060, 0x0060, "section 1 lives", function(_, value)
+        local pc = cpu.state.PC.value
+        if mem:read_u8(0x0072) == 1 and (pc == 0xed4f or pc == 0x75ff) then
+            record_section1("lives", value)
+        end
+    end)
+    revg_section1_checkpoint = mem:install_write_tap(0x0081, 0x0081, "section 1 checkpoint", function(_, value)
+        if cpu.state.PC.value == 0x6c58 and mem:read_u8(0x0072) == 1 then
+            record_section1("checkpoint_reset", value)
+        end
+    end)
 end
 
 if not controller_only then
@@ -65,6 +99,9 @@ for addr, names in pairs(events) do
     revg_stage1_events[addr] = mem:install_write_tap(addr, addr, "stage 1 end event", function(_, value)
         local event = frame >= observation_start and names[cpu.state.PC.value]
         if event == "boss_clear" then cleared = true end
+        if section1_trial and event == "play_ready" and mem:read_u8(0x0072) == 1 then
+            section1_sample_at = frame + 1
+        end
         if event then record(event, value) end
     end)
 end
@@ -127,12 +164,21 @@ end
 
 local samples = controller_only and {[7417] = true, [8700] = true}
     or {[4863] = true, [4902] = true, [5900] = true, [6200] = true, [6500] = true}
-local last = controller_only and 8700 or 6500
+local last = section1_trial and 10000 or (controller_only and 8700 or 6500)
 local previous_camera
 print("trial," .. trial)
 print("event,notice,value,pc,player_x,player_y,camera_x,camera_limit,section,boss_x,boss_y,key_x,key_y")
+if section1_trial then
+    print("section1,event,notice,value,pc,player_x,player_y,camera_x,section,checkpoint,lives_before,timer_hex")
+end
 revg_stage1_frame = emu.add_machine_frame_notifier(function()
     frame = frame + 1
+    if frame == section1_sample_at then record_section1("ready", "-") end
+    local respawn_observed = false
+    if section1_sample_at and frame == section1_sample_at + 5 then
+        record_section1("camera", "-")
+        respawn_observed = section1_dead
+    end
     if samples[frame] then record("sample", "-") end
     local camera = word(0x009c)
     if frame >= observation_start and boss and not reached_limit and camera >= word(0x005a) then
@@ -140,7 +186,7 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
         record("camera_limit", previous_camera)
     end
     previous_camera = camera
-    if frame == last then
+    if frame == last or respawn_observed then
         print("end," .. frame)
         machine:exit()
         return
@@ -152,6 +198,11 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
     local moving, jumping, returning, firing
     if controller_only then
         moving, jumping, returning, firing = controller_inputs()
+        if section1_trial and frame >= 8512 then
+            moving, returning = not section1_dead, false
+            jumping = moving and trial == "section1-jump" and frame >= 8529 and (frame - 8529) % 49 == 0
+            firing = moving and trial == "section1-jump" and frame % 14 == 0
+        end
     else
         -- Repeat the crossing and return into the water from the checkpoint trial.
         moving = frame > 1140 and (frame < 3033 or (frame >= 3389 and frame < 3420)

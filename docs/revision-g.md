@@ -378,7 +378,30 @@ mame makaimurg -rompath reference -noreadconfig -video none -sound none -nothrot
 Remove-Item Env:REVG_STAGE1_END
 ```
 
+## 区間1の開始と復帰
+
+MAME 0.289、既定 DIP の1周目で、第1面のクリアから入力だけで区間1へ進んだ。区間番号が1になった通知8170に、`$6C55` の処理が途中復帰フラグ `$0081` を1から0に戻した。通知8512の開始座標は (3664, 112) で、カメラ X は通知8517までに3584へ切り替わった。同じ通知のスコア判定 `$ED46–$ED4F` で残機カウンタ `$0060` が1から2へ増えた。
+
+| 観測点 | `section1-fall` | `section1-jump` |
+| --- | --- | --- |
+| 入力 | 入口から右へ歩く | 右へ進みながらジャンプと射撃を繰り返す |
+| 死亡処理に入る | 通知8566、(3704, 24) | 通知9324、(4225, 230) |
+| 死亡時のカメラ X | 3584 | 4097 |
+| 残機カウンタが2から1へ減る | 8686 | 9444 |
+| 復帰座標 (3664, 112) を観測 | 9029 | 9787 |
+| 復帰後のカメラ X=3584 を観測 | 9034 | 9792 |
+
+どちらも死亡処理に入ってから463フレーム後に、復帰座標 (3664, 112) を観測した。区間番号は1、途中復帰フラグは0で、タイマーは開始時と同じ `$005A` に戻った。区間1への初回進入と今回の2経路の復帰では、`$6D26` の処理がいずれも `$6CF2–$6CF5` の同じ4バイトを読んだ。`section1-jump` では座標が戻った最初のサンプルに死亡時のカメラ X=4097 が残り、5フレーム後のサンプルで3584を確認した。途中復帰フラグが1になった後の経路は未測定。
+
+```powershell
+$env:REVG_STAGE1_END = 'section1-fall'
+mame makaimurg -rompath reference -noreadconfig -video none -sound none -nothrottle -skip_gameinfo -autoboot_delay 0 -autoboot_script tools/mame/measure-revg-stage1-end.lua -cfg_directory build/mame-cfg -nvram_directory build/mame-nvram -seconds_to_run 171
+Remove-Item Env:REVG_STAGE1_END
+```
+
+`section1-jump` に変えるとジャンプ経路を再現する。両経路を電源投入から各2回実行し、条件ごとにログが一致した。
+
 ## 次の比較実験
 
-1. **区間1の開始と復帰。** 第1面のクリアから続けて、区間1の初期状態と死亡後の復帰先を測る。
+1. **区間1の途中復帰。** 区間1のチェックポイントまで進み、フラグの切り替えと死亡後の復帰先を測る。
 2. **各面の進行。** 面と復帰地点ごとに、足場間の距離とジャンプ到達距離の比、カメラが止まる位置、敵の出現条件を記録する。
