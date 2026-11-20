@@ -20,6 +20,7 @@ assert(trial == "key" or trial == "straight" or trial == "controller" or section
 local requested_upper_input = os.getenv("REVG_UPPER_INPUT")
 local upper_input = requested_upper_input or "stand"
 local upper_wall = upper_input == "wall-walk" or upper_input == "wall-jump"
+local upper_ladder = upper_input == "ladder-down" or upper_input == "ladder-pause"
 local resume_jump_delay = ({
     ["resume-early-jump"] = 12,
     ["resume-jump"] = 22,
@@ -29,9 +30,9 @@ local resume_jump_delay = ({
 local upper_resumes = upper_input == "resume-walk" or resume_jump_delay ~= nil
 assert(not requested_upper_input or upper_projectile and
     (upper_input == "stand" or upper_input == "crouch" or upper_input == "jump" or upper_input == "late-jump"
-        or upper_resumes),
+        or upper_resumes or upper_ladder),
     "Expected REVG_UPPER_INPUT=stand, crouch, jump, late-jump, resume-walk, resume-early-jump, resume-jump, "
-        .. "wall-walk or wall-jump with section1-upper-projectile")
+        .. "wall-walk, wall-jump, ladder-down or ladder-pause with section1-upper-projectile")
 local requested_camera = os.getenv("REVG_SECTION1_CAMERA_X")
 local test_camera = tonumber(requested_camera)
 assert(not requested_camera or trial == "section1-fall" and (test_camera == 4608 or test_camera == 4609),
@@ -74,7 +75,7 @@ local function record_section1(event, value)
         mem:read_u8(0x0072), mem:read_u8(0x0081), mem:read_u8(0x0060), word(0x00aa)))
 end
 
-local third_floor_reached
+local third_floor_reached, upper_ladder_finished
 if upper_projectile then
     -- Observe the operands when the CPU compares the projectile's Y with the player's Y.
     revg_upper_compare = mem:install_read_tap(0x0509, 0x0509, "upper floor projectile comparison", function(_, high)
@@ -92,6 +93,14 @@ if upper_projectile then
         local pc = cpu.state.PC.value
         local slot = pc == 0xf4e4 and string.format("%04x", cpu.state.U.value - 0x10) or "-"
         record_section1("upper_armor_loss", slot)
+        if upper_ladder then
+            upper_ladder_finished = true
+            if pc == 0xf0a3 then
+                local enemy = cpu.state.U.value - 0x10
+                print(string.format("upper_ladder_contact,%d,%04x,%d,%d", frame, enemy,
+                    word(enemy + 6), word(enemy + 9)))
+            end
+        end
     end)
 end
 
@@ -345,6 +354,31 @@ local function upper_resume_inputs()
     return true, jumping
 end
 
+local descent_started, descent_paused_at
+local function upper_ladder_inputs(player_x)
+    local ladder_x = 5616
+    local pressing_down = math.abs(player_x - ladder_x) <= 5
+    if pressing_down and not descent_started then
+        descent_started = true
+        record_section1("upper_ladder_down", "-")
+    end
+    if upper_input == "ladder-pause" and descent_started then
+        if not descent_paused_at and word(0x0509) <= 365 then
+            descent_paused_at = frame
+            record_section1("upper_ladder_pause", "-")
+        end
+        if descent_paused_at then
+            local elapsed = frame - descent_paused_at
+            pressing_down = pressing_down and elapsed >= 64
+            if elapsed == 32 or elapsed == 64 then
+                record_section1("upper_ladder_sample", elapsed)
+            end
+        end
+    end
+    down:set_value(pressing_down and 1 or 0)
+    return player_x < ladder_x, false, player_x > ladder_x
+end
+
 local function section1_climb_inputs()
     if frame < 10300 then return true, frame % 42 == 0, false, frame % 7 == 0 end
     if frame < 10415 then
@@ -352,6 +386,7 @@ local function section1_climb_inputs()
         return tick >= 16, (tick + 20) % 37 == 0, false, (tick + 4) % 17 == 0
     end
     local player_x = word(0x0506)
+    if upper_ladder and third_floor_reached then return upper_ladder_inputs(player_x) end
     if upper_projectile and third_floor_reached then
         local stop_x = upper_input == "late-jump" and 5678 or 5668
         if player_x < stop_x and not upper_input_started then return true, false, false, false, false end
@@ -432,7 +467,7 @@ local last = section1_end and 21200 or (section1_cross and 21000
     or (section1_trial and 10000 or (controller_only and 8700 or 6500)))
 if section1_climb then last = 10570 end
 if section1_upper then last = 11400 end
-if upper_resumes then last = 11500 end
+if upper_resumes or upper_ladder then last = 11500 end
 if section1_respawn_climb then last = 20500 end
 if section1_normal_hp then last = 21800 end
 local previous_camera
@@ -450,6 +485,7 @@ if upper_wall then
     print("upper_wall_compare,notice,tile,local_x,limit,player_x,player_y,probe_x,probe_y")
     print("upper_wall_correct,notice,pc,before_x,corrected_x")
 end
+if upper_ladder then print("upper_ladder_contact,notice,enemy_slot,enemy_x,enemy_y") end
 revg_stage1_frame = emu.add_machine_frame_notifier(function()
     frame = frame + 1
     if frame == section1_sample_at then record_section1("ready", "-") end
@@ -484,6 +520,10 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
             record_section1("third_floor_reached", "-")
             trial_finished = not upper_projectile
         end
+        if upper_ladder and descent_started and player_y <= 319 and mem:read_u8(0x0504) == 0 then
+            record_section1("upper_ladder_bottom", "-")
+            upper_ladder_finished = true
+        end
     end
     if section1_respawn_climb and water_jumped then
         local player_x, player_y = word(0x0506), word(0x0509)
@@ -510,7 +550,7 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
         record_section1("camera_limit", previous_camera)
     end
     previous_camera = camera
-    if frame == last or respawn_observed or trial_finished then
+    if frame == last or respawn_observed or trial_finished or upper_ladder_finished then
         print("end," .. frame)
         machine:exit()
         return
