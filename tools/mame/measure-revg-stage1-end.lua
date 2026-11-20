@@ -12,6 +12,7 @@ local section1_climb = trial == "section1-climb" or section1_upper
 local section1_respawn_climb = trial == "section1-respawn-climb"
 local section1_cross = trial == "section1-cross" or section1_climb or section1_respawn_climb or section1_end
 local section1_trial = trial == "section1-fall" or trial == "section1-jump" or section1_cross
+local trace_platforms = os.getenv("REVG_PLATFORM_TRACE") == "1"
 assert(trial == "key" or trial == "straight" or trial == "controller" or section1_trial,
     "Expected REVG_STAGE1_END=key, straight, controller, section1-fall, section1-jump, section1-cross, "
         .. "section1-climb, section1-upper, section1-upper-projectile, section1-respawn-climb, "
@@ -22,7 +23,9 @@ local upper_input = requested_upper_input or "stand"
 local upper_wall = upper_input == "wall-walk" or upper_input == "wall-jump"
 local ladder_exit_fire = upper_input == "ladder-exit-fire"
 local ladder_exit_jump = upper_input == "ladder-exit-jump"
-local second_bank_jump = upper_input == "ladder-exit-second-bank-jump"
+local third_bank_wait = upper_input == "ladder-exit-third-bank-wait"
+local third_bank_trial = upper_input == "ladder-exit-third-bank-walk" or third_bank_wait
+local second_bank_jump = upper_input == "ladder-exit-second-bank-jump" or third_bank_trial
 local second_bank_trial = upper_input == "ladder-exit-second-bank-walk" or second_bank_jump
 local ground_exit_jump = upper_input == "ladder-exit-bank-jump" or second_bank_trial
 local ground_exit = upper_input == "ladder-exit-bank-walk" or ground_exit_jump
@@ -54,7 +57,8 @@ assert(not requested_upper_input or upper_projectile and
         .. "wall-walk, wall-jump, ladder-down, ladder-pause, ladder-pause-104, ladder-pause-112, "
         .. "ladder-exit-walk, ladder-exit-fire, ladder-exit-jump, ladder-exit-next-down, ladder-exit-lower-down, "
         .. "ladder-exit-ground-jump, ladder-exit-ground-shot, ladder-exit-bank-walk, ladder-exit-bank-jump, "
-        .. "ladder-exit-second-bank-walk or ladder-exit-second-bank-jump "
+        .. "ladder-exit-second-bank-walk, ladder-exit-second-bank-jump, "
+        .. "ladder-exit-third-bank-walk or ladder-exit-third-bank-wait "
         .. "with section1-upper-projectile")
 local requested_camera = os.getenv("REVG_SECTION1_CAMERA_X")
 local test_camera = tonumber(requested_camera)
@@ -96,6 +100,40 @@ local function record_section1(event, value)
     print(string.format("section1,%s,%d,%s,%04x,%d,%d,%d,%d,%d,%d,%04x", event, frame, value,
         cpu.state.PC.value, word(0x0506), word(0x0509), word(0x009c),
         mem:read_u8(0x0072), mem:read_u8(0x0081), mem:read_u8(0x0060), word(0x00aa)))
+end
+
+if trace_platforms then
+    local function in_section1()
+        return not section1_dead and mem:read_u8(0x0072) == 1
+    end
+
+    print("platform_phase,notice,slot,x,y,step,duration,dx_8_8,dy_8_8")
+    print("platform_contact,notice,slot,player_x,player_y,platform_x,platform_y")
+    print("platform_carry,notice,slot,player_x,player_y_before,player_y_low_after")
+    revg_platform_phase = mem:install_write_tap(0x1018, 0x13b8, "moving platform phase", function(addr, duration)
+        if cpu.state.PC.value ~= 0xe3df or not in_section1() then return end
+        local slot = cpu.state.X.value
+        if addr ~= slot + 8 then return end
+        local step = mem:read_u8(slot - 2)
+        local delta = word(slot - 4) + 4 * step
+        print(string.format("platform_phase,%d,%04x,%d,%d,%d,%d,%04x,%04x", frame,
+            slot, word(slot - 10), word(slot - 7), step, duration, word(delta), word(delta + 2)))
+    end)
+    local contact_frame, contact_slot
+    revg_platform_contact = mem:install_write_tap(0x052f, 0x052f, "moving platform contact", function()
+        if cpu.state.PC.value ~= 0x9e9c or not in_section1() then return end
+        local slot = cpu.state.U.value
+        if contact_frame == frame and contact_slot == slot then return end
+        contact_frame, contact_slot = frame, slot
+        print(string.format("platform_contact,%d,%04x,%d,%d,%d,%d", frame,
+            slot, word(0x0506), word(0x0509), word(slot - 10), word(slot - 7)))
+    end)
+    revg_platform_carry = mem:install_write_tap(0x050a, 0x050a, "moving platform vertical carry",
+        function(_, value)
+            if cpu.state.PC.value ~= 0xe43e or not in_section1() then return end
+            print(string.format("platform_carry,%d,%04x,%d,%d,%d", frame,
+                word(0x052e), word(0x0506), word(0x0509), value))
+        end)
 end
 
 local third_floor_reached, upper_ladder_finished
@@ -334,6 +372,7 @@ local next_descent_started, next_descent_bottom_at
 local lower_descent_started, lower_descent_bottom_at
 local ground_descent_started, ground_descent_bottom_at
 local ground_wall_passed, ground_exit_airborne, ground_bank_landed_at
+local second_bank_reached_at, third_bank_waiting, third_bank_launched
 if ground_ladder then
     revg_ground_enemy_hp = mem:install_write_tap(0x0e46, 0x0e46, "lower floor enemy HP", function(addr, value)
         if lower_descent_bottom_at and cpu.state.PC.value == 0xef2a then
@@ -409,6 +448,26 @@ end
 
 local function ground_ladder_inputs(player_x, player_y)
     if ground_descent_bottom_at then
+        if third_bank_trial and second_bank_reached_at then
+            local jumping = frame - second_bank_reached_at == 62
+            if jumping then record_section1("third_bank_jump", "-") end
+            if third_bank_wait and not third_bank_launched and player_x >= 6420 then
+                local slot = word(0x052e)
+                if slot == 0x10d0 and mem:read_u8(0x0504) == 0 then
+                    if not third_bank_waiting then
+                        third_bank_waiting = true
+                        record_section1("third_bank_wait", "10d0")
+                    end
+                    if player_y >= 102 then
+                        third_bank_launched = true
+                        record_section1("third_bank_launch", "10d0")
+                        return true, true, false, false
+                    end
+                end
+                return false, false, false, false
+            end
+            return true, jumping, false, false
+        end
         if second_bank_jump and ground_bank_landed_at then
             local elapsed = frame - ground_bank_landed_at
             local jumping = elapsed == 59 or elapsed == 102
@@ -603,6 +662,7 @@ if next_ladder then last = 11710 end
 if lower_ladder then last = 11940 end
 if ground_exit then last = 12400 end
 if second_bank_trial then last = 12500 end
+if third_bank_trial then last = 12900 end
 if section1_respawn_climb then last = 20500 end
 if section1_normal_hp then last = 21800 end
 local previous_camera
@@ -708,11 +768,17 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
                     end
                 end
                 if ground_bank_landed_at then
-                    if second_bank_trial and player_x >= 6300 and player_y == 79 and mem:read_u8(0x0504) == 0 then
+                    if second_bank_trial and not second_bank_reached_at and player_x >= 6300 and player_y == 79
+                        and mem:read_u8(0x0504) == 0 then
+                        second_bank_reached_at = frame
                         record_section1("second_bank_reached", "-")
-                        trial_finished = true
+                        trial_finished = not third_bank_trial
                     elseif not second_bank_trial and player_x >= 6180 then
                         record_section1("ground_exit_sample", "-")
+                        trial_finished = true
+                    end
+                    if third_bank_trial and player_x >= 6530 and player_y == 79 and mem:read_u8(0x0504) == 0 then
+                        record_section1("third_bank_reached", "-")
                         trial_finished = true
                     end
                 end
