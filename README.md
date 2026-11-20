@@ -24,9 +24,9 @@
 
 Windows PowerShell から `./build.ps1` を実行すると、`build/vrc7a-test.nes` が生成される。確認に使ったツールは ca65／ld65 V2.19（Git `52727a5`）。`PATH` 上のツールを使い、見つからなければ `%USERPROFILE%\tools\cc65\bin` を参照する。別の場所にある場合は `-Cc65Bin` で指定する。
 
-試作 ROM は PRG-ROM 32 KiB、WRAM 8 KiB、CHR-RAM 8 KiB。起動後に FM 6声を順に鳴らし、その後は FM と APU で3つの和音を繰り返す。1P の左で FM 単独、右で APU 単独、下で同時発音に切り替わる。画面に `BANK OR RAM ERROR` が出た場合は、起動時の PRG バンクまたは WRAM の検査で失敗している。
+試作 ROM は PRG-ROM 32 KiB、WRAM 8 KiB、CHR-RAM 8 KiB。起動後に FM 6声を順に鳴らし、その後は FM と APU で3つの和音を繰り返す。音源画面では 1P の左で FM 単独、右で APU 単独、下で同時発音、上で消音に切り替わる。消音から左・右・下で再開すると、最初の和音から鳴る。操作試作では消音中も射撃音が鳴る。画面に `BANK OR RAM ERROR` が出た場合は、起動時の PRG バンクまたは WRAM の検査で失敗している。
 
-Mesen 2.1.1 で、固定画面・切り替え・リセットを検証した。再検証には 1P に NES コントローラーを割り当てて `Mesen.exe --testRunner --timeout=10 tools/mesen/vrc7a-smoke.lua build/vrc7a-test.nes` を実行する。Mesen のミキサー出力の録音でも、同じ区間に FM の和音と APU のパルス音が出ることを確認した。
+Mesen 2.1.1 で32 KiB版と512 KiB版の固定画面、音源の切り替え、消音中の再発音の有無、消音からの復帰、リセット後の6声の順次発音を検証した。再検証には 1P に NES コントローラーを割り当てて `Mesen.exe --testRunner --timeout=20 tools/mesen/vrc7a-smoke.lua build/vrc7a-test.nes` を実行する。Mesen のミキサー出力の録音でも、同じ区間に FM の和音と APU のパルス音が出ることを確認した。
 
 ### 352402 基板向けの出力
 
@@ -34,7 +34,7 @@ Mesen 2.1.1 で、固定画面・切り替え・リセットを検証した。�
 
 1. 使用する352402基板の U1 と、交換用 ROM・変換基板の端子対応を確認する。元の U1 は Sharp LH5341 の512 KiBマスク ROM。ライターのデバイス設定は実際に書き込む部品の型番に合わせる。[基板写真と部品表](https://nescartdb.com/profile/view/3951/lagrange-point)
 2. 書き込み検証で読み戻した524,288バイトを元の `.prg` と照合する。ハッシュを控える場合は `Get-FileHash build/vrc7a-test-512k.prg -Algorithm SHA256` を使う。
-3. ファミコンで電源投入・リセット、FM と APU の単独および同時発音を試す。A→START で縦追従の操作試作に入り、上で負荷用の印を出して、HUD、地形の継ぎ目、射撃音を確認する。使用した本体・基板と音声出力の接続を記録する。
+3. ファミコンで電源投入後、左・右・下で FM と APU の単独および同時発音を試す。上で消音し、下で同時発音に戻ることを確認してからリセットし、FM の6声が順に鳴ることを確認する。A→START で縦追従の操作試作に入り、上で負荷用の印を出して、HUD、地形の継ぎ目、射撃音を確認する。使用した本体・基板と音声出力の接続を記録する。
 
 512 KiB版は Mesen で検証済み。起動時の WRAM 検査で使用する `$6000` は、検査後に元の値へ戻す。実基板での読み戻しと動作確認は未実施。
 
@@ -51,7 +51,7 @@ Mesen 2.1.1 で、固定画面・切り替え・リセットを検証した。�
 
 縦・斜めスクロール試験から **START** を押すと、同じ地形で固定 HUD 付きの操作試作を開始する。左右で移動、A でジャンプ、B で射撃。カメラは横移動と段差・ジャンプによる高さの変化に追従する。上端32 pxには HUD 用の4行を確保する。縦追従範囲はこのコースの地形に合わせた0〜48 px。
 
-この操作試作では、行40バイト・列27バイト・スクロール設定の後に OAM DMA を行う。FM 6声、射撃音、負荷試験用の印を同時に動かし、DMA 開始までの Mesen 計測値に最大514サイクルを加えた所要時間は1,842 CPUサイクルだった。NTSC の約2,273サイクルに対し約431サイクルの余裕がある。固定 HUD、地形の追従、スプライト、FM＋APU の更新間隔は `Mesen.exe --testRunner --timeout=40 tools/mesen/playable-two-axis-smoke.lua build/vrc7a-test.nes` で再検証できる。
+この操作試作では、行40バイト・列27バイト・スクロール設定の後に OAM DMA を行う。FM 6声、射撃音、負荷試験用の印を同時に動かし、DMA 開始までの Mesen 計測値に最大514サイクルを加えた所要時間は1,843 CPUサイクルだった。NTSC の約2,273サイクルに対し約430サイクルの余裕がある。固定 HUD、地形の追従、スプライト、FM＋APU の更新間隔は `Mesen.exe --testRunner --timeout=40 tools/mesen/playable-two-axis-smoke.lua build/vrc7a-test.nes` で再検証できる。
 
 新しい領域が見えるフレームの転送量は、縦移動で行と属性の40バイト、横移動で列の31バイト。同時更新の71バイトとスクロール設定は、Mesen 2.1.1 の NTSC 計測で VBlank の開始から約1,250 CPUサイクル以内に収まった。テストでは縦移動と斜め移動の往復に加え、240 px と480 pxの縦境界で地形と色が期待どおり移動することを確認した。再検証には `Mesen.exe --testRunner --timeout=45 tools/mesen/two-axis-scroll-smoke.lua build/vrc7a-test.nes` を使う。1P に NES コントローラーを設定し、フレームバッファを256×240にする。
 

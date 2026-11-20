@@ -1,5 +1,10 @@
 .setcpu "6502"
 
+music_fm = 1
+music_apu = 2
+music_both = music_fm | music_apu
+music_muted = 4
+
 .segment "HEADER"
 ; NES 2.0, mapper $055, submapper 2, 8 KiB each of WRAM and CHR-RAM.
 .ifndef PRG_ROM_UNITS
@@ -228,17 +233,21 @@ sound_screen:
 :
     jsr wait_terrain_frame
     lda pressed
-    and #$07
+    and #$0f
     beq audio_tick
     tay
-    ldx #1              ; left: FM
+    ldx #music_fm       ; left: FM
     and #$02
     bne select_mode
-    ldx #2              ; right: APU
+    ldx #music_apu      ; right: APU
     tya
     and #$01
     bne select_mode
-    ldx #3              ; down: both
+    ldx #music_both     ; down: both
+    tya
+    and #$04
+    bne select_mode
+    ldx #music_muted    ; up: mute music
 select_mode:
     stx mode
     jsr silence_music
@@ -253,7 +262,11 @@ audio_tick:
     jmp main
 play:
     lda mode
+    beq play_solo
+    cmp #music_muted
     bne play_phrase
+    jmp main
+play_solo:
     jsr silence_music
     ldx channel
     txa
@@ -263,7 +276,7 @@ play:
     lda channel
     cmp #6
     bne solo_wait
-    lda #3
+    lda #music_both
     sta mode
 solo_wait:
     lda #15
@@ -273,7 +286,7 @@ solo_wait:
 play_phrase:
     jsr silence_music
     lda mode
-    and #1
+    and #music_fm
     beq play_apu
     lda phrase
     tay
@@ -286,7 +299,7 @@ play_phrase:
     bne :-
 play_apu:
     lda mode
-    and #2
+    and #music_apu
     beq next_phrase
     lda apu_channels
     ora #1
