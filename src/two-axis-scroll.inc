@@ -84,9 +84,7 @@ advance_pan:
     lda pad
     sta pan_directions
     jsr prepare_pan
-    jsr wait_terrain_frame
-    jsr upload_pan
-    jmp apply_pan
+    jmp submit_frame
 
 prepare_pan:
     lda #pan_no_update

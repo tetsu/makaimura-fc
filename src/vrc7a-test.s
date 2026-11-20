@@ -117,6 +117,7 @@ reset:
     sta apu_channels
     sta shot_sound_pending
     sta shot_sound_frames
+    sta render_pending
     jsr enable_audio_screen
     jmp main
 
@@ -182,8 +183,17 @@ free_camera:
     and #3
     jsr step_camera
 render_terrain:
-    jsr wait_terrain_frame
+    jsr submit_frame
+    jmp audio_tick
+pan_screen:
+    jsr advance_pan
+    jmp audio_tick
+
+; NMI owns the staged PPU and OAM data until this routine returns.
+commit_frame:
     lda scene
+    cmp #3
+    beq commit_pan_preview
     cmp #4
     bne :+
     jsr upload_pan
@@ -201,12 +211,13 @@ commit_render:
     cmp #4
     bne :++
 :
-    jsr upload_sprites
+    jmp upload_sprites
 :
-    jmp audio_tick
-pan_screen:
-    jsr advance_pan
-    jmp audio_tick
+    rts
+commit_pan_preview:
+    jsr upload_pan
+    jmp apply_pan
+
 sound_screen:
     lda pressed
     and #$80           ; A opens the two-axis camera from the audio screen.

@@ -8,6 +8,7 @@ camera_low: .res 1
 camera_high: .res 1
 column_pending: .res 1
 terrain_frame: .res 1
+render_pending: .res 1
 world_column: .res 1
 tile_address_low: .res 1
 tile_address_high: .res 1
@@ -35,6 +36,7 @@ blank_display:
     sta $f000
     sta $2001
     sta $2000
+    sta render_pending
     lda #$80
     sta $e000           ; Restore left/right nametables for the other scenes.
     jmp stop_shot_sound
@@ -342,6 +344,7 @@ reset_hud_scroll:
     lsr a
     ora split_address_low
     sta split_address_low
+restore_hud_view:
     lda #$a0            ; Nametable 0, 8x16 sprites, NMI enabled.
     sta $2000
     lda #0
@@ -353,6 +356,17 @@ wait_terrain_frame:
     lda terrain_frame
     beq wait_terrain_frame
     lda #0
+    sta terrain_frame
+    rts
+
+; Publish only after preparing all VRAM and OAM data. Main keeps the
+; buffers intact until the NMI acknowledges the entire transfer.
+submit_frame:
+    lda #1
+    sta render_pending
+:
+    lda render_pending
+    bne :-
     sta terrain_frame
     rts
 
@@ -368,6 +382,30 @@ terrain_nmi:
     sta $f000
 :
     inc terrain_frame
+    lda render_pending
+    bne nmi_commit
+    ; A repeated frame still needs the fixed HUD view above the raster split.
+    lda scene
+    cmp #2
+    beq nmi_keep_hud
+    cmp #4
+    bne nmi_done
+nmi_keep_hud:
+    jsr restore_hud_view
+    jmp nmi_done
+nmi_commit:
+    txa
+    pha
+    tya
+    pha
+    jsr commit_frame
+    lda #0
+    sta render_pending
+    pla
+    tay
+    pla
+    tax
+nmi_done:
     pla
     rti
 
