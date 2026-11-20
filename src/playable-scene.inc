@@ -361,6 +361,18 @@ draw_sprites:
     lda player_hit
     asl a
     sta draw_palette
+    lda player_x+1
+    cmp #>lantern_x
+    bne player_in_front
+    lda player_x
+    cmp #<(lantern_x-7)
+    bcc player_in_front
+    cmp #<(lantern_x+24)
+    bcs player_in_front
+    lda draw_palette
+    ora #$20            ; Color zero in the lantern tiles leaves openings.
+    sta draw_palette
+player_in_front:
     sec
     lda player_feet
     sbc #player_height+1
@@ -389,7 +401,7 @@ draw_shot:
     lda #16
     sta draw_slot
     lda #3
-    sta draw_palette
+    sta draw_palette    ; Keep the projectile visible over the lanterns.
     lda #9
     sta draw_tile
     lda shot_y

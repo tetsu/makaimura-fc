@@ -209,6 +209,27 @@ prepare_column:
     inx
     cpx #30
     bne :-
+    jmp decorate_column
+
+decorate_column:
+    ldy world_column
+    cpy #lantern_column
+    beq stage_scenery
+    cpy #carving_column
+    bne column_decorated
+stage_scenery:
+    ldx #scenery_first_row
+:
+    txa
+    ldy world_column
+    jsr scenery_tile
+    bcc :+
+    sta column_tiles,x
+:
+    inx
+    cpx #carving_row+1
+    bne :--
+column_decorated:
     rts
 
 ; With rendering enabled this routine runs only in VBlank. In gameplay,

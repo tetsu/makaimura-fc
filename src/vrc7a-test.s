@@ -21,8 +21,10 @@ note_index: .res 1
 scene: .res 1
 pressed: .res 1
 pan_y: .res 1          ; Current Y within a 240 px nametable.
+glyph_source: .res 2
 
 .include "fixed-hud.inc"
+.include "scenery.inc"
 .include "horizontal-scroll.inc"
 .include "two-axis-scroll.inc"
 .include "playable-scene.inc"
@@ -359,19 +361,32 @@ draw_screen:
     lda #0
     sta $2006
     sta $2006
-    ldx #0
+    lda #<glyphs
+    sta glyph_source
+    lda #>glyphs
+    sta glyph_source+1
+    ldy #0
+    ldx #>glyph_size
+    beq glyph_tail
+glyph_page:
 :
-    lda glyphs,x
+    lda (glyph_source),y
     sta $2007
-    inx
+    iny
     bne :-
-    ldx #0
+    inc glyph_source+1
+    dex
+    bne glyph_page
+glyph_tail:
+    cpy #<glyph_size
+    beq glyphs_loaded
 :
-    lda glyphs+256,x
+    lda (glyph_source),y
     sta $2007
-    inx
-    cpx #glyph_size-256
+    iny
+    cpy #<glyph_size
     bne :-
+glyphs_loaded:
     lda #$3f
     sta $2006
     lda #0
@@ -463,6 +478,12 @@ terrain_tiles:
     .byte $ff, $ff, $b7, $42, $00, $10, $02, $00, $00, $6d, $00, $00, $00, $00, $00, $00
     .byte $c4, $28, $10, $03, $8f, $02, $10, $30, $ff, $ef, $ff, $ff, $3f, $ff, $e7, $ff
     .byte $0c, $10, $40, $84, $cc, $02, $00, $08, $ff, $e7, $ff, $7b, $ff, $ff, $ff, $f7
+scenery_patterns:
+    ; Lantern posts with transparent openings, followed by a stone carving.
+    .byte $1c, $22, $5d, $d5, $22, $14, $14, $08, $00, $1c, $3e, $3e, $1c, $08, $08, $1c
+    .byte $14, $08, $f7, $00, $08, $14, $14, $08, $08, $1c, $1c, $ff, $1c, $08, $08, $1c
+    .byte $08, $14, $36, $2a, $2a, $6b, $c1, $ff, $1c, $08, $08, $1c, $1c, $1c, $3e, $00
+    .byte $00, $24, $00, $14, $4a, $28, $42, $ff, $00, $00, $08, $08, $1c, $1c, $3c, $00
 glyph_size = * - glyphs
 
 .segment "VECTORS"

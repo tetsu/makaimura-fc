@@ -365,6 +365,9 @@ pan_tile:
     lda pan_data_x
     lsr a
     tay
+    lda pan_data_y
+    jsr scenery_tile
+    bcs pan_scenery
     lda terrain_heights,y
     asl a
     cmp pan_data_y
@@ -377,6 +380,8 @@ pan_tile:
     rts
 pan_gravel:
     lda #(terrain_tiles-glyphs)/16
+    rts
+pan_scenery:
     rts
 pan_ledge:
     lda #(terrain_tiles-glyphs)/16+1
