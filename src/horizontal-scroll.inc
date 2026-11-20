@@ -13,6 +13,7 @@ tile_address_low: .res 1
 tile_address_high: .res 1
 attribute_address: .res 1
 attribute_value: .res 1
+column_first_row: .res 1
 
 .segment "BSS"
 column_tiles: .res 30
@@ -35,7 +36,9 @@ blank_display:
 :
     jsr wait_frame
 blank_scene:
+    sei
     lda #0
+    sta $f000
     sta $2001
     sta $2000
     rts
@@ -56,6 +59,7 @@ enable_terrain:
     bne :+
     lda #$1e
     sta $2001
+    cli
 :
     rts
 
@@ -195,10 +199,27 @@ prepare_column:
     bne :-
     rts
 
-; With rendering enabled this routine runs only in VBlank. It writes 60
-; tile bytes and eight attributes before the scroll registers are restored.
+; With rendering enabled this routine runs only in VBlank. In gameplay,
+; skip the four HUD rows and their attribute byte in both nametables.
 ; A selects increment-by-32 and retains the current NMI enable bit.
 upload_column:
+    ldx #0
+    stx column_first_row
+    cmp #$84
+    bne set_column_control
+    ldx scene
+    cpx #2
+    bne set_column_control
+    ldx #hud_rows
+    stx column_first_row
+    lda tile_address_low
+    ora #hud_rows*32
+    sta tile_address_low
+    lda attribute_address
+    ora #8
+    sta attribute_address
+    lda #$a4
+set_column_control:
     sta $2000
     lda tile_address_high
     sta $2006
@@ -229,7 +250,7 @@ upload_column:
     rts
 
 write_tiles:
-    ldx #0
+    ldx column_first_row
 :
     lda column_tiles,x
     sta $2007
@@ -239,18 +260,36 @@ write_tiles:
     rts
 
 apply_camera:
+    ldx scene
+    cpx #2
+    beq reset_hud_scroll
     lda camera_high
     and #1
     ora #$80
-    ldx scene
-    cpx #2
-    bne :+
-    ora #$20            ; 8x16 sprites use the second pattern table.
-:
     sta $2000
     lda camera_low
     sta $2005
     lda #0
+    sta $2005
+    rts
+
+reset_hud_scroll:
+    lda camera_high
+    and #1
+    asl a
+    asl a
+    sta split_address_high
+    lda camera_low
+    sta split_x
+    lsr a
+    lsr a
+    lsr a
+    ora #(hud_y / 8) * 32
+    sta split_address_low
+    lda #$a0            ; Nametable 0, 8x16 sprites, NMI enabled.
+    sta $2000
+    lda #0
+    sta $2005
     sta $2005
     rts
 
@@ -262,7 +301,15 @@ wait_terrain_frame:
     rts
 
 terrain_nmi:
+    pha
+    lda scene
+    cmp #2
+    bne :+
+    lda #2              ; One IRQ in scanline mode, then disable on ack.
+    sta $f000
+:
     inc terrain_frame
+    pla
     rti
 
 .segment "RODATA"

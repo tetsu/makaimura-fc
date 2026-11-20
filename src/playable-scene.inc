@@ -37,6 +37,7 @@ show_game:
     lda #2
     sta scene
     jsr draw_terrain
+    jsr draw_hud
     jsr draw_sprite_patterns
     ldx #0
     lda #$f8

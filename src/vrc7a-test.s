@@ -21,6 +21,7 @@ note_index: .res 1
 scene: .res 1
 pressed: .res 1
 
+.include "fixed-hud.inc"
 .include "horizontal-scroll.inc"
 .include "playable-scene.inc"
 
@@ -387,9 +388,6 @@ next_line:
     bne next_line
     rts
 
-interrupt:
-    rti
-
 .segment "RODATA"
 text_address: .byte $08, $68, $88, $a8, $c8, $e8
 text_start: .byte 0, line2-screen_text, line3-screen_text, line4-screen_text, line5-screen_text, line6-screen_text
@@ -431,6 +429,7 @@ glyphs:
     .byte $00, $11, $11, $11, $15, $15, $1b, $11, $00, $00, $00, $00, $00, $00, $00, $00 ; W
     .byte $00, $00, $04, $04, $1f, $04, $04, $00, $00, $00, $00, $00, $00, $00, $00, $00 ; +
     .byte $00, $11, $11, $0a, $04, $04, $04, $04, $00, $00, $00, $00, $00, $00, $00, $00 ; Y
+    .byte $00, $07, $02, $02, $02, $12, $12, $0c, $00, $00, $00, $00, $00, $00, $00, $00 ; J
 terrain_tiles:
     ; Pebbles, ledge, and two alternating rock textures.
     .byte $00, $00, $10, $38, $10, $00, $02, $00, $00, $00, $00, $10, $00, $00, $00, $00
@@ -440,4 +439,4 @@ terrain_tiles:
 glyph_size = * - glyphs
 
 .segment "VECTORS"
-.word terrain_nmi, reset, interrupt
+.word terrain_nmi, reset, hud_irq

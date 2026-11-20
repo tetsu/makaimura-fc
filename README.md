@@ -37,6 +37,8 @@ Mesen 2.1.1 で、固定画面・切り替え・リセットを検証した。�
 
 ## 2. スクロールと固定 HUD
 
+操作試作の上端32 pxに操作案内を固定表示する。各 NMI の同じ箇所で VRC7 の IRQ を設定し、走査線31で地形のスクロール座標へ切り替える。操作試作の列転送では HUD の4タイル行を保持し、タイル52バイトと属性7バイトを更新する。Mesen 2.1.1 の NTSC 設定でネームテーブルの境界を往復し、HUD 全体の画素が同じ位置に残り、地形が1 pxずつ移動することを確認した。再検証には `Mesen.exe --testRunner --timeout=30 tools/mesen/fixed-hud-smoke.lua build/vrc7a-test.nes` を使う。[PPU の途中スクロール](https://www.nesdev.org/wiki/PPU_scrolling) · [VRC IRQ のカウンタ](https://www.nesdev.org/wiki/VRC_IRQ)
+
 試作 ROM の音源画面で 1P の SELECT を押すと、3画面分（768 px）の仮地形に切り替わる。左右でカメラをスクロールし、SELECT で音源画面に戻る。地形画面には切り替え前に選んだ音源モードが引き継がれる。モードを操作せずに起動すると、FM の各声を鳴らした後で同時発音に移る。
 
 横スクロールでは、メイン処理で新しい16 px幅の列を準備し、NMI を合図に VBlank 中にタイル60バイトと属性8バイトを転送する。Mesen 2.1.1 で両端を往復し、継ぎ目の前後の画素、VBlank 内の書き込み、FM＋APU の更新間隔を確認した。再検証には `Mesen.exe --testRunner --timeout=20 tools/mesen/horizontal-scroll-smoke.lua build/vrc7a-test.nes` を使用する。1P の NES コントローラーを有効にし、左右のオーバースキャンを0に設定する。
