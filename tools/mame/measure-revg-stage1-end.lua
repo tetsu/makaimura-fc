@@ -22,7 +22,9 @@ local upper_input = requested_upper_input or "stand"
 local upper_wall = upper_input == "wall-walk" or upper_input == "wall-jump"
 local ladder_exit_fire = upper_input == "ladder-exit-fire"
 local ladder_exit_jump = upper_input == "ladder-exit-jump"
-local lower_ladder = upper_input == "ladder-exit-lower-down"
+local ground_shot = upper_input == "ladder-exit-ground-shot"
+local ground_ladder = upper_input == "ladder-exit-ground-jump" or ground_shot
+local lower_ladder = upper_input == "ladder-exit-lower-down" or ground_ladder
 local next_ladder = upper_input == "ladder-exit-next-down" or lower_ladder
 local ladder_second_jump_delay = next_ladder and 67 or (ladder_exit_jump and 80 or nil)
 local ladder_exit = upper_input == "ladder-exit-walk" or ladder_exit_fire or ladder_exit_jump or next_ladder
@@ -45,7 +47,8 @@ assert(not requested_upper_input or upper_projectile and
         or upper_resumes or upper_ladder),
     "Expected REVG_UPPER_INPUT=stand, crouch, jump, late-jump, resume-walk, resume-early-jump, resume-jump, "
         .. "wall-walk, wall-jump, ladder-down, ladder-pause, ladder-pause-104, ladder-pause-112, "
-        .. "ladder-exit-walk, ladder-exit-fire, ladder-exit-jump, ladder-exit-next-down or ladder-exit-lower-down "
+        .. "ladder-exit-walk, ladder-exit-fire, ladder-exit-jump, ladder-exit-next-down, ladder-exit-lower-down, "
+        .. "ladder-exit-ground-jump or ladder-exit-ground-shot "
         .. "with section1-upper-projectile")
 local requested_camera = os.getenv("REVG_SECTION1_CAMERA_X")
 local test_camera = tonumber(requested_camera)
@@ -323,6 +326,14 @@ local descent_started, descent_paused_at, descent_bottom_at
 local next_ladder_x = 5712
 local next_descent_started, next_descent_bottom_at
 local lower_descent_started, lower_descent_bottom_at
+local ground_descent_started
+if ground_ladder then
+    revg_ground_enemy_hp = mem:install_write_tap(0x0e46, 0x0e46, "lower floor enemy HP", function(addr, value)
+        if lower_descent_bottom_at and cpu.state.PC.value == 0xef2a then
+            record_section1("ground_enemy_hp", string.format("%d->%d", mem:read_u8(addr), value))
+        end
+    end)
+end
 if observe_right_wall then
     local function observing_wall()
         if section1_dead or cpu.state.X.value ~= 0x0510 then return false end
@@ -389,8 +400,28 @@ if ladder_exit_fire then
     end)
 end
 
+local function ground_ladder_inputs(player_x, player_y)
+    local jumping = frame - lower_descent_bottom_at == 4
+    if jumping then record_section1("ground_ladder_jump", ground_shot and "fire" or "-") end
+
+    local pressing_down = math.abs(player_x - next_ladder_x) <= 5 and player_y <= 159
+    if pressing_down then
+        down:set_value(1)
+        if not ground_descent_started then
+            ground_descent_started = true
+            record_section1("ground_ladder_down", "-")
+        end
+    end
+    -- The floor can report Y=158 after landing near the ladder.
+    return player_y >= 158 and player_x < next_ladder_x, jumping,
+        player_y >= 158 and player_x > next_ladder_x, jumping and ground_shot
+end
+
 local function lower_ladder_inputs(player_x, player_y)
-    if lower_descent_bottom_at then return true, false, false, false end
+    if lower_descent_bottom_at then
+        if ground_ladder then return ground_ladder_inputs(player_x, player_y) end
+        return true, false, false, false
+    end
 
     local jumping = frame - next_descent_bottom_at == 29
     if jumping then record_section1("lower_ladder_jump", "-") end
@@ -634,6 +665,11 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
                 and player_x == ladder_x and player_y <= 159 and mem:read_u8(0x0504) == 0 then
                 lower_descent_bottom_at = frame
                 record_section1("lower_ladder_bottom", "-")
+            end
+            if ground_descent_started and player_x == next_ladder_x and player_y <= 79
+                and mem:read_u8(0x0504) == 0 then
+                record_section1("ground_ladder_bottom", "-")
+                trial_finished = true
             end
         end
     end
