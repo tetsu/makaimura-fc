@@ -19,9 +19,13 @@ assert(trial == "key" or trial == "straight" or trial == "controller" or section
         .. "or section1-end-normal-hp")
 local requested_upper_input = os.getenv("REVG_UPPER_INPUT")
 local upper_input = requested_upper_input or "stand"
+local resume_jump_delay = ({["resume-early-jump"] = 12, ["resume-jump"] = 22})[upper_input]
+local upper_resumes = upper_input == "resume-walk" or resume_jump_delay ~= nil
 assert(not requested_upper_input or upper_projectile and
-    (upper_input == "stand" or upper_input == "crouch" or upper_input == "jump" or upper_input == "late-jump"),
-    "Expected REVG_UPPER_INPUT=stand, crouch, jump or late-jump with section1-upper-projectile")
+    (upper_input == "stand" or upper_input == "crouch" or upper_input == "jump" or upper_input == "late-jump"
+        or upper_resumes),
+    "Expected REVG_UPPER_INPUT=stand, crouch, jump, late-jump, resume-walk, resume-early-jump "
+        .. "or resume-jump with section1-upper-projectile")
 local requested_camera = os.getenv("REVG_SECTION1_CAMERA_X")
 local test_camera = tonumber(requested_camera)
 assert(not requested_camera or trial == "section1-fall" and (test_camera == 4608 or test_camera == 4609),
@@ -284,6 +288,26 @@ local checkpoint_route = {
 }
 
 local first_floor_at, second_floor_reached, upper_input_started
+local upper_airborne, upper_resumed_at
+local function upper_resume_inputs()
+    local air_state = mem:read_u8(0x0504)
+    if not upper_resumed_at then
+        if air_state ~= 0 then upper_airborne = true end
+        if not upper_airborne or air_state ~= 0 then return false, false end
+        upper_resumed_at = frame
+        record_section1("upper_resume", "-")
+    end
+
+    local elapsed = frame - upper_resumed_at
+    local jumping = elapsed == resume_jump_delay
+    if jumping then record_section1("upper_second_jump", "-") end
+    -- Compare the inputs at the same times around the second landing and the stalled advance.
+    if elapsed == 60 or elapsed == 66 or elapsed == 84 then
+        record_section1("upper_resume_sample", air_state)
+    end
+    return true, jumping
+end
+
 local function section1_climb_inputs()
     if frame < 10300 then return true, frame % 42 == 0, false, frame % 7 == 0 end
     if frame < 10415 then
@@ -294,7 +318,8 @@ local function section1_climb_inputs()
     if upper_projectile and third_floor_reached then
         local stop_x = upper_input == "late-jump" and 5678 or 5668
         if player_x < stop_x and not upper_input_started then return true, false, false, false, false end
-        local jumping = not upper_input_started and (upper_input == "jump" or upper_input == "late-jump")
+        if upper_input_started and upper_resumes then return upper_resume_inputs() end
+        local jumping = not upper_input_started and (upper_input == "jump" or upper_input == "late-jump" or upper_resumes)
         if not upper_input_started then
             upper_input_started = true
             record_section1("upper_input", upper_input)
@@ -370,6 +395,7 @@ local last = section1_end and 21200 or (section1_cross and 21000
     or (section1_trial and 10000 or (controller_only and 8700 or 6500)))
 if section1_climb then last = 10570 end
 if section1_upper then last = 11400 end
+if upper_resumes then last = 11500 end
 if section1_respawn_climb then last = 20500 end
 if section1_normal_hp then last = 21800 end
 local previous_camera
