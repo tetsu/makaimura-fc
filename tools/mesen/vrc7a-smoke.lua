@@ -57,7 +57,17 @@ emu.addEventCallback(function()
         if lit < 300 or lit > 1500 then fail(9, "unexpected screen pixel count "..lit); return end
         if screen and screen ~= signature then fail(10, "screen changed"); return end
         screen = signature
-        if frame == 144 then emu.reset() end
-        if frame == 270 then emu.log("PASS: boot, fixed display, FM+APU, modes, reset"); emu.stop(0) end
+        if frame == 144 then
+            emu.write(0x6000, 0x3c, emu.memType.nesMemory)
+            emu.reset()
+        end
+        if frame == 270 then
+            if emu.read(0x6000, emu.memType.nesMemory) ~= 0x3c then
+                fail(11, "WRAM self-test did not restore the original byte")
+                return
+            end
+            emu.log("PASS: boot, fixed display, FM+APU, modes, reset, WRAM preservation")
+            emu.stop(0)
+        end
     end
 end, emu.eventType.endFrame)

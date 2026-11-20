@@ -1,8 +1,11 @@
 .setcpu "6502"
 
 .segment "HEADER"
-; NES 2.0, mapper $055, submapper 2, 32 KiB PRG, 8 KiB each of WRAM and CHR-RAM.
-.byte "NES", $1a, 2, 0, $50, $58, $20, 0, 7, 7, 0, 0, 0, 0
+; NES 2.0, mapper $055, submapper 2, 8 KiB each of WRAM and CHR-RAM.
+.ifndef PRG_ROM_UNITS
+PRG_ROM_UNITS = 2
+.endif
+.byte "NES", $1a, PRG_ROM_UNITS, 0, $50, $58, $20, 0, 7, 7, 0, 0, 0, 0
 
 .segment "BANK0"
 .byte $a5
@@ -93,14 +96,17 @@ reset:
     bne memory_error
     lda #0
     sta $8000
+    lda $6000            ; Preserve the byte on battery-backed donor boards.
+    tax
     lda #$96
     sta $6000
     cmp $6000
-    bne memory_error
+    bne wram_error
     lda #$69
     sta $6000
     cmp $6000
-    bne memory_error
+    bne wram_error
+    stx $6000
     lda #0
     sta previous
     sta mode
@@ -114,6 +120,8 @@ reset:
     jsr enable_audio_screen
     jmp main
 
+wram_error:
+    stx $6000
 memory_error:
     lda #$22
     sta $2006

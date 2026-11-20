@@ -28,6 +28,16 @@ Windows PowerShell から `./build.ps1` を実行すると、`build/vrc7a-test.n
 
 Mesen 2.1.1 で、固定画面・切り替え・リセットを検証した。再検証には 1P に NES コントローラーを割り当てて `Mesen.exe --testRunner --timeout=10 tools/mesen/vrc7a-smoke.lua build/vrc7a-test.nes` を実行する。Mesen のミキサー出力の録音でも、同じ区間に FM の和音と APU のパルス音が出ることを確認した。
 
+### 352402 基板向けの出力
+
+`./build.ps1 -Hardware` で、同じソースから512 KiB版を生成する。Mesen には NES 2.0 ヘッダー付きの `build/vrc7a-test-512k.nes` を読み込む。ROM ライターにはヘッダーを除いた `build/vrc7a-test-512k.prg`（524,288バイト）を指定する。バンク0〜2は先頭、固定バンク63はオフセット `$7E000` に置く。間のバンクは `$FF` で埋め、末尾の `$7FFFA–$7FFFF` に割り込みとリセットのベクタを置く。[VRC7 の PRG バンク構成](https://www.nesdev.org/wiki/VRC7)
+
+1. 使用する352402基板の U1 と、交換用 ROM・変換基板の端子対応を確認する。元の U1 は Sharp LH5341 の512 KiBマスク ROM。ライターのデバイス設定は実際に書き込む部品の型番に合わせる。[基板写真と部品表](https://nescartdb.com/profile/view/3951/lagrange-point)
+2. 書き込み検証で読み戻した524,288バイトを元の `.prg` と照合する。ハッシュを控える場合は `Get-FileHash build/vrc7a-test-512k.prg -Algorithm SHA256` を使う。
+3. ファミコンで電源投入・リセット、FM と APU の単独および同時発音を試す。A→START で縦追従の操作試作に入り、上で負荷用の印を出して、HUD、地形の継ぎ目、射撃音を確認する。使用した本体・基板と音声出力の接続を記録する。
+
+512 KiB版は Mesen で検証済み。起動時の WRAM 検査で使用する `$6000` は、検査後に元の値へ戻す。実基板での読み戻しと動作確認は未実施。
+
 - 起動時にマッパーと PPU を初期化し、仮タイルを CHR-RAM に転送する。固定画面を出し、PRG バンクと WRAM のアクセスを確認する。
 - VRC7 の FM 6声を順番に鳴らした後、本体 APU と同時に鳴らすモードを用意する。BGM の旋律とベースは FM、打楽器と効果音は APU を基本にし、実機で音量差と音割れを確認する。
 - 音源ドライバは `$9010` への書き込み後に最低6 CPUサイクル、`$9030` の後に最低42 CPUサイクルを空ける。音源更新はメイン処理で行い、描画転送用の NMI から外す。
