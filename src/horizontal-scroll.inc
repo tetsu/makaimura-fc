@@ -1,0 +1,263 @@
+; At most one 16-pixel column becomes visible per frame at 1 px/frame.
+; Vertical mirroring gives a 32-metatile ring across $2000 and $2400.
+terrain_width = 48
+camera_limit_high = (terrain_width - 16) / 16
+
+.segment "ZEROPAGE"
+camera_low: .res 1
+camera_high: .res 1
+column_pending: .res 1
+terrain_frame: .res 1
+world_column: .res 1
+tile_address_low: .res 1
+tile_address_high: .res 1
+attribute_address: .res 1
+attribute_value: .res 1
+
+.segment "BSS"
+column_tiles: .res 30
+
+.segment "CODE"
+toggle_scene:
+    lda scene
+    beq :+
+    jsr wait_terrain_frame
+    jmp blank_scene
+:
+    jsr wait_frame
+blank_scene:
+    lda #0
+    sta $2001
+    sta $2000
+    lda scene
+    eor #1
+    sta scene
+    beq show_sound_screen
+    jsr draw_terrain
+    jsr enable_screen
+    lda #0
+    sta terrain_frame
+    jmp apply_camera
+show_sound_screen:
+    jsr draw_screen
+    jmp enable_screen
+
+draw_terrain:
+    lda #0
+    sta camera_low
+    sta camera_high
+    sta world_column
+    lda #$3f
+    sta $2006
+    lda #0
+    sta $2006
+    ldx #0
+:
+    lda terrain_colors,x
+    sta $2007
+    inx
+    cpx #16
+    bne :-
+fill_ring:
+    jsr prepare_column
+    lda #4
+    jsr upload_column
+    inc world_column
+    lda world_column
+    cmp #32
+    bne fill_ring
+    lda #0
+    sta $2000
+    rts
+
+; Prepare new tiles before waiting for VBlank. The existing column stays
+; resident until its replacement is about to enter the viewport.
+step_camera:
+    lda #0
+    sta column_pending
+    lda pad
+    and #3
+    cmp #2
+    beq move_left
+    cmp #1
+    bne stationary
+    lda camera_high
+    cmp #camera_limit_high
+    beq stationary
+    inc camera_low
+    bne :+
+    inc camera_high
+:
+    lda camera_low
+    and #15
+    cmp #1
+    bne stationary
+    jsr camera_metatile
+    clc
+    adc #16
+    jmp load_column
+move_left:
+    lda camera_low
+    bne :+
+    lda camera_high
+    beq stationary
+    dec camera_high
+:
+    dec camera_low
+    lda camera_low
+    and #15
+    cmp #15
+    bne stationary
+    jsr camera_metatile
+load_column:
+    sta world_column
+    jsr prepare_column
+    inc column_pending
+stationary:
+    rts
+
+camera_metatile:
+    lda camera_high
+    asl a
+    asl a
+    asl a
+    asl a
+    sta world_column
+    lda camera_low
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora world_column
+    rts
+
+prepare_column:
+    lda world_column
+    and #16
+    lsr a
+    lsr a
+    ora #$20
+    sta tile_address_high
+    lda world_column
+    and #15
+    asl a
+    sta tile_address_low
+    lsr a
+    lsr a
+    ora #$c0
+    sta attribute_address
+
+    ; Both neighbors in each 32-pixel attribute cell use the same palette.
+    lda world_column
+    lsr a
+    tax
+    lda terrain_attributes,x
+    sta attribute_value
+    ldx world_column
+    lda terrain_heights,x
+    asl a
+    tay
+    ldx #0
+    lda #0
+:
+    sta column_tiles,x
+    inx
+    dey
+    bne :-
+    lda #(terrain_tiles - glyphs) / 16
+    sta column_tiles-1,x
+    clc
+    adc #1
+    sta column_tiles,x
+    inx
+    lda #(terrain_tiles - glyphs) / 16 + 2
+:
+    sta column_tiles,x
+    eor #1              ; Alternate between the two rock textures.
+    inx
+    cpx #30
+    bne :-
+    rts
+
+; With rendering enabled this routine runs only in VBlank. It writes 60
+; tile bytes and eight attributes before the scroll registers are restored.
+; A selects increment-by-32 and retains the current NMI enable bit.
+upload_column:
+    sta $2000
+    lda tile_address_high
+    sta $2006
+    lda tile_address_low
+    sta $2006
+    jsr write_tiles
+    lda tile_address_high
+    sta $2006
+    lda tile_address_low
+    ora #1
+    sta $2006
+    jsr write_tiles
+    lda tile_address_high
+    ora #3
+    tay
+    lda attribute_address
+    tax
+:
+    sty $2006
+    stx $2006
+    lda attribute_value
+    sta $2007
+    txa
+    clc
+    adc #8
+    tax
+    bcc :-
+    rts
+
+write_tiles:
+    ldx #0
+:
+    lda column_tiles,x
+    sta $2007
+    inx
+    cpx #30
+    bne :-
+    rts
+
+apply_camera:
+    lda camera_high
+    and #1
+    ora #$80
+    sta $2000
+    lda camera_low
+    sta $2005
+    lda #0
+    sta $2005
+    rts
+
+wait_terrain_frame:
+    lda terrain_frame
+    beq wait_terrain_frame
+    lda #0
+    sta terrain_frame
+    rts
+
+terrain_nmi:
+    inc terrain_frame
+    rti
+
+.segment "RODATA"
+terrain_colors:
+    .byte $0f, $2a, $09, $19,  $0f, $38, $17, $27
+    .byte $0f, $31, $11, $21,  $0f, $34, $14, $24
+
+; Original terraced terrain. Each height counts 16-pixel rows from the top.
+terrain_heights:
+    .byte 12, 12, 11, 11, 10, 10, 11, 12, 12, 13, 13, 12, 11, 10, 9, 9
+    .byte 8,  9,  10, 10, 11, 12, 12, 11, 11, 10, 9,  8,  8,  9,  10, 11
+    .byte 12, 13, 12, 11, 10, 9,  8,  9,  9,  10, 11, 12, 11, 10, 10, 11
+.assert * - terrain_heights = terrain_width, error, "Unexpected terrain width"
+
+terrain_attributes:
+    .byte $00, $00, $55, $55, $ff, $ff, $aa, $aa
+    .byte $ff, $ff, $aa, $55, $55, $00, $ff, $ff
+    .byte $55, $55, $aa, $aa, $ff, $00, $55, $55
+.assert * - terrain_attributes = terrain_width / 2, error, "Unexpected attribute count"

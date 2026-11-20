@@ -18,6 +18,9 @@ frames: .res 1
 channel: .res 1
 phrase: .res 1
 note_index: .res 1
+scene: .res 1
+
+.include "horizontal-scroll.inc"
 
 .segment "CODE"
 reset:
@@ -94,6 +97,7 @@ reset:
     sta frames
     sta channel
     sta phrase
+    sta scene
     jsr enable_screen
     jmp main
 
@@ -123,15 +127,34 @@ enable_screen:
     rts
 
 main:
-    jsr wait_frame
     jsr read_pad
     lda previous
     eor #$ff
     and pad
     ldx pad
     stx previous
+    tax
+    and #$20            ; Select: switch between audio controls and terrain.
+    beq same_scene
+    jsr toggle_scene
+    jmp audio_tick
+same_scene:
+    lda scene
+    beq sound_screen
+    jsr step_camera
+    jsr wait_terrain_frame
+    lda column_pending
+    beq :+
+    lda #$84
+    jsr upload_column
+:
+    jsr apply_camera
+    jmp audio_tick
+sound_screen:
+    jsr wait_frame
+    txa
     and #$07
-    beq tick
+    beq audio_tick
     tay
     ldx #1              ; left: FM
     and #$02
@@ -147,7 +170,7 @@ select_mode:
     lda #0
     sta phrase
     sta frames
-tick:
+audio_tick:
     lda frames
     beq play
     dec frames
@@ -339,7 +362,7 @@ next_line:
     bne :-
 :
     iny
-    cpy #4
+    cpy #5
     bne next_line
     rts
 
@@ -347,12 +370,13 @@ interrupt:
     rti
 
 .segment "RODATA"
-text_address: .byte $08, $68, $88, $a8
-text_start: .byte 0, line2-screen_text, line3-screen_text, line4-screen_text
+text_address: .byte $08, $68, $88, $a8, $e8
+text_start: .byte 0, line2-screen_text, line3-screen_text, line4-screen_text, line5-screen_text
 screen_text: .byte $15, $11, $04, $01, $02, $00, $12, $0f, $14, $0e, $05, $00, $13, $06, $12, $13, $ff
 line2: .byte $0c, $06, $07, $13, $00, $07, $0d, $ff
 line3: .byte $11, $0a, $08, $09, $13, $00, $02, $10, $14, $ff
 line4: .byte $05, $0f, $16, $0e, $00, $03, $0f, $13, $09, $ff
+line5: .byte $12, $06, $0c, $06, $04, $13, $00, $13, $06, $11, $11, $02, $0a, $0e, $ff ; SELECT TERRAIN
 error_text: .byte $03, $02, $0e, $0b, $00, $0f, $11, $00, $11, $02, $0d, $00, $06, $11, $11, $0f, $11
 error_length = * - error_text
 pulse_period:
@@ -384,7 +408,13 @@ glyphs:
     .byte $00, $11, $11, $11, $11, $11, $0a, $04, $00, $00, $00, $00, $00, $00, $00, $00 ; V
     .byte $00, $11, $11, $11, $15, $15, $1b, $11, $00, $00, $00, $00, $00, $00, $00, $00 ; W
     .byte $00, $00, $04, $04, $1f, $04, $04, $00, $00, $00, $00, $00, $00, $00, $00, $00 ; +
+terrain_tiles:
+    ; Pebbles, ledge, and two alternating rock textures.
+    .byte $00, $00, $10, $38, $10, $00, $02, $00, $00, $00, $00, $10, $00, $00, $00, $00
+    .byte $ff, $ff, $b7, $42, $00, $10, $02, $00, $00, $6d, $00, $00, $00, $00, $00, $00
+    .byte $c4, $28, $10, $03, $8f, $02, $10, $30, $ff, $ef, $ff, $ff, $3f, $ff, $e7, $ff
+    .byte $0c, $10, $40, $84, $cc, $02, $00, $08, $ff, $e7, $ff, $7b, $ff, $ff, $ff, $f7
 glyph_size = * - glyphs
 
 .segment "VECTORS"
-.word interrupt, reset, interrupt
+.word terrain_nmi, reset, interrupt
