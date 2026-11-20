@@ -4,10 +4,12 @@ local cpu = machine.devices[":maincpu"]
 local mem = cpu.spaces.program
 local frame = 0
 local trial = os.getenv("REVG_STAGE1_END") or "key"
-local section1_cross = trial == "section1-cross"
+local section1_end = trial == "section1-end-one" or trial == "section1-end-both"
+local section1_cross = trial == "section1-cross" or section1_end
 local section1_trial = trial == "section1-fall" or trial == "section1-jump" or section1_cross
 assert(trial == "key" or trial == "straight" or trial == "controller" or section1_trial,
-    "Expected REVG_STAGE1_END=key, straight, controller, section1-fall, section1-jump, or section1-cross")
+    "Expected REVG_STAGE1_END=key, straight, controller, section1-fall, section1-jump, section1-cross, "
+        .. "section1-end-one, or section1-end-both")
 local requested_camera = os.getenv("REVG_SECTION1_CAMERA_X")
 local test_camera = tonumber(requested_camera)
 assert(not requested_camera or trial == "section1-fall" and (test_camera == 4608 or test_camera == 4609),
@@ -46,6 +48,43 @@ local function record_section1(event, value)
     print(string.format("section1,%s,%d,%s,%04x,%d,%d,%d,%d,%d,%d,%04x", event, frame, value,
         cpu.state.PC.value, word(0x0506), word(0x0509), word(0x009c),
         mem:read_u8(0x0072), mem:read_u8(0x0081), mem:read_u8(0x0060), word(0x00aa)))
+end
+
+local end_first_boss, end_camera_reached
+local end_bosses, end_defeated = {}, 0
+if section1_end then
+    -- Keep the checkpoint death and select a later page using one restart-table read.
+    revg_section1_end_restart = mem:install_read_tap(0x6d0f, 0x6d0f, "section 1 end test start", function(_, value)
+        if frame ~= 19801 or cpu.state.PC.value ~= 0x6d39 then return end
+        record_section1("restart_page_override", string.format("%02x->1a", value))
+        return 0x1a
+    end)
+    revg_section1_end_slots = mem:install_write_tap(0x0880, 0x1150, "section 1 end bosses", function(addr, value)
+        if frame < 19840 or mem:read_u8(0x0072) ~= 1 then return end
+        local pc = cpu.state.PC.value
+        if pc == 0xeaf9 and addr == cpu.state.Y.value - 0x10 and mem:read_u8(cpu.state.X.value + 5) == 8 then
+            end_first_boss = end_first_boss or addr
+            end_bosses[addr] = true
+            record_section1("boss_slot", string.format("%04x/%d/%d", addr, word(addr + 6), word(addr + 9)))
+        elseif pc == 0xc40b and end_bosses[addr - 0x26] then
+            record_section1("boss_hp", string.format("%04x/%d", addr - 0x26, value))
+        end
+    end)
+    -- Let the actual projectile hit run the death handling after a single hit.
+    revg_section1_end_hp = mem:install_read_tap(0x0880, 0x1150, "section 1 end test durability", function(addr, value)
+        if cpu.state.PC.value ~= 0xef2a then return end
+        local slot = addr - 0x26
+        if end_bosses[slot] ~= true or (trial == "section1-end-one" and slot ~= end_first_boss) then return end
+        end_bosses[slot] = false
+        record_section1("boss_hp_override", string.format("%04x/%d->1", slot, value))
+        return 1
+    end)
+    revg_section1_end_count = mem:install_write_tap(0x00b6, 0x00b6, "section 1 remaining bosses", function(_, value)
+        if frame >= 19840 and cpu.state.PC.value == 0xe78e then
+            end_defeated = end_defeated + 1
+            record_section1("bosses_remaining", value)
+        end
+    end)
 end
 
 if test_camera then
@@ -220,7 +259,8 @@ end
 
 local samples = controller_only and {[7417] = true, [8700] = true}
     or {[4863] = true, [4902] = true, [5900] = true, [6200] = true, [6500] = true}
-local last = section1_cross and 21000 or (section1_trial and 10000 or (controller_only and 8700 or 6500))
+local last = section1_end and 21200 or (section1_cross and 21000
+    or (section1_trial and 10000 or (controller_only and 8700 or 6500)))
 local previous_camera
 print("trial," .. trial)
 print("event,notice,value,pc,player_x,player_y,camera_x,camera_limit,section,boss_x,boss_y,key_x,key_y")
@@ -233,14 +273,20 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
     local respawn_observed = false
     if section1_sample_at and frame == section1_sample_at + 5 then
         record_section1("camera", "-")
-        respawn_observed = section1_dead
+        respawn_observed = section1_dead and not section1_end
     end
     if section1_cross and (frame == 9721 or frame == 9862) then record_section1("route_sample", "-") end
+    if section1_end and frame == 20600 then record_section1("end_sample", mem:read_u8(0x00b6)) end
     if samples[frame] then record("sample", "-") end
     local camera = word(0x009c)
     if frame >= observation_start and boss and not reached_limit and camera >= word(0x005a) then
         reached_limit = true
         record("camera_limit", previous_camera)
+    end
+    if section1_end and frame >= 19841 and not end_camera_reached and mem:read_u8(0x0072) == 1
+        and camera >= word(0x005a) then
+        end_camera_reached = true
+        record_section1("camera_limit", previous_camera)
     end
     previous_camera = camera
     if frame == last or respawn_observed then
@@ -274,6 +320,15 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
             if word(0x0506) <= 3365 then stopped_at_key = true end
             moving, jumping, returning = false, stopped_at_key and frame % 61 == 0, not stopped_at_key
             firing = false
+        end
+    end
+
+    if section1_end and frame >= 19841 then
+        local player_x = word(0x0506)
+        moving, jumping, returning, firing = true, false, false, frame % 8 == 0
+        if trial == "section1-end-one" and end_defeated > 0 then firing = false end
+        if trial == "section1-end-both" and end_defeated == 2 and mem:read_u8(0x0072) == 1 then
+            moving, returning, firing = player_x < 6949, player_x > 6949, false
         end
     end
 
