@@ -19,8 +19,10 @@ channel: .res 1
 phrase: .res 1
 note_index: .res 1
 scene: .res 1
+pressed: .res 1
 
 .include "horizontal-scroll.inc"
+.include "playable-scene.inc"
 
 .segment "CODE"
 reset:
@@ -133,15 +135,29 @@ main:
     and pad
     ldx pad
     stx previous
-    tax
+    sta pressed
     and #$20            ; Select: switch between audio controls and terrain.
     beq same_scene
     jsr toggle_scene
     jmp audio_tick
 same_scene:
+    lda pressed
+    and #$10            ; Start: enter or restart the playable scene.
+    beq :+
+    jsr show_game
+    jmp audio_tick
+:
     lda scene
     beq sound_screen
+    cmp #2
+    bne free_camera
+    jsr update_game
+    jmp render_terrain
+free_camera:
+    lda pad
+    and #3
     jsr step_camera
+render_terrain:
     jsr wait_terrain_frame
     lda column_pending
     beq :+
@@ -149,10 +165,15 @@ same_scene:
     jsr upload_column
 :
     jsr apply_camera
+    lda scene
+    cmp #2
+    bne :+
+    jsr upload_sprites
+:
     jmp audio_tick
 sound_screen:
     jsr wait_frame
-    txa
+    lda pressed
     and #$07
     beq audio_tick
     tay
@@ -362,7 +383,7 @@ next_line:
     bne :-
 :
     iny
-    cpy #5
+    cpy #6
     bne next_line
     rts
 
@@ -370,13 +391,14 @@ interrupt:
     rti
 
 .segment "RODATA"
-text_address: .byte $08, $68, $88, $a8, $e8
-text_start: .byte 0, line2-screen_text, line3-screen_text, line4-screen_text, line5-screen_text
+text_address: .byte $08, $68, $88, $a8, $c8, $e8
+text_start: .byte 0, line2-screen_text, line3-screen_text, line4-screen_text, line5-screen_text, line6-screen_text
 screen_text: .byte $15, $11, $04, $01, $02, $00, $12, $0f, $14, $0e, $05, $00, $13, $06, $12, $13, $ff
 line2: .byte $0c, $06, $07, $13, $00, $07, $0d, $ff
 line3: .byte $11, $0a, $08, $09, $13, $00, $02, $10, $14, $ff
 line4: .byte $05, $0f, $16, $0e, $00, $03, $0f, $13, $09, $ff
 line5: .byte $12, $06, $0c, $06, $04, $13, $00, $13, $06, $11, $11, $02, $0a, $0e, $ff ; SELECT TERRAIN
+line6: .byte $12, $13, $02, $11, $13, $00, $10, $0c, $02, $17, $ff ; START PLAY
 error_text: .byte $03, $02, $0e, $0b, $00, $0f, $11, $00, $11, $02, $0d, $00, $06, $11, $11, $0f, $11
 error_length = * - error_text
 pulse_period:
@@ -408,6 +430,7 @@ glyphs:
     .byte $00, $11, $11, $11, $11, $11, $0a, $04, $00, $00, $00, $00, $00, $00, $00, $00 ; V
     .byte $00, $11, $11, $11, $15, $15, $1b, $11, $00, $00, $00, $00, $00, $00, $00, $00 ; W
     .byte $00, $00, $04, $04, $1f, $04, $04, $00, $00, $00, $00, $00, $00, $00, $00, $00 ; +
+    .byte $00, $11, $11, $0a, $04, $04, $04, $04, $00, $00, $00, $00, $00, $00, $00, $00 ; Y
 terrain_tiles:
     ; Pebbles, ledge, and two alternating rock textures.
     .byte $00, $00, $10, $38, $10, $00, $02, $00, $00, $00, $00, $10, $00, $00, $00, $00

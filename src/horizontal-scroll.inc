@@ -19,6 +19,15 @@ column_tiles: .res 30
 
 .segment "CODE"
 toggle_scene:
+    jsr blank_display
+    lda scene
+    bne show_sound_screen
+    lda #1
+    sta scene
+    jsr draw_terrain
+    jmp enable_terrain
+
+blank_display:
     lda scene
     beq :+
     jsr wait_terrain_frame
@@ -29,18 +38,26 @@ blank_scene:
     lda #0
     sta $2001
     sta $2000
-    lda scene
-    eor #1
+    rts
+
+show_sound_screen:
+    lda #0
     sta scene
-    beq show_sound_screen
-    jsr draw_terrain
+    jsr draw_screen
+    jmp enable_screen
+
+enable_terrain:
     jsr enable_screen
     lda #0
     sta terrain_frame
-    jmp apply_camera
-show_sound_screen:
-    jsr draw_screen
-    jmp enable_screen
+    jsr apply_camera
+    lda scene
+    cmp #2
+    bne :+
+    lda #$1e
+    sta $2001
+:
+    rts
 
 draw_terrain:
     lda #0
@@ -72,11 +89,10 @@ fill_ring:
 
 ; Prepare new tiles before waiting for VBlank. The existing column stays
 ; resident until its replacement is about to enter the viewport.
+; A: 0 = still, 1 = right, 2 = left.
 step_camera:
-    lda #0
-    sta column_pending
-    lda pad
-    and #3
+    ldx #0
+    stx column_pending
     cmp #2
     beq move_left
     cmp #1
@@ -226,6 +242,11 @@ apply_camera:
     lda camera_high
     and #1
     ora #$80
+    ldx scene
+    cpx #2
+    bne :+
+    ora #$20            ; 8x16 sprites use the second pattern table.
+:
     sta $2000
     lda camera_low
     sta $2005
@@ -251,8 +272,8 @@ terrain_colors:
 
 ; Original terraced terrain. Each height counts 16-pixel rows from the top.
 terrain_heights:
-    .byte 12, 12, 11, 11, 10, 10, 11, 12, 12, 13, 13, 12, 11, 10, 9, 9
-    .byte 8,  9,  10, 10, 11, 12, 12, 11, 11, 10, 9,  8,  8,  9,  10, 11
+    .byte 12, 12, 11, 11, 10, 10, 11, 12, 12, 13, 11, 11, 11, 11, 11, 11
+    .byte 11, 11, 12, 12, 12, 12, 12, 11, 11, 10, 9,  8,  8,  9,  10, 11
     .byte 12, 13, 12, 11, 10, 9,  8,  9,  9,  10, 11, 12, 11, 10, 10, 11
 .assert * - terrain_heights = terrain_width, error, "Unexpected terrain width"
 
