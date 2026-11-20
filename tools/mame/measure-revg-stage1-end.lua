@@ -6,15 +6,22 @@ local frame = 0
 local trial = os.getenv("REVG_STAGE1_END") or "key"
 local section1_normal_hp = trial == "section1-end-normal-hp"
 local section1_end = trial == "section1-end-one" or trial == "section1-end-both" or section1_normal_hp
-local section1_upper = trial == "section1-upper"
+local upper_projectile = trial == "section1-upper-projectile"
+local section1_upper = trial == "section1-upper" or upper_projectile
 local section1_climb = trial == "section1-climb" or section1_upper
 local section1_respawn_climb = trial == "section1-respawn-climb"
 local section1_cross = trial == "section1-cross" or section1_climb or section1_respawn_climb or section1_end
 local section1_trial = trial == "section1-fall" or trial == "section1-jump" or section1_cross
 assert(trial == "key" or trial == "straight" or trial == "controller" or section1_trial,
     "Expected REVG_STAGE1_END=key, straight, controller, section1-fall, section1-jump, section1-cross, "
-        .. "section1-climb, section1-upper, section1-respawn-climb, section1-end-one, section1-end-both, "
+        .. "section1-climb, section1-upper, section1-upper-projectile, section1-respawn-climb, "
+        .. "section1-end-one, section1-end-both, "
         .. "or section1-end-normal-hp")
+local requested_upper_input = os.getenv("REVG_UPPER_INPUT")
+local upper_input = requested_upper_input or "stand"
+assert(not requested_upper_input or upper_projectile and
+    (upper_input == "stand" or upper_input == "crouch" or upper_input == "jump" or upper_input == "late-jump"),
+    "Expected REVG_UPPER_INPUT=stand, crouch, jump or late-jump with section1-upper-projectile")
 local requested_camera = os.getenv("REVG_SECTION1_CAMERA_X")
 local test_camera = tonumber(requested_camera)
 assert(not requested_camera or trial == "section1-fall" and (test_camera == 4608 or test_camera == 4609),
@@ -35,6 +42,7 @@ local coin, start = field(":SYSTEM", 0x40), field(":SYSTEM", 0x01)
 local right, left = field(":P1", 0x01), field(":P1", 0x02)
 local jump, fire = field(":P1", 0x20), field(":P1", 0x10)
 local up = (section1_climb or section1_respawn_climb) and field(":P1", 0x08)
+local down = upper_projectile and field(":P1", 0x04)
 
 local function word(addr)
     return mem:read_u8(addr) * 256 + mem:read_u8(addr + 1)
@@ -54,6 +62,27 @@ local function record_section1(event, value)
     print(string.format("section1,%s,%d,%s,%04x,%d,%d,%d,%d,%d,%d,%04x", event, frame, value,
         cpu.state.PC.value, word(0x0506), word(0x0509), word(0x009c),
         mem:read_u8(0x0072), mem:read_u8(0x0081), mem:read_u8(0x0060), word(0x00aa)))
+end
+
+local third_floor_reached
+if upper_projectile then
+    -- Observe the operands when the CPU compares the projectile's Y with the player's Y.
+    revg_upper_compare = mem:install_read_tap(0x0509, 0x0509, "upper floor projectile comparison", function(_, high)
+        if not third_floor_reached or section1_dead or cpu.state.PC.value ~= 0xf4bf then return end
+        local slot = cpu.state.U.value - 0x10
+        local player_x, player_y = word(0x0506), high * 256 + mem:read_u8(0x050a)
+        local shot_x, shot_y = word(slot + 6), word(slot + 9)
+        if math.abs(shot_x - player_x) <= 32 and math.abs(shot_y - player_y) <= 32 then
+            print(string.format("upper_compare,%d,%04x,%02x,%04x,%d,%d,%d,%d", frame,
+                slot, mem:read_u8(slot + 21), cpu.state.X.value, player_x, player_y, shot_x, shot_y))
+        end
+    end)
+    revg_upper_armor = mem:install_write_tap(0x0500, 0x0500, "upper floor armor loss", function(_, value)
+        if not third_floor_reached or section1_dead or value ~= 2 or mem:read_u8(0x0500) ~= 1 then return end
+        local pc = cpu.state.PC.value
+        local slot = pc == 0xf4e4 and string.format("%04x", cpu.state.U.value - 0x10) or "-"
+        record_section1("upper_armor_loss", slot)
+    end)
 end
 
 if section1_upper or section1_respawn_climb then
@@ -254,7 +283,7 @@ local checkpoint_route = {
     {9654, 0, 37, 0, 5, 0},
 }
 
-local first_floor_at, second_floor_reached
+local first_floor_at, second_floor_reached, upper_input_started
 local function section1_climb_inputs()
     if frame < 10300 then return true, frame % 42 == 0, false, frame % 7 == 0 end
     if frame < 10415 then
@@ -262,6 +291,17 @@ local function section1_climb_inputs()
         return tick >= 16, (tick + 20) % 37 == 0, false, (tick + 4) % 17 == 0
     end
     local player_x = word(0x0506)
+    if upper_projectile and third_floor_reached then
+        local stop_x = upper_input == "late-jump" and 5678 or 5668
+        if player_x < stop_x and not upper_input_started then return true, false, false, false, false end
+        local jumping = not upper_input_started and (upper_input == "jump" or upper_input == "late-jump")
+        if not upper_input_started then
+            upper_input_started = true
+            record_section1("upper_input", upper_input)
+        end
+        down:set_value(upper_input == "crouch" and 1 or 0)
+        return false, jumping, false, false, false
+    end
     if section1_upper and first_floor_at and frame >= first_floor_at + 10 then
         -- Climb the ladder to the left, then return to the next ladder on the right.
         local target_x = second_floor_reached and 5520 or 5424
@@ -339,6 +379,10 @@ print("event,notice,value,pc,player_x,player_y,camera_x,camera_limit,section,bos
 if section1_trial then
     print("section1,event,notice,value,pc,player_x,player_y,camera_x,section,checkpoint,lives_before,timer_hex")
 end
+if upper_projectile then
+    print("upper_trial," .. upper_input)
+    print("upper_compare,notice,slot,type,table,player_x,player_y,shot_x,shot_y")
+end
 revg_stage1_frame = emu.add_machine_frame_notifier(function()
     frame = frame + 1
     if frame == section1_sample_at then record_section1("ready", "-") end
@@ -368,9 +412,10 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
             second_floor_reached = true
             record_section1("second_floor_reached", "-")
         end
-        if second_floor_reached and player_y >= 398 then
+        if second_floor_reached and not third_floor_reached and player_y >= 398 then
+            third_floor_reached = true
             record_section1("third_floor_reached", "-")
-            trial_finished = true
+            trial_finished = not upper_projectile
         end
     end
     if section1_respawn_climb and water_jumped then

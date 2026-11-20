@@ -539,7 +539,31 @@ Remove-Item Env:REVG_STAGE1_END
 
 `section1-respawn-climb` と `section1-upper` は起動から各2回実行し、条件ごとに速度表示を除くログが一致した。
 
+### 上階で後方から来る敵弾
+
+`section1-upper-projectile` は Y=398 の階に着いてから右へ歩き、同じ高さで後方から追いつく種別 `$03` の弾を追う。`stand` と `crouch` は X=5668 で右を放し、`jump` は同じ更新でジャンプを1回入力した。`late-jump` は X=5678 まで右を押してからジャンプを入力した。各試行は電源投入からコントローラー入力を再生し、CPU の座標読み出しと鎧の状態書き込みを観測した。
+
+| 入力 | 入力変更の通知 | 弾の比較通知 | プレイヤー (X, Y) | 弾 (X, Y) | 最初の弾との結果 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `stand` | 11271 | 11276 | (5669, 399) | (5664, 399) | 被弾 |
+| `crouch` | 11271 | 11276 | (5669, 399) | (5664, 399) | 被弾 |
+| `jump` | 11271 | 11276 | (5669, 411) | (5664, 399) | 回避 |
+| `late-jump` | 11280 | 11282 | (5679, 399) | (5676, 399) | 被弾 |
+
+座標の差を「弾 − プレイヤー」とすると、この種別の判定表は立ち・しゃがみとも横が −6〜+6 px、縦は立ち状態用の表が −8〜+8 px、しゃがみ用の表が −8〜+2 px を受け付ける。しゃがんでも同じ高さの弾は縦の範囲に入る。`jump` では横の差が −5 px になった時点で縦の差が −12 px に広がっており、弾はそのまま通過した。`late-jump` は同じ弾が横の範囲に達した比較で、プレイヤーの高さがまだ変わっていなかった。
+
+`jump` で着地後もその場にいると、通知11334で前方から来た別の弾に当たった。ジャンプを挟んでその先へ進む入力は未確認。
+
+```powershell
+$env:REVG_STAGE1_END = 'section1-upper-projectile'
+$env:REVG_UPPER_INPUT = 'jump'
+mame makaimurg -rompath reference -noreadconfig -video none -sound none -nothrottle -skip_gameinfo -autoboot_delay 0 -autoboot_script tools/mame/measure-revg-stage1-end.lua -cfg_directory build/mame-cfg -nvram_directory build/mame-nvram -snapshot_directory build -seconds_to_run 195
+Remove-Item Env:REVG_STAGE1_END, Env:REVG_UPPER_INPUT
+```
+
+`upper_input` は停止または姿勢変更を入力した通知、`upper_compare` は比較に使った座標と判定表のアドレス、`upper_armor_loss` は鎧を失った通知を示す。4条件を起動から各2回実行し、条件ごとに速度表示を除くログが一致した。
+
 ## 次の比較実験
 
-1. **区間1の通常ルート。** 途中復帰から到達した Y=158 の階を登攀経路につなぎ、Y=398 の階から先へ進む入力を探す。ボスを通常の耐久値で両方倒し、鍵を取得するところまで通しで確認する。
+1. **区間1の通常ルート。** 途中復帰から到達した Y=158 の階を登攀経路につなぎ、Y=398 の階では後方の弾を跳び越えた後の移動を試す。ボスを通常の耐久値で両方倒し、鍵を取得するところまで通しで確認する。
 2. **各面の進行。** 面と復帰地点ごとに、足場間の距離とジャンプ到達距離の比、カメラが止まる位置、敵の出現条件を記録する。
