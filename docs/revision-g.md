@@ -492,7 +492,7 @@ Remove-Item Env:REVG_STAGE1_END
 | はしごの途中 | 10500 | (5520, 170) | 5392 |
 | 上階に到達 | 10557 | (5520, 238) | 5392 |
 
-途中復帰地点 (4736, 80) から周期的にジャンプする4条件では、水路まで進んだものの X=5177〜5179で落下した。上階まで到達した入力はチェックポイント通過直後からのもの。途中復帰から水路を渡る条件と、上階からボス手前までの経路は未確認。
+この経路では、ジャンプ中の通知10135にプレイヤー (5165, 113) で鎧状態 `$0500` が1から2に変わった。被弾直後に再び上昇し、対岸の (5180, 159) に着いた。途中復帰後は下の足場へ着地する別の入力が再現できた。[途中復帰後の水路](#途中復帰後の水路)
 
 起動からの試行を2回行い、速度表示を除くログが一致した。
 
@@ -502,7 +502,44 @@ mame makaimurg -rompath reference -noreadconfig -video none -sound none -nothrot
 Remove-Item Env:REVG_STAGE1_END
 ```
 
+### 途中復帰後の水路
+
+`section1-respawn-climb` は `section1-cross` と同じ入力で時間切れまで進め、途中復帰地点 (4736, 80) から右に進む。通知19841を起点に42フレーム周期でジャンプし、7フレーム周期で撃つ。X=5090に達したら射撃と周期ジャンプを止める。右を保持したまま、X=5143以降で `$0504` が0になった最初の通知に1回だけジャンプする。着地後は17フレーム周期で射撃しながら X=5224 付近のはしごへ寄り、上を入力する。
+
+| 観測点 | 通知 | プレイヤー (X, Y) |
+| --- | ---: | ---: |
+| 射撃を止める | 20228 | (5090, 101) |
+| 岸からジャンプする | 20274 | (5143, 79) |
+| 対岸に着地する | 20324 | (5196, 79) |
+| 対岸のはしごを登り終える | 20457 | (5231, 158) |
+
+水路の手前から対岸までに鎧状態の1から2への変化はなかった。以前の周期ジャンプと射撃を続ける4条件では X=5177〜5179で落下した。
+
+```powershell
+$env:REVG_STAGE1_END = 'section1-respawn-climb'
+mame makaimurg -rompath reference -noreadconfig -video none -sound none -nothrottle -skip_gameinfo -autoboot_delay 0 -autoboot_script tools/mame/measure-revg-stage1-end.lua -cfg_directory build/mame-cfg -nvram_directory build/mame-nvram -snapshot_directory build -seconds_to_run 350
+Remove-Item Env:REVG_STAGE1_END
+```
+
+### 建物の上階
+
+`section1-upper` は `section1-climb` の経路を延長する。Y=238に着いて10フレーム後から、16フレーム周期で撃ちながら左のはしごへ向かう。Y=318に着いたら射撃を止めて右のはしごへ向かう。どちらも目標 X との差が5 px以内で上を入力する。
+
+| 観測点 | 通知 | プレイヤー (X, Y) |
+| --- | ---: | ---: |
+| 最初のはしごの上端 | 10557 | (5520, 238) |
+| 左のはしごの上端 | 10984 | (5424, 318) |
+| 右のはしごの上端 | 11136 | (5520, 398) |
+
+```powershell
+$env:REVG_STAGE1_END = 'section1-upper'
+mame makaimurg -rompath reference -noreadconfig -video none -sound none -nothrottle -skip_gameinfo -autoboot_delay 0 -autoboot_script tools/mame/measure-revg-stage1-end.lua -cfg_directory build/mame-cfg -nvram_directory build/mame-nvram -snapshot_directory build -seconds_to_run 195
+Remove-Item Env:REVG_STAGE1_END
+```
+
+`section1-respawn-climb` と `section1-upper` は起動から各2回実行し、条件ごとに速度表示を除くログが一致した。
+
 ## 次の比較実験
 
-1. **区間1の通常ルート。** 途中復帰後に水路を渡り、建物の上階からボス配置地点までの入力をつなげる。通常の耐久値で両方を倒し、鍵を取得するところまで通しで確認する。
+1. **区間1の通常ルート。** 途中復帰から到達した Y=158 の階を登攀経路につなぎ、Y=398 の階から先へ進む入力を探す。ボスを通常の耐久値で両方倒し、鍵を取得するところまで通しで確認する。
 2. **各面の進行。** 面と復帰地点ごとに、足場間の距離とジャンプ到達距離の比、カメラが止まる位置、敵の出現条件を記録する。

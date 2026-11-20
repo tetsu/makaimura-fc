@@ -6,12 +6,15 @@ local frame = 0
 local trial = os.getenv("REVG_STAGE1_END") or "key"
 local section1_normal_hp = trial == "section1-end-normal-hp"
 local section1_end = trial == "section1-end-one" or trial == "section1-end-both" or section1_normal_hp
-local section1_climb = trial == "section1-climb"
-local section1_cross = trial == "section1-cross" or section1_climb or section1_end
+local section1_upper = trial == "section1-upper"
+local section1_climb = trial == "section1-climb" or section1_upper
+local section1_respawn_climb = trial == "section1-respawn-climb"
+local section1_cross = trial == "section1-cross" or section1_climb or section1_respawn_climb or section1_end
 local section1_trial = trial == "section1-fall" or trial == "section1-jump" or section1_cross
 assert(trial == "key" or trial == "straight" or trial == "controller" or section1_trial,
     "Expected REVG_STAGE1_END=key, straight, controller, section1-fall, section1-jump, section1-cross, "
-        .. "section1-climb, section1-end-one, section1-end-both, or section1-end-normal-hp")
+        .. "section1-climb, section1-upper, section1-respawn-climb, section1-end-one, section1-end-both, "
+        .. "or section1-end-normal-hp")
 local requested_camera = os.getenv("REVG_SECTION1_CAMERA_X")
 local test_camera = tonumber(requested_camera)
 assert(not requested_camera or trial == "section1-fall" and (test_camera == 4608 or test_camera == 4609),
@@ -31,7 +34,7 @@ end
 local coin, start = field(":SYSTEM", 0x40), field(":SYSTEM", 0x01)
 local right, left = field(":P1", 0x01), field(":P1", 0x02)
 local jump, fire = field(":P1", 0x20), field(":P1", 0x10)
-local up = section1_climb and field(":P1", 0x08)
+local up = (section1_climb or section1_respawn_climb) and field(":P1", 0x08)
 
 local function word(addr)
     return mem:read_u8(addr) * 256 + mem:read_u8(addr + 1)
@@ -51,6 +54,16 @@ local function record_section1(event, value)
     print(string.format("section1,%s,%d,%s,%04x,%d,%d,%d,%d,%d,%d,%04x", event, frame, value,
         cpu.state.PC.value, word(0x0506), word(0x0509), word(0x009c),
         mem:read_u8(0x0072), mem:read_u8(0x0081), mem:read_u8(0x0060), word(0x00aa)))
+end
+
+if section1_upper or section1_respawn_climb then
+    revg_water_armor = mem:install_write_tap(0x0500, 0x0500, "armor loss at the water", function(_, value)
+        local player_x = word(0x0506)
+        if mem:read_u8(0x0072) == 1 and player_x >= 5090 and player_x < 5196
+            and mem:read_u8(0x0500) == 1 and value == 2 then
+            record_section1("water_armor_loss", "1->2")
+        end
+    end)
 end
 
 local end_first_boss, end_second_boss, end_camera_reached
@@ -241,6 +254,27 @@ local checkpoint_route = {
     {9654, 0, 37, 0, 5, 0},
 }
 
+local first_floor_at, second_floor_reached
+local function section1_climb_inputs()
+    if frame < 10300 then return true, frame % 42 == 0, false, frame % 7 == 0 end
+    if frame < 10415 then
+        local tick = frame - 10300
+        return tick >= 16, (tick + 20) % 37 == 0, false, (tick + 4) % 17 == 0
+    end
+    local player_x = word(0x0506)
+    if section1_upper and first_floor_at and frame >= first_floor_at + 10 then
+        -- Climb the ladder to the left, then return to the next ladder on the right.
+        local target_x = second_floor_reached and 5520 or 5424
+        local firing = not second_floor_reached and frame % 16 == 0
+        return player_x < target_x, false, player_x > target_x, firing, math.abs(player_x - target_x) <= 5
+    end
+    if player_x >= 5514 then
+        return player_x < 5519, false, player_x > 5521, false, true
+    end
+    local tick = frame - 10415
+    return true, tick % 37 == 0, false, tick % 5 == 0
+end
+
 local function section1_inputs()
     if section1_dead then return false, false, false, false end
     if trial == "section1-fall" then return true, false, false, false end
@@ -249,19 +283,7 @@ local function section1_inputs()
         return true, frame >= first_jump and (frame - first_jump) % 49 == 0, false, frame % 14 == 0
     end
     if mem:read_u8(0x0081) == 1 then
-        if section1_climb then
-            if frame < 10300 then return true, frame % 42 == 0, false, frame % 7 == 0 end
-            if frame < 10415 then
-                local tick = frame - 10300
-                return tick >= 16, (tick + 20) % 37 == 0, false, (tick + 4) % 17 == 0
-            end
-            local player_x = word(0x0506)
-            if player_x >= 5514 then
-                return player_x < 5519, false, player_x > 5521, false, true
-            end
-            local tick = frame - 10415
-            return true, tick % 37 == 0, false, tick % 5 == 0
-        end
+        if section1_climb then return section1_climb_inputs() end
         -- Land, walk back below the threshold, and let the timer expire.
         return false, false, frame >= 9750, false
     end
@@ -279,14 +301,39 @@ local function section1_inputs()
     return tick >= delay, (tick + jump_phase) % jump_period == 0, false, (tick + fire_phase) % fire_period == 0
 end
 
+local water_approach, water_jumped, respawn_landed_at
+local function section1_respawn_inputs()
+    local player_x = word(0x0506)
+    if respawn_landed_at then
+        local tick = frame - respawn_landed_at
+        return player_x < 5223, false, player_x > 5225, (tick + 4) % 17 == 0, player_x >= 5221
+    end
+    if not water_approach and player_x >= 5090 then
+        water_approach = true
+        record_section1("respawn_water_stop_fire", "-")
+    end
+    if water_approach then
+        local jumping = not water_jumped and player_x >= 5143 and mem:read_u8(0x0504) == 0
+        if jumping then
+            water_jumped = true
+            record_section1("respawn_water_jump", "-")
+        end
+        return true, jumping, false, false
+    end
+    local tick = frame - 19841
+    return true, tick % 42 == 0, false, tick % 7 == 0
+end
+
 local samples = controller_only and {[7417] = true, [8700] = true}
     or {[4863] = true, [4902] = true, [5900] = true, [6200] = true, [6500] = true}
 local last = section1_end and 21200 or (section1_cross and 21000
     or (section1_trial and 10000 or (controller_only and 8700 or 6500)))
 if section1_climb then last = 10570 end
+if section1_upper then last = 11400 end
+if section1_respawn_climb then last = 20500 end
 if section1_normal_hp then last = 21800 end
 local previous_camera
-local water_crossed, ladder_reached, upper_floor_reached
+local water_crossed, ladder_reached
 print("trial," .. trial)
 print("event,notice,value,pc,player_x,player_y,camera_x,camera_limit,section,boss_x,boss_y,key_x,key_y")
 if section1_trial then
@@ -298,9 +345,10 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
     local respawn_observed = false
     if section1_sample_at and frame == section1_sample_at + 5 then
         record_section1("camera", "-")
-        respawn_observed = section1_dead and not section1_end
+        respawn_observed = section1_dead and not section1_end and not section1_respawn_climb
     end
     if section1_cross and (frame == 9721 or frame == 9862) then record_section1("route_sample", "-") end
+    local trial_finished = false
     if section1_climb and not section1_dead and frame >= 10122 then
         local player_x, player_y = word(0x0506), word(0x0509)
         if not water_crossed and player_x >= 5180 and player_y >= 159 then
@@ -311,9 +359,30 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
             ladder_reached = true
             record_section1("ladder_reached", "-")
         end
-        if ladder_reached and player_y >= 238 then
-            upper_floor_reached = true
+        if ladder_reached and not first_floor_at and player_y >= 238 then
+            first_floor_at = frame
             record_section1("upper_floor_reached", "-")
+            trial_finished = not section1_upper
+        end
+        if section1_upper and first_floor_at and not second_floor_reached and player_y >= 318 then
+            second_floor_reached = true
+            record_section1("second_floor_reached", "-")
+        end
+        if second_floor_reached and player_y >= 398 then
+            record_section1("third_floor_reached", "-")
+            trial_finished = true
+        end
+    end
+    if section1_respawn_climb and water_jumped then
+        local player_x, player_y = word(0x0506), word(0x0509)
+        local grounded = mem:read_u8(0x0504) == 0
+        if not respawn_landed_at and player_x >= 5196 and player_y >= 79 and grounded then
+            respawn_landed_at = frame
+            record_section1("respawn_water_landed", "-")
+        end
+        if respawn_landed_at and player_y >= 158 and grounded then
+            record_section1("respawn_first_floor", "-")
+            trial_finished = true
         end
     end
     if section1_end and frame == 20600 then record_section1("end_sample", mem:read_u8(0x00b6)) end
@@ -329,7 +398,7 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
         record_section1("camera_limit", previous_camera)
     end
     previous_camera = camera
-    if frame == last or respawn_observed or upper_floor_reached then
+    if frame == last or respawn_observed or trial_finished then
         print("end," .. frame)
         machine:exit()
         return
@@ -361,6 +430,10 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
             moving, jumping, returning = false, stopped_at_key and frame % 61 == 0, not stopped_at_key
             firing = false
         end
+    end
+
+    if section1_respawn_climb and frame >= 19841 then
+        moving, jumping, returning, firing, climbing = section1_respawn_inputs()
     end
 
     if section1_end and frame >= 19841 then
