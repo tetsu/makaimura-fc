@@ -20,7 +20,12 @@ assert(trial == "key" or trial == "straight" or trial == "controller" or section
 local requested_upper_input = os.getenv("REVG_UPPER_INPUT")
 local upper_input = requested_upper_input or "stand"
 local upper_wall = upper_input == "wall-walk" or upper_input == "wall-jump"
-local upper_ladder = upper_input == "ladder-down" or upper_input == "ladder-pause"
+local descent_pause_frames = ({
+    ["ladder-pause"] = 64,
+    ["ladder-pause-104"] = 104,
+    ["ladder-pause-112"] = 112,
+})[upper_input]
+local upper_ladder = upper_input == "ladder-down" or descent_pause_frames ~= nil
 local resume_jump_delay = ({
     ["resume-early-jump"] = 12,
     ["resume-jump"] = 22,
@@ -32,7 +37,8 @@ assert(not requested_upper_input or upper_projectile and
     (upper_input == "stand" or upper_input == "crouch" or upper_input == "jump" or upper_input == "late-jump"
         or upper_resumes or upper_ladder),
     "Expected REVG_UPPER_INPUT=stand, crouch, jump, late-jump, resume-walk, resume-early-jump, resume-jump, "
-        .. "wall-walk, wall-jump, ladder-down or ladder-pause with section1-upper-projectile")
+        .. "wall-walk, wall-jump, ladder-down, ladder-pause, ladder-pause-104 or ladder-pause-112 "
+        .. "with section1-upper-projectile")
 local requested_camera = os.getenv("REVG_SECTION1_CAMERA_X")
 local test_camera = tonumber(requested_camera)
 assert(not requested_camera or trial == "section1-fall" and (test_camera == 4608 or test_camera == 4609),
@@ -362,15 +368,15 @@ local function upper_ladder_inputs(player_x)
         descent_started = true
         record_section1("upper_ladder_down", "-")
     end
-    if upper_input == "ladder-pause" and descent_started then
+    if descent_pause_frames and descent_started then
         if not descent_paused_at and word(0x0509) <= 365 then
             descent_paused_at = frame
             record_section1("upper_ladder_pause", "-")
         end
         if descent_paused_at then
             local elapsed = frame - descent_paused_at
-            pressing_down = pressing_down and elapsed >= 64
-            if elapsed == 32 or elapsed == 64 then
+            pressing_down = pressing_down and elapsed >= descent_pause_frames
+            if elapsed == 32 or elapsed == descent_pause_frames then
                 record_section1("upper_ladder_sample", elapsed)
             end
         end
@@ -520,7 +526,8 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
             record_section1("third_floor_reached", "-")
             trial_finished = not upper_projectile
         end
-        if upper_ladder and descent_started and player_y <= 319 and mem:read_u8(0x0504) == 0 then
+        if upper_ladder and descent_started and not upper_ladder_finished
+            and player_y <= 319 and mem:read_u8(0x0504) == 0 then
             record_section1("upper_ladder_bottom", "-")
             upper_ladder_finished = true
         end
