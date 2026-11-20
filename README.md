@@ -14,6 +14,8 @@
 
 ## 調査ツールの使い分け
 
+キャラクターの動き、接触判定、カメラ、各面の構成を調べる作業は、VRC7a の起動・発音試作と並行して進める。比較には国内版 Revision G を使い、観測値、コードからの解釈、未測定区間を記録する。[国内版 G の計測結果と再現手順](docs/revision-g.md)
+
 - 試作は VRC7a の起動と FM・APU の同時発音から始める。対応エミュレーターで動作を確認し、実機では音量バランスと描画の安定性を確認する。
 - アーケード基板の挙動を参照する際は、`mame -rompath reference -verifyroms makaimurg` で ROM セットを照合する。メモリマップと描画順は公開ドライバを参照し、実行時のレジスタ書き込みは必要に応じて MAME のデバッガーで観測する。[MAME のコマンドライン仕様](https://docs.mamedev.org/commandline/commandline-all.html#verifyroms) · [MAME デバッガー](https://docs.mamedev.org/debugger/)
 - REA は、追加の解析で確かめたい点が具体化した場合に使う。たとえば試作 ROM が実機でだけ音切れする場合は、取得済みのバス波形を対象に、VRC7 へのレジスタ書き込み順と間隔を調べる。
