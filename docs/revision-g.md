@@ -461,7 +461,48 @@ Remove-Item Env:REVG_STAGE1_END
 
 `section1-end-one` に変更すると1体だけ倒す試行を再現する。2条件を各2回実行し、条件ごとにログが一致した。
 
+### 通常の耐久値でのボス戦
+
+`section1-end-normal-hp` は復帰ページを切り替えて (6784, 80) から始める。耐久値は初期値10を使い、命中時にゲームが書き込む値を記録する。通知19841以降は右に進みながら8フレーム周期で撃つ。通知20265から先は1体目の X に向けて移動と射撃を続け、その耐久値が0になったら2体目に向き直る。2体が消滅すると鍵の落下位置へ移動する。
+
+| 観測点 | 通知 |
+| --- | ---: |
+| 1体目の耐久値が0、残数が1へ | 20539、20626 |
+| 2体目の耐久値が0、残数が0へ | 21025、21112 |
+| 鍵の出現、取得 | 21115、21230 |
+| 区間番号が2へ、操作開始 | 21411、21752 |
+
+鍵は (6949, 176) に出現し、プレイヤーが (6948, 78) にいるときに取得した。区間2の操作開始座標は (80, 576) だった。
+
+起動からの試行を2回行い、速度表示を除くログが一致した。
+
+```powershell
+$env:REVG_STAGE1_END = 'section1-end-normal-hp'
+mame makaimurg -rompath reference -noreadconfig -video none -sound none -nothrottle -skip_gameinfo -autoboot_delay 0 -autoboot_script tools/mame/measure-revg-stage1-end.lua -cfg_directory build/mame-cfg -nvram_directory build/mame-nvram -snapshot_directory build -seconds_to_run 370
+Remove-Item Env:REVG_STAGE1_END
+```
+
+### チェックポイント通過後の登攀
+
+`section1-climb` は通知9721のチェックポイント通過後も前進する。ゲーム内のデータを差し替えず、方向、ジャンプ、射撃の入力だけで水路を渡り、最後に上入力で建物内のはしごを登る。
+
+| 観測点 | 通知 | プレイヤー (X, Y) | カメラ X |
+| --- | ---: | --- | ---: |
+| 水路の対岸に到達 | 10154 | (5180, 159) | 5052 |
+| はしごの途中 | 10500 | (5520, 170) | 5392 |
+| 上階に到達 | 10557 | (5520, 238) | 5392 |
+
+途中復帰地点 (4736, 80) から周期的にジャンプする4条件では、水路まで進んだものの X=5177〜5179で落下した。上階まで到達した入力はチェックポイント通過直後からのもの。途中復帰から水路を渡る条件と、上階からボス手前までの経路は未確認。
+
+起動からの試行を2回行い、速度表示を除くログが一致した。
+
+```powershell
+$env:REVG_STAGE1_END = 'section1-climb'
+mame makaimurg -rompath reference -noreadconfig -video none -sound none -nothrottle -skip_gameinfo -autoboot_delay 0 -autoboot_script tools/mame/measure-revg-stage1-end.lua -cfg_directory build/mame-cfg -nvram_directory build/mame-nvram -snapshot_directory build -seconds_to_run 180
+Remove-Item Env:REVG_STAGE1_END
+```
+
 ## 次の比較実験
 
-1. **区間1の通常ルート。** 途中復帰地点から入力だけで上層へ進み、ボスの配置から鍵の取得まで確認する。
+1. **区間1の通常ルート。** 途中復帰後に水路を渡り、建物の上階からボス配置地点までの入力をつなげる。通常の耐久値で両方を倒し、鍵を取得するところまで通しで確認する。
 2. **各面の進行。** 面と復帰地点ごとに、足場間の距離とジャンプ到達距離の比、カメラが止まる位置、敵の出現条件を記録する。
