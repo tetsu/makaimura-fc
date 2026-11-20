@@ -63,7 +63,7 @@ revg_pit_restart = mem:install_write_tap(0x0500, 0x0500, "restart", function(_, 
 end)
 
 print(string.format("trial,%s,%s", mode, test_x or "native"))
-print("type,frame,player_x,player_y,camera_x,checkpoint,armor,airborne,arremer_x,arremer_y,arremer_active,zombie_active")
+print("type,frame,player_x,player_y,camera_x,section,armor,airborne,arremer_x,arremer_y,arremer_active,zombie_active")
 revg_pit_frame = emu.add_machine_frame_notifier(function()
     frame = frame + 1
     local death = trial.death
