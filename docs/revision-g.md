@@ -391,7 +391,7 @@ MAME 0.289、既定 DIP の1周目で、第1面のクリアから入力だけで
 | 復帰座標 (3664, 112) を観測 | 9029 | 9787 |
 | 復帰後のカメラ X=3584 を観測 | 9034 | 9792 |
 
-どちらも死亡処理に入ってから463フレーム後に、復帰座標 (3664, 112) を観測した。区間番号は1、途中復帰フラグは0で、タイマーは開始時と同じ `$005A` に戻った。区間1への初回進入と今回の2経路の復帰では、`$6D26` の処理がいずれも `$6CF2–$6CF5` の同じ4バイトを読んだ。`section1-jump` では座標が戻った最初のサンプルに死亡時のカメラ X=4097 が残り、5フレーム後のサンプルで3584を確認した。途中復帰フラグが1になった後の経路は未測定。
+どちらも死亡処理に入ってから463フレーム後に、復帰座標 (3664, 112) を観測した。区間番号は1、途中復帰フラグは0で、タイマーは開始時と同じ `$005A` に戻った。区間1への初回進入と今回の2経路の復帰では、`$6D26` の処理がいずれも `$6CF2–$6CF5` の同じ4バイトを読んだ。`section1-jump` では座標が戻った最初のサンプルに死亡時のカメラ X=4097 が残り、5フレーム後のサンプルで3584を確認した。
 
 ```powershell
 $env:REVG_STAGE1_END = 'section1-fall'
@@ -401,7 +401,38 @@ Remove-Item Env:REVG_STAGE1_END
 
 `section1-jump` に変えるとジャンプ経路を再現する。両経路を電源投入から各2回実行し、条件ごとにログが一致した。
 
+## 区間1の途中復帰
+
+固定 ROM の `$ECB8–$ECBD` は、区間1のカメラ X を `$1200`（4608）と比較する。`section1-fall` の通知8530で、その比較が読むカメラ X だけを4608または4609に差し替えた。この時点の実カメラ X は両方とも3584だった。
+
+| 比較に渡した X | 死亡時の `$0081` | 復帰データの読み出し先 | 復帰座標 | 復帰後のカメラ X | 復帰時のタイマー |
+| ---: | ---: | --- | --- | ---: | --- |
+| 4608 | 0 | `$6CF2–$6CF5` | (3664, 112) | 3584 | `$005A` |
+| 4609 | 1 | `$6D0E–$6D11` | (4736, 80) | 4608 | `$0096` |
+
+4609を渡した更新で `$ECDB` がフラグを1に設定し、タイマー `$00AA` に `$0096` を設定した。以降の入力と実カメラは同じで、どちらも通知8566に (3704, 24) で死亡した。復帰座標は通知9029、復帰後のカメラ X は通知9034に記録した。2条件を電源投入から各2回実行し、条件ごとにログが一致した。
+
+```powershell
+$env:REVG_STAGE1_END = 'section1-fall'
+$env:REVG_SECTION1_CAMERA_X = '4609'
+mame makaimurg -rompath reference -noreadconfig -video none -sound none -nothrottle -skip_gameinfo -autoboot_delay 0 -autoboot_script tools/mame/measure-revg-stage1-end.lua -cfg_directory build/mame-cfg -nvram_directory build/mame-nvram -seconds_to_run 171
+Remove-Item Env:REVG_SECTION1_CAMERA_X
+Remove-Item Env:REVG_STAGE1_END
+```
+
+### コントローラー入力で境界を越える
+
+`section1-cross` では電源投入からコントローラー入力だけで進めた。通知9721にカメラ X=4608、プレイヤー X=4736を記録し、その通知の後の更新でカメラ X=4609、プレイヤー (4737, 103) になり、途中復帰フラグが1になった。
+
+左へ引き返して通知9862にカメラ X=4492へ戻っても、フラグは1を保った。カメラ X=4360で時間切れを待つと、通知19377に (4368, 71) で死亡処理に入った。463フレーム後に (4736, 80) へ戻り、5フレーム後にはカメラ X=4608を観測した。区間番号は1のままで、タイマーは `$0096` に戻った。電源投入から2回実行し、ログが一致した。
+
+```powershell
+$env:REVG_STAGE1_END = 'section1-cross'
+mame makaimurg -rompath reference -noreadconfig -video none -sound none -nothrottle -skip_gameinfo -autoboot_delay 0 -autoboot_script tools/mame/measure-revg-stage1-end.lua -cfg_directory build/mame-cfg -nvram_directory build/mame-nvram -seconds_to_run 355
+Remove-Item Env:REVG_STAGE1_END
+```
+
 ## 次の比較実験
 
-1. **区間1の途中復帰。** 区間1のチェックポイントまで進み、フラグの切り替えと死亡後の復帰先を測る。
+1. **区間1の終了条件。** 途中復帰地点から先に進み、カメラの停止、ボスの配置、次の区間への移行を測る。
 2. **各面の進行。** 面と復帰地点ごとに、足場間の距離とジャンプ到達距離の比、カメラが止まる位置、敵の出現条件を記録する。

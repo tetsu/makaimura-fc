@@ -4,9 +4,14 @@ local cpu = machine.devices[":maincpu"]
 local mem = cpu.spaces.program
 local frame = 0
 local trial = os.getenv("REVG_STAGE1_END") or "key"
-local section1_trial = trial == "section1-fall" or trial == "section1-jump"
+local section1_cross = trial == "section1-cross"
+local section1_trial = trial == "section1-fall" or trial == "section1-jump" or section1_cross
 assert(trial == "key" or trial == "straight" or trial == "controller" or section1_trial,
-    "Expected REVG_STAGE1_END=key, straight, controller, section1-fall, or section1-jump")
+    "Expected REVG_STAGE1_END=key, straight, controller, section1-fall, section1-jump, or section1-cross")
+local requested_camera = os.getenv("REVG_SECTION1_CAMERA_X")
+local test_camera = tonumber(requested_camera)
+assert(not requested_camera or trial == "section1-fall" and (test_camera == 4608 or test_camera == 4609),
+    "Expected REVG_SECTION1_CAMERA_X=4608 or 4609 with section1-fall")
 local controller_only = trial == "controller" or section1_trial
 local observation_start = controller_only and 6900 or 4900
 local boss, cleared
@@ -43,6 +48,20 @@ local function record_section1(event, value)
         mem:read_u8(0x0072), mem:read_u8(0x0081), mem:read_u8(0x0060), word(0x00aa)))
 end
 
+if test_camera then
+    local camera_high
+    revg_section1_compare = mem:install_read_tap(0x009c, 0x009d, "section 1 camera comparison", function(addr, value)
+        if frame ~= 8530 or cpu.state.PC.value ~= 0xecba then return end
+        if addr == 0x009c then
+            camera_high = value
+            return test_camera >> 8
+        end
+        local native = camera_high * 256 + value
+        print(string.format("section1_compare,%d,%d,%d,%d", frame, native, test_camera, word(cpu.state.X.value)))
+        return test_camera & 0xff
+    end)
+end
+
 if section1_trial then
     revg_section1_restart = mem:install_read_tap(0x6cf2, 0x6d11, "section 1 restart table", function(addr, value)
         local pc = cpu.state.PC.value
@@ -63,9 +82,10 @@ if section1_trial then
         end
     end)
     revg_section1_checkpoint = mem:install_write_tap(0x0081, 0x0081, "section 1 checkpoint", function(_, value)
-        if cpu.state.PC.value == 0x6c58 and mem:read_u8(0x0072) == 1 then
-            record_section1("checkpoint_reset", value)
-        end
+        if mem:read_u8(0x0072) ~= 1 then return end
+        local pc = cpu.state.PC.value
+        if pc == 0x6c58 then record_section1("checkpoint_reset", value) end
+        if pc == 0xecdd then record_section1("checkpoint_set", value) end
     end)
 end
 
@@ -162,9 +182,45 @@ local function controller_inputs()
     return moving, jumping, returning, firing
 end
 
+-- Each row gives the start frame, walking delay, jump period and phase,
+-- then the fire period and phase for one stretch of the checkpoint route.
+local checkpoint_route = {
+    {9150, 0, 37, 0, 5, 0},
+    {9238, 18, 44, 12, 14, 13},
+    {9342, 0, 37, 6, 11, 7},
+    {9446, 3, 44, 15, 5, 0},
+    {9550, 0, 37, 6, 11, 7},
+    {9654, 0, 37, 0, 5, 0},
+}
+
+local function section1_inputs()
+    if section1_dead then return false, false, false, false end
+    if trial == "section1-fall" then return true, false, false, false end
+    if not section1_cross or frame < checkpoint_route[1][1] then
+        local first_jump = section1_cross and 8533 or 8529
+        return true, frame >= first_jump and (frame - first_jump) % 49 == 0, false, frame % 14 == 0
+    end
+    if mem:read_u8(0x0081) == 1 then
+        -- Land, walk back below the threshold, and let the timer expire.
+        return false, false, frame >= 9750, false
+    end
+
+    local segment = #checkpoint_route
+    while frame < checkpoint_route[segment][1] do segment = segment - 1 end
+    local start_frame, delay, jump_period, jump_phase, fire_period, fire_phase =
+        table.unpack(checkpoint_route[segment])
+    local tick = frame - start_frame
+    local player_x = word(0x0506)
+    if segment == 1 and player_x >= 4205 and player_x <= 4227 and word(0x0509) >= 236
+        and mem:read_u8(0x0504) == 0 then
+        return true, player_x >= 4206 and tick % 2 == 0, false, tick % 6 == 0
+    end
+    return tick >= delay, (tick + jump_phase) % jump_period == 0, false, (tick + fire_phase) % fire_period == 0
+end
+
 local samples = controller_only and {[7417] = true, [8700] = true}
     or {[4863] = true, [4902] = true, [5900] = true, [6200] = true, [6500] = true}
-local last = section1_trial and 10000 or (controller_only and 8700 or 6500)
+local last = section1_cross and 21000 or (section1_trial and 10000 or (controller_only and 8700 or 6500))
 local previous_camera
 print("trial," .. trial)
 print("event,notice,value,pc,player_x,player_y,camera_x,camera_limit,section,boss_x,boss_y,key_x,key_y")
@@ -179,6 +235,7 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
         record_section1("camera", "-")
         respawn_observed = section1_dead
     end
+    if section1_cross and (frame == 9721 or frame == 9862) then record_section1("route_sample", "-") end
     if samples[frame] then record("sample", "-") end
     local camera = word(0x009c)
     if frame >= observation_start and boss and not reached_limit and camera >= word(0x005a) then
@@ -199,9 +256,7 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
     if controller_only then
         moving, jumping, returning, firing = controller_inputs()
         if section1_trial and frame >= 8512 then
-            moving, returning = not section1_dead, false
-            jumping = moving and trial == "section1-jump" and frame >= 8529 and (frame - 8529) % 49 == 0
-            firing = moving and trial == "section1-jump" and frame % 14 == 0
+            moving, jumping, returning, firing = section1_inputs()
         end
     else
         -- Repeat the crossing and return into the water from the checkpoint trial.
