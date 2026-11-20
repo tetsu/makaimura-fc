@@ -3,6 +3,9 @@ enemy_x = 272
 enemy_feet = 176
 player_height = 16
 jump_fall = 18
+crowd_start = 5 * 4
+crowd_count = 8
+crowd_end = crowd_start + crowd_count * 4
 
 .segment "ZEROPAGE"
 player_x: .res 2
@@ -22,6 +25,8 @@ draw_y: .res 1
 draw_tile: .res 1
 draw_palette: .res 1
 draw_slot: .res 1
+crowd_enabled: .res 1
+crowd_first: .res 1
 
 .segment "OAM"
 sprites: .res 256
@@ -47,6 +52,8 @@ show_game:
     sta player_hit
     sta player_left
     sta shot_life
+    sta crowd_enabled
+    sta crowd_first
     lda #$ff
     sta jump_step
     lda #1
@@ -56,6 +63,15 @@ show_game:
     jmp enable_terrain
 
 update_game:
+    lda pressed
+    and #$08            ; Up toggles the sprite evaluation test.
+    beq :+
+    lda crowd_enabled
+    eor #1
+    sta crowd_enabled
+    bne :+
+    jsr hide_crowd
+:
     lda player_hit
     bne game_camera
     jsr move_player
@@ -339,6 +355,57 @@ draw_shot:
     jsr set_sprite_x
     jsr emit_sprite
 sprites_done:
+    lda crowd_enabled
+    bne draw_crowd
+    rts
+
+hide_crowd:
+    ldx #crowd_start
+    lda #$f8
+:
+    sta sprites,x
+    inx
+    inx
+    inx
+    inx
+    cpx #crowd_end
+    bne :-
+    rts
+
+draw_crowd:
+    ; These pieces share the player's scanlines but follow the five gameplay
+    ; entries in OAM. Rotate their order so a dropped piece has another turn.
+    ldx #crowd_start
+    ldy crowd_first
+:
+    lda sprites
+    sta sprites,x
+    lda #5
+    sta sprites+1,x
+    lda #3
+    sta sprites+2,x
+    tya
+    asl a
+    asl a
+    asl a
+    asl a
+    adc #8              ; Carry is clear because Y is 0–7.
+    sta sprites+3,x
+    tya
+    clc
+    adc #1
+    and #crowd_count-1
+    tay
+    inx
+    inx
+    inx
+    inx
+    cpx #crowd_end
+    bne :-
+    iny
+    tya
+    and #crowd_count-1
+    sta crowd_first
     rts
 
 ; Draw adjacent 8x16 pieces around world center X (A low, X high).
