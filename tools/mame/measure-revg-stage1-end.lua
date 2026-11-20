@@ -22,7 +22,8 @@ local upper_input = requested_upper_input or "stand"
 local upper_wall = upper_input == "wall-walk" or upper_input == "wall-jump"
 local ladder_exit_fire = upper_input == "ladder-exit-fire"
 local ladder_exit_jump = upper_input == "ladder-exit-jump"
-local next_ladder = upper_input == "ladder-exit-next-down"
+local lower_ladder = upper_input == "ladder-exit-lower-down"
+local next_ladder = upper_input == "ladder-exit-next-down" or lower_ladder
 local ladder_second_jump_delay = next_ladder and 67 or (ladder_exit_jump and 80 or nil)
 local ladder_exit = upper_input == "ladder-exit-walk" or ladder_exit_fire or ladder_exit_jump or next_ladder
 local observe_right_wall = upper_wall or ladder_exit_jump or next_ladder
@@ -44,7 +45,7 @@ assert(not requested_upper_input or upper_projectile and
         or upper_resumes or upper_ladder),
     "Expected REVG_UPPER_INPUT=stand, crouch, jump, late-jump, resume-walk, resume-early-jump, resume-jump, "
         .. "wall-walk, wall-jump, ladder-down, ladder-pause, ladder-pause-104, ladder-pause-112, "
-        .. "ladder-exit-walk, ladder-exit-fire, ladder-exit-jump or ladder-exit-next-down "
+        .. "ladder-exit-walk, ladder-exit-fire, ladder-exit-jump, ladder-exit-next-down or ladder-exit-lower-down "
         .. "with section1-upper-projectile")
 local requested_camera = os.getenv("REVG_SECTION1_CAMERA_X")
 local test_camera = tonumber(requested_camera)
@@ -321,6 +322,7 @@ local ladder_x = 5616
 local descent_started, descent_paused_at, descent_bottom_at
 local next_ladder_x = 5712
 local next_descent_started, next_descent_bottom_at
+local lower_descent_started, lower_descent_bottom_at
 if observe_right_wall then
     local function observing_wall()
         if section1_dead or cpu.state.X.value ~= 0x0510 then return false end
@@ -387,9 +389,29 @@ if ladder_exit_fire then
     end)
 end
 
+local function lower_ladder_inputs(player_x, player_y)
+    if lower_descent_bottom_at then return true, false, false, false end
+
+    local jumping = frame - next_descent_bottom_at == 29
+    if jumping then record_section1("lower_ladder_jump", "-") end
+    local pressing_down = math.abs(player_x - ladder_x) <= 5 and player_y <= 239
+    if pressing_down then
+        down:set_value(1)
+        if not lower_descent_started then
+            lower_descent_started = true
+            record_section1("lower_ladder_down", "-")
+        end
+    end
+    return player_y >= 239 and player_x < ladder_x, jumping,
+        player_y >= 239 and player_x > ladder_x, false
+end
+
 local function next_ladder_inputs(player_x, jumping)
     local player_y = word(0x0509)
-    if next_descent_bottom_at then return true, false, false, false end
+    if next_descent_bottom_at then
+        if lower_ladder then return lower_ladder_inputs(player_x, player_y) end
+        return true, false, false, false
+    end
 
     local pressing_down = math.abs(player_x - next_ladder_x) <= 5 and player_y <= 319
     if pressing_down then
@@ -528,6 +550,7 @@ if section1_upper then last = 11400 end
 if upper_resumes or upper_ladder then last = 11500 end
 if ladder_exit then last = 11600 end
 if next_ladder then last = 11710 end
+if lower_ladder then last = 11940 end
 if section1_respawn_climb then last = 20500 end
 if section1_normal_hp then last = 21800 end
 local previous_camera
@@ -606,6 +629,11 @@ revg_stage1_frame = emu.add_machine_frame_notifier(function()
             end
             if next_descent_bottom_at and frame == next_descent_bottom_at + 60 then
                 record_section1("next_ladder_exit_sample", mem:read_u8(0x0504))
+            end
+            if lower_descent_started and not lower_descent_bottom_at
+                and player_x == ladder_x and player_y <= 159 and mem:read_u8(0x0504) == 0 then
+                lower_descent_bottom_at = frame
+                record_section1("lower_ladder_bottom", "-")
             end
         end
     end
