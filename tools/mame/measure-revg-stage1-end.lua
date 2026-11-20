@@ -19,13 +19,19 @@ assert(trial == "key" or trial == "straight" or trial == "controller" or section
         .. "or section1-end-normal-hp")
 local requested_upper_input = os.getenv("REVG_UPPER_INPUT")
 local upper_input = requested_upper_input or "stand"
-local resume_jump_delay = ({["resume-early-jump"] = 12, ["resume-jump"] = 22})[upper_input]
+local upper_wall = upper_input == "wall-walk" or upper_input == "wall-jump"
+local resume_jump_delay = ({
+    ["resume-early-jump"] = 12,
+    ["resume-jump"] = 22,
+    ["wall-walk"] = 22,
+    ["wall-jump"] = 22,
+})[upper_input]
 local upper_resumes = upper_input == "resume-walk" or resume_jump_delay ~= nil
 assert(not requested_upper_input or upper_projectile and
     (upper_input == "stand" or upper_input == "crouch" or upper_input == "jump" or upper_input == "late-jump"
         or upper_resumes),
-    "Expected REVG_UPPER_INPUT=stand, crouch, jump, late-jump, resume-walk, resume-early-jump "
-        .. "or resume-jump with section1-upper-projectile")
+    "Expected REVG_UPPER_INPUT=stand, crouch, jump, late-jump, resume-walk, resume-early-jump, resume-jump, "
+        .. "wall-walk or wall-jump with section1-upper-projectile")
 local requested_camera = os.getenv("REVG_SECTION1_CAMERA_X")
 local test_camera = tonumber(requested_camera)
 assert(not requested_camera or trial == "section1-fall" and (test_camera == 4608 or test_camera == 4609),
@@ -289,6 +295,33 @@ local checkpoint_route = {
 
 local first_floor_at, second_floor_reached, upper_input_started
 local upper_airborne, upper_resumed_at
+if upper_wall then
+    local function observing_wall()
+        if not upper_resumed_at or section1_dead or cpu.state.X.value ~= 0x0510 then return false end
+        local elapsed = frame - upper_resumed_at
+        return elapsed >= 62 and elapsed <= 93
+    end
+
+    local right_wall_limits = 0x458e
+    revg_upper_wall_compare = mem:install_read_tap(0x00e8, 0x00e8,
+        "upper floor right wall", function(_, local_x)
+            if cpu.state.PC.value ~= 0x8ba6 or not observing_wall() then return end
+            local limit_address = cpu.state.Y.value
+            -- The 6809 sign-extends the tile byte when adding it to the table base.
+            local tile = (limit_address - right_wall_limits) & 0xff
+            print(string.format("upper_wall_compare,%d,%02x,%d,%d,%d,%d,%d,%d", frame,
+                tile, local_x, mem:read_u8(limit_address),
+                word(0x0506), word(0x0509), word(0x00ec), word(0x00ee)))
+        end)
+    revg_upper_wall_correction = mem:install_write_tap(0x0507, 0x0507, "upper floor X correction",
+        function(_, value)
+            local pc = cpu.state.PC.value
+            if (pc ~= 0x9283 and pc ~= 0x93f0) or not observing_wall() then return end
+            local x_before = word(0x0506)
+            print(string.format("upper_wall_correct,%d,%04x,%d,%d", frame, pc, x_before, (x_before & 0xff00) | value))
+        end)
+end
+
 local function upper_resume_inputs()
     local air_state = mem:read_u8(0x0504)
     if not upper_resumed_at then
@@ -301,6 +334,10 @@ local function upper_resume_inputs()
     local elapsed = frame - upper_resumed_at
     local jumping = elapsed == resume_jump_delay
     if jumping then record_section1("upper_second_jump", "-") end
+    if upper_input == "wall-jump" and elapsed == 72 then
+        jumping = true
+        record_section1("upper_third_jump", air_state)
+    end
     -- Compare the inputs at the same times around the second landing and the stalled advance.
     if elapsed == 60 or elapsed == 66 or elapsed == 84 then
         record_section1("upper_resume_sample", air_state)
@@ -408,6 +445,10 @@ end
 if upper_projectile then
     print("upper_trial," .. upper_input)
     print("upper_compare,notice,slot,type,table,player_x,player_y,shot_x,shot_y")
+end
+if upper_wall then
+    print("upper_wall_compare,notice,tile,local_x,limit,player_x,player_y,probe_x,probe_y")
+    print("upper_wall_correct,notice,pc,before_x,corrected_x")
 end
 revg_stage1_frame = emu.add_machine_frame_notifier(function()
     frame = frame + 1
