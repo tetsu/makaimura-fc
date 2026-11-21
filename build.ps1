@@ -1,11 +1,15 @@
 param(
     [string]$Cc65Bin = '',
     [switch]$Hardware,
-    [string]$AreaManifest = ''
+    [string]$AreaManifest = '',
+    [string]$AreaTrial = ''
 )
 $ErrorActionPreference = 'Stop'
 if ($AreaManifest -and !$Hardware) {
     throw '-AreaManifest requires -Hardware.'
+}
+if ($AreaTrial -and !$AreaManifest) {
+    throw '-AreaTrial requires -AreaManifest.'
 }
 
 if (!$Cc65Bin -and !(Get-Command ca65 -ErrorAction SilentlyContinue)) {
@@ -35,19 +39,41 @@ if ($AreaManifest) {
     $areaDir = Join-Path $buildDir 'nes-areas'
     $manifestPath = (Resolve-Path -LiteralPath $AreaManifest).Path
     $areaTool = Join-Path $PSScriptRoot 'tools/place-nes-areas.py'
-    & python $areaTool $manifestPath $configPath $areaDir
+    $areaOptions = @()
+    if ($AreaTrial) {
+        $areaOptions = @('--trial', (Resolve-Path -LiteralPath $AreaTrial).Path)
+    }
+    $areaArgs = @($manifestPath, $configPath, $areaDir) + $areaOptions
+    & python $areaTool @areaArgs
     if ($LASTEXITCODE -ne 0) { throw "Area placement failed with code $LASTEXITCODE" }
     $basename = 'vrc7a-test-512k-areas'
     $assembleOptions += @('-D', 'NES_AREA_ART=1', '-I', $areaDir)
+    if ($AreaTrial) {
+        $basename += '-trial'
+        $assembleOptions += @('-D', 'NES_AREA_TRIAL=1')
+    }
     $configPath = Join-Path $areaDir 'nes-areas.cfg'
 }
 $object = Join-Path $buildDir "$basename.o"
 $rom = Join-Path $buildDir "$basename.nes"
 $labels = Join-Path $buildDir "$basename.lbl"
+$linkedRom = $rom
+if ($AreaTrial) { $linkedRom = "$rom.tmp" }
 & $assembler @assembleOptions (Join-Path $sourceDir 'vrc7a-test.s') -o $object
 if ($LASTEXITCODE -ne 0) { throw "ca65 exited with code $LASTEXITCODE" }
-& $linker @linkOptions -C $configPath -Ln $labels -o $rom $object
-if ($LASTEXITCODE -ne 0) { throw "ld65 exited with code $LASTEXITCODE" }
+try {
+    & $linker @linkOptions -C $configPath -Ln $labels -o $linkedRom $object
+    if ($LASTEXITCODE -ne 0) { throw "ld65 exited with code $LASTEXITCODE" }
+    if ($AreaTrial) {
+        & python $areaTool --check-trial-rom $linkedRom
+        if ($LASTEXITCODE -ne 0) { throw "Area trial validation failed with code $LASTEXITCODE" }
+        Move-Item -LiteralPath $linkedRom -Destination $rom -Force
+    }
+} finally {
+    if ($AreaTrial -and (Test-Path -LiteralPath $linkedRom)) {
+        Remove-Item -LiteralPath $linkedRom
+    }
+}
 
 $chrUsage = @{}
 foreach ($line in [IO.File]::ReadLines($labels)) {

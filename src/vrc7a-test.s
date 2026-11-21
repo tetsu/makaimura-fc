@@ -682,6 +682,16 @@ select_bank2:
     rts
 
 .if PRG_ROM_UNITS = 32
+.ifdef NES_AREA_TRIAL
+load_trial_background_banked:
+    lda prg_bank1
+    pha
+    lda #nes_area_viewer_bank
+    jsr select_bank1
+    jsr load_trial_background
+    pla
+    jmp select_bank1
+.endif
 call_bank3_init:
     lda #3
     jsr select_bank1
@@ -855,6 +865,19 @@ next_line:
     inx
     cpx #area_view_menu_length
     bne :-
+.ifdef NES_AREA_TRIAL
+    lda #$23
+    sta $2006
+    lda #$08
+    sta $2006
+    ldx #0
+:
+    lda area_trial_menu,x
+    sta $2007
+    inx
+    cpx #area_trial_menu_length
+    bne :-
+.endif
 .endif
 .endif
     rts

@@ -144,9 +144,20 @@ start_campaign_stage:
 start_course:
     jsr blank_display
     lda pad
+.ifdef NES_AREA_TRIAL
+    and #$02            ; Hold Left with B to start the manifest trial.
+    beq :+
+    lda #nes_area_trial_bank
+    bne @map_course
+:
+    lda pad
+.endif
     and #$04            ; Hold Down with B to map the alternate course.
     lsr a
     lsr a
+.ifdef NES_AREA_TRIAL
+@map_course:
+.endif
     jsr select_bank0
     jmp show_pan_game
 

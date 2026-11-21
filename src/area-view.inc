@@ -34,6 +34,12 @@ area_attributes: .res 64
 area_attr_index: .res 1
 area_parts_left: .res 1
 
+.ifdef NES_AREA_TRIAL
+trial_metatiles: .res 7 * 4
+trial_offsets: .res 7 * 2
+emit_area_trial
+.endif
+
 .segment "BANK51"
     .byte bank_tag_base + nes_area_viewer_bank
 
@@ -157,6 +163,26 @@ read_area_entry:
 ; X selects the cached BG or OBJ descriptor. Rendering must be off.
 ; The selected data bank remains mapped for the caller.
 upload_area_art:
+    jsr upload_area_chr
+    lda #$3f
+    sta $2006
+    lda #0
+    cpx #0
+    beq :+
+    lda #$10
+:
+    sta $2006
+    ldy #0
+:
+    lda (area_data),y
+    sta $2007
+    iny
+    cpy #16
+    bne :-
+    rts
+
+; Preserve X and return the palette pointer in area_data.
+upload_area_chr:
     lda area_entry+area_bank,x
     jsr select_bank0
     txa
@@ -181,22 +207,68 @@ upload_area_art:
     sta area_data
     lda area_entry+area_palette+1,x
     sta area_data+1
+    rts
+
+.ifdef NES_AREA_TRIAL
+; Called with the course bank mapped and rendering off. Keep the HUD and
+; goal/checkpoint patterns from the normal background table.
+load_trial_background:
+    ldx #13
+:
+    lda trial_region_offsets,x
+    sta trial_offsets,x
+    dex
+    bpl :-
+    lda trial_area_index
+    sta area_index
+    jsr read_area_entry
+    jsr load_menu_patterns
+    ldx #0
+    jsr upload_area_chr
+    ldx #0
+    ldy #0
+@region:
+    clc
+    lda area_entry+area_regions
+    adc trial_offsets,x
+    sta area_row
+    lda area_entry+area_regions+1
+    adc trial_offsets+1,x
+    sta area_row+1
+    ; Copy the four 8x8 quadrants, preserving the map's collision IDs.
+    txa
+    asl a
+    tax
+    .repeat 4, quadrant
+        lda (area_row),y
+        sta trial_metatiles+quadrant,x
+        iny
+    .endrepeat
+    ldy #0
+    txa
+    lsr a
+    tax
+    inx
+    inx
+    cpx #14
+    bne @region
+    ldy #4              ; The build verifies that every region uses this palette.
+    lda (area_row),y
+    asl a
+    asl a
+    tay
     lda #$3f
     sta $2006
-    lda #0
-    cpx #0
-    beq :+
-    lda #$10
-:
+    lda #$05            ; Palette 1 colors 1-3. Keep HUD palette 0 intact.
     sta $2006
-    ldy #0
-:
-    lda (area_data),y
-    sta $2007
-    iny
-    cpy #16
-    bne :-
-    rts
+    .repeat 3
+        iny
+        lda (area_data),y
+        sta $2007
+    .endrepeat
+    lda #nes_area_trial_bank
+    jmp select_bank0
+.endif
 
 ; Draw one nametable. Large sheets are cropped, small sheets repeat.
 ; Each region is a 16x16 group of four tiles and a palette index.
@@ -450,3 +522,8 @@ draw_area_pose:
 area_view_menu:
     .byte $0c, $06, $07, $13, $17, $02, $00, $02, $11, $06, $02, $00, $15, $0a, $06, $16 ; LEFT+A AREA VIEW
 area_view_menu_length = * - area_view_menu
+.ifdef NES_AREA_TRIAL
+area_trial_menu:
+    .byte $0c, $06, $07, $13, $17, $03, $00, $02, $11, $06, $02, $00, $13, $11, $0a, $02, $0c ; LEFT+B AREA TRIAL
+area_trial_menu_length = * - area_trial_menu
+.endif

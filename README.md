@@ -27,7 +27,7 @@
 
 352402 基板の検証資料は、機材が揃った後の追加検証に使う。[実機試験資料](docs/vrc7a-hardware-test.md)
 
-エリアマニフェスト付きの512 KiB版では、BG・OBJ の CHR、パレット、ポーズをテストメニューから確認できる。次は自作の地形とエリア画像を1つの試験ステージに組み込み、Mesen でスクロール、HUD、チェックポイント復帰を確認する。[開発タスク](TODO.md)
+エリアマニフェスト付きの512 KiB版では、BG・OBJ の CHR、パレット、ポーズをテストメニューから確認できる。自作の試験コースにエリア BG を接続し、Mesen でスクロール、固定 HUD、チェックポイント復帰を確認した。次は試験コースのプレイヤーを OBJ ポーズ表に接続する。[開発タスク](TODO.md)
 
 [実装と検証のチェックリスト](TODO.md#次の開発マイルストーン)
 
@@ -124,6 +124,14 @@ BGMは1から順に開始、ステージ1・2、ボス、クリア、ゲーム�
 `./build.ps1 -Hardware -AreaManifest <マニフェスト.json>` で生成した `build/vrc7a-test-512k-areas.nes` を Mesen で開く。タイトルで **SELECT** を押し、テストメニューの **左＋A** でエリアビューアに入る。
 
 **左／右** で前／次のエリア、**下／上** で前／次のポーズを選ぶ。選択は両端で循環し、エリア切り替え時は先頭のポーズを表示する。**SELECT** でテストメニューへ戻る。[マニフェストの作り方](docs/stage-design.md#37-エリアの画像データを-prg-rom-に配置する)
+
+### マニフェストの試験コース
+
+```powershell
+./build.ps1 -Hardware -AreaManifest build/areas.json -AreaTrial build/trial-stage.json
+```
+
+`build/vrc7a-test-512k-areas-trial.nes` を Mesen で開く。タイトルで **SELECT** を押し、テストメニューの **左＋B** で試験コースを始める。左右で移動、**A** でジャンプ、**B** で射撃、被弾後は **START** で再挑戦する。**SELECT** でテストメニューに戻る。[試験コース JSON と BG の条件](docs/stage-design.md#38-エリア-bg-を試験コースに組み込む)
 
 ### コース音声の録音と測定
 

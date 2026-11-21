@@ -177,6 +177,13 @@ draw_pan:
     sbc pan_top_rows
     sta pan_col_length
     jsr load_terrain_palette
+.ifdef NES_AREA_TRIAL
+    lda prg_bank0
+    cmp #nes_area_trial_bank
+    bne :+
+    jsr load_trial_background_banked
+:
+.endif
 pan_initial_rows:
     jsr prepare_pan_row
     jsr upload_pan_row
@@ -379,6 +386,14 @@ prepare_pan_row:
     asl a
     ora #$c0
     sta pan_attr_addr
+.ifdef NES_AREA_TRIAL
+    lda prg_bank0
+    cmp #nes_area_trial_bank
+    bne :+
+    lda #$55          ; All trial terrain uses palette 1. HUD resets its own row.
+    bne pan_store_attr
+:
+.endif
     lda pan_local_y
     and #2
     beq :+
@@ -404,6 +419,9 @@ pan_attr_palette:
     asl a
     asl a
     ora pan_attrib
+.ifdef NES_AREA_TRIAL
+pan_store_attr:
+.endif
     sta pan_attr_value
 
     lda pan_need_row
@@ -464,7 +482,28 @@ prepare_pan_column:
     bne :-
     rts
 
-; Use the same cliff profile and pattern tiles as the horizontal terrain.
+.ifdef NES_AREA_TRIAL
+pan_trial_tile:
+    lda pan_data_y
+    lsr a
+    tay
+    lda pan_data_x
+    lsr a
+    jsr read_map_cell
+    asl a
+    asl a
+    sta pan_attrib
+    lda pan_data_x
+    lsr a
+    lda pan_data_y
+    rol a
+    and #3
+    ora pan_attrib
+    tay
+    lda trial_metatiles,y
+    rts
+.endif
+
 ; X is the buffer index; Y is scratch.
 pan_tile:
     lda pan_data_x
@@ -484,12 +523,36 @@ pan_goal_flag:
 :
     cmp z:checkpoint_tile_x
     bne :+
+.ifdef NES_AREA_TRIAL
+    lda prg_bank0
+    cmp #nes_area_trial_bank
+    bne @legacy_checkpoint
+    lda stage_cp_feet
+    lsr a
+    lsr a
+    lsr a
+    sec
+    sbc #1
+    cmp pan_data_y
+    beq @checkpoint
+    bne :+
+@legacy_checkpoint:
+.endif
     ldy pan_data_y
     cpy #23
     bne :+
+.ifdef NES_AREA_TRIAL
+@checkpoint:
+.endif
     lda #(checkpoint_pattern-glyphs)/16
     rts
 :
+.ifdef NES_AREA_TRIAL
+    lda prg_bank0
+    cmp #nes_area_trial_bank
+    beq pan_trial_tile
+    lda pan_data_x
+.endif
     lsr a
     tay
 .if PRG_ROM_UNITS = 32
