@@ -1,8 +1,12 @@
 param(
     [string]$Cc65Bin = '',
-    [switch]$Hardware
+    [switch]$Hardware,
+    [string]$AreaManifest = ''
 )
 $ErrorActionPreference = 'Stop'
+if ($AreaManifest -and !$Hardware) {
+    throw '-AreaManifest requires -Hardware.'
+}
 
 if (!$Cc65Bin -and !(Get-Command ca65 -ErrorAction SilentlyContinue)) {
     $Cc65Bin = Join-Path $env:USERPROFILE 'tools/cc65/bin'
@@ -26,12 +30,23 @@ if ($Hardware) {
     $linkerConfig = 'vrc7a-512k.cfg'
     $assembleOptions = @('-D', 'PRG_ROM_UNITS=32')
 }
+$configPath = Join-Path $sourceDir $linkerConfig
+if ($AreaManifest) {
+    $areaDir = Join-Path $buildDir 'nes-areas'
+    $manifestPath = (Resolve-Path -LiteralPath $AreaManifest).Path
+    $areaTool = Join-Path $PSScriptRoot 'tools/place-nes-areas.py'
+    & python $areaTool $manifestPath $configPath $areaDir
+    if ($LASTEXITCODE -ne 0) { throw "Area placement failed with code $LASTEXITCODE" }
+    $basename = 'vrc7a-test-512k-areas'
+    $assembleOptions += @('-D', 'NES_AREA_ART=1', '-I', $areaDir)
+    $configPath = Join-Path $areaDir 'nes-areas.cfg'
+}
 $object = Join-Path $buildDir "$basename.o"
 $rom = Join-Path $buildDir "$basename.nes"
 $labels = Join-Path $buildDir "$basename.lbl"
 & $assembler @assembleOptions (Join-Path $sourceDir 'vrc7a-test.s') -o $object
 if ($LASTEXITCODE -ne 0) { throw "ca65 exited with code $LASTEXITCODE" }
-& $linker @linkOptions -C (Join-Path $sourceDir $linkerConfig) -Ln $labels -o $rom $object
+& $linker @linkOptions -C $configPath -Ln $labels -o $rom $object
 if ($LASTEXITCODE -ne 0) { throw "ld65 exited with code $LASTEXITCODE" }
 
 $chrUsage = @{}

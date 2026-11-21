@@ -28,6 +28,9 @@ bank_tag_base = $80
     .byte bank_tag_base + 4 + index
     .res $1fff, $ff
 .endrepeat
+.ifdef NES_AREA_ART
+.include "nes-areas.inc"
+.else
 .segment "PAD_11"
     .byte bank_tag_base + 11
     .res $1fff, $ff
@@ -36,6 +39,7 @@ bank_tag_base = $80
     .byte bank_tag_base + 19 + index
     .res $1fff, $ff
 .endrepeat
+.endif
 .endif
 .segment "FIXED_TAG"
 .byte bank_tag_base + fixed_bank
