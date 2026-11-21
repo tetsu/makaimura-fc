@@ -6,6 +6,8 @@ local wallFrames = 0
 local retryAt
 local scrollX, previousScrollX
 local seamColumns
+local hudPixels = {}
+local reverseJumped = false
 local idleTile, jumpTile = 0x21, 0x27
 local upperY = 127 -- Floor Y=144, 16 px sprite, OAM Y minus one.
 local lowerY = 143 -- The camera settles with the lower floor at scanline 160.
@@ -48,12 +50,20 @@ end
 
 emu.addMemoryCallback(function(_, value)
     -- At the HUD split, the second $2005 write sets the playfield's low X byte.
-    if step == "reach goal" and emu.getState()["ppu.scanline"] == 31 then
+    if (step == "cross seam right" or step == "cross seam left")
+        and emu.getState()["ppu.scanline"] == 31 then
         scrollX = value
     end
 end, emu.callbackType.write, 0x2005, 0x2005, emu.memType.nesMemory)
 
-local function checkSeam()
+local function checkHud()
+    local pixels = emu.getScreenBuffer()
+    for i, pixel in ipairs(hudPixels) do
+        check(pixels[i] == pixel, "HUD shifted during the seam round trip")
+    end
+end
+
+local function checkRightSeam()
     -- The marker at (512, 80) wraps to columns 0 and 1 in the 32-tile ring.
     if previousScrollX == 255 and scrollX == 0 then
         check(ppuMatches(0x2140, {0x60, 0x60}) and ppuMatches(0x2160, {0x60, 0x60}),
@@ -69,9 +79,39 @@ local function checkSeam()
             "wrong right marker column at the horizontal seam")
         check(ppuMatches(0x23d0, {0x55}), "wrong palette attribute after the second column upload")
         seamColumns = 2
+        nextInput = {left = true}
+        step = "cross seam left"
     end
-    previousScrollX = scrollX
-    scrollX = nil
+end
+
+local function checkLeftSeam()
+    -- The raised floor blocks the player at X=320 as the camera reaches
+    -- X=256. Jump back onto it to keep the camera moving left.
+    if scrollX == 0 and not reverseJumped then
+        nextInput.a = true
+        reverseJumped = true
+    end
+    -- The masked left edge preloads the second tile column of the viewport.
+    -- The X=512 marker is replaced in right-to-left order as the columns
+    -- for X=264 and X=256 reenter view at camera X=263 and X=255.
+    if previousScrollX == 8 and scrollX == 7 then
+        check(ppuMatches(0x2140, {0x61, 0x60}) and ppuMatches(0x2160, {0x62, 0x60}),
+            "column at world X=264 was not restored on the way back")
+        seamColumns = 3
+    elseif previousScrollX == 0 and scrollX == 255 and seamColumns == 3 then
+        check(ppuMatches(0x2140, {0x60, 0x60}) and ppuMatches(0x2160, {0x60, 0x60}),
+            "column at world X=256 was not restored on the way back")
+        check(ppuMatches(0x215f, {0x60}) and ppuMatches(0x217f, {0x60}),
+            "left marker overwrote the ring before entering the viewport")
+        seamColumns = 4
+    elseif previousScrollX == 248 and scrollX == 247 and seamColumns == 4 then
+        -- Only the right half of the X=240 marker has reentered view.
+        check(ppuMatches(0x215f, {0x61}) and ppuMatches(0x217f, {0x63}),
+            "column at world X=248 was not restored on the way back")
+        check(ppuMatches(0x23d7, {0x55}), "wrong palette attribute on the way back")
+        step = "reach goal"
+        nextInput = {right = true}
+    end
 end
 
 emu.addEventCallback(function()
@@ -81,7 +121,7 @@ end, emu.eventType.inputPolled)
 emu.addEventCallback(function()
     frame = frame + 1
     nextInput = {}
-    check(frame < 1200, "timed out")
+    check(frame < 1600, "timed out")
     local y, tile, attributes, x = oam(0, 0), oam(0, 1), oam(0, 2), oam(0, 3)
 
     if step == "boot" then
@@ -94,6 +134,13 @@ emu.addEventCallback(function()
             check(ppuMatches(0x224c, {0x64, 0x64}), "terrain did not use the second area's tile IDs")
             check(ppuMatches(0x23e3, {0x55}), "terrain attributes did not select palette 1")
             checkArea()
+            local pixels = emu.getScreenBuffer()
+            local hudVisible = false
+            for i = 1, 32 * 256 do
+                hudPixels[i] = pixels[i]
+                hudVisible = hudVisible or pixels[i] ~= pixels[1]
+            end
+            check(hudVisible, "HUD is blank")
             step = "approach wall"
         end
     elseif step == "approach wall" then
@@ -155,15 +202,25 @@ emu.addEventCallback(function()
             nextInput.right = true
         end
     elseif step == "shoot enemy" then
-        if not enemyGap() then step = "reach goal" end
+        if not enemyGap() then step = "cross seam right" end
+    elseif step == "cross seam right" or step == "cross seam left" then
+        check((attributes & 3) ~= 2, "player was hit during the seam round trip")
+        checkHud()
+        if step == "cross seam right" then
+            nextInput.right = true
+            checkRightSeam()
+        else
+            nextInput.left = true
+            checkLeftSeam()
+        end
+        previousScrollX = scrollX
+        scrollX = nil
     elseif step == "reach goal" then
         if ppuMatches(0x218a, clear) then
-            check(seamColumns == 2, "did not verify both columns at the horizontal seam")
-            print("Stepped area trial cleared after a checkpoint retry and a verified horizontal seam")
+            print("Stepped area trial cleared after a checkpoint retry and a horizontal seam round trip")
             emu.stop(0)
         else
             check((attributes & 3) ~= 2, "player was hit on the second descent")
-            if seamColumns ~= 2 then checkSeam() end
             nextInput.right = true
         end
     end
