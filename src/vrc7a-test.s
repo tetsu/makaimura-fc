@@ -899,17 +899,13 @@ next_line:
     cpx #area_view_menu_length
     bne :-
 .ifdef NES_AREA_TRIAL
-    lda #$23
-    sta $2006
-    lda #$08
-    sta $2006
-    ldx #0
-:
-    lda area_trial_menu,x
-    sta $2007
-    inx
-    cpx #area_trial_menu_length
-    bne :-
+    lda prg_bank1
+    pha
+    lda #nes_area_viewer_bank
+    jsr select_bank1
+    jsr draw_area_trial_menu
+    pla
+    jmp select_bank1
 .endif
 .endif
 .endif

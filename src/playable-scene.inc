@@ -188,6 +188,24 @@ start_course:
     bne @map_course
 :
 .endif
+.if nes_area_trial_count > 2
+    lda pad
+    and #$0c            ; Up+B opens the selector while Down+B keeps the alternate course.
+    cmp #$08
+    bne :+
+    lda prg_bank1
+    pha
+    lda #nes_area_viewer_bank
+    jsr select_bank1
+    jsr choose_trial_course
+    tay
+    pla
+    jsr select_bank1
+    tya
+    bpl @map_course
+    jmp show_sound_screen
+:
+.endif
     lda pad
 .endif
     and #$04            ; Hold Down with B to map the alternate course.

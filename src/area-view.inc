@@ -46,6 +46,9 @@ trial_player_addresses: .res 4 * 2
 trial_player_poses: .res 4 * trial_pose_size
 trial_player_last_x: .res 1
 trial_player_steps: .res 1
+.if nes_area_trial_count > 2
+trial_selection: .res 1
+.endif
 emit_area_trials
 .endif
 
@@ -689,16 +692,130 @@ draw_area_pose:
 @done:
     rts
 
-.segment "RODATA"
-area_view_menu:
-    .byte $0c, $06, $07, $13, $17, $02, $00, $02, $11, $06, $02, $00, $15, $0a, $06, $16 ; LEFT+A AREA VIEW
-area_view_menu_length = * - area_view_menu
 .ifdef NES_AREA_TRIAL
+draw_area_trial_menu:
+    lda #$23
+    sta $2006
+    lda #$08
+    sta $2006
+    ldx #0
+:
+    lda area_trial_menu,x
+    sta $2007
+    inx
+    cpx #area_trial_menu_length
+    bne :-
+    rts
+
 area_trial_menu:
     .byte $0c, $06, $07, $13, $17, $03, $00, $02, $11, $06, $02, $00, $13, $11, $0a, $02, $0c ; LEFT+B AREA TRIAL
 .if nes_area_trial_count > 1
     .res 15, 0
     .byte $11, $0a, $08, $09, $13, $17, $03, $00, $02, $11, $06, $02, $00, $13, $11, $0a, $02, $0c ; RIGHT+B AREA TRIAL
 .endif
-area_trial_menu_length = * - area_trial_menu
+.if nes_area_trial_count > 2
+    .res 14, 0
+    .byte $14, $10, $17, $03, $00, $13, $11, $0a, $02, $0c, $00, $0d, $06, $0e, $14 ; UP+B TRIAL MENU
 .endif
+area_trial_menu_length = * - area_trial_menu
+
+.if nes_area_trial_count > 2
+; Enter with rendering off and menu glyphs loaded. Return with rendering off
+; and A = selected PRG bank, or $ff to reopen the test menu.
+choose_trial_course:
+    jsr silence_music
+    bit $2002
+    jsr clear_screen
+    lda #$21
+    sta $2006
+    lda #$48
+    sta $2006
+    ldx #0
+:
+    lda trial_selector_text,x
+    sta $2007
+    inx
+    cpx #trial_selector_length
+    bne :-
+    lda #0
+    sta trial_selection
+    jsr draw_trial_number
+    jsr enable_static_screen
+@poll:
+    jsr wait_terrain_frame
+    jsr read_pad
+    lda previous
+    eor #$ff
+    and pad
+    ldx pad
+    stx previous
+    tay
+    and #$20
+    bne @cancel
+    tya
+    and #$50            ; B or START confirms.
+    bne @confirm
+    tya
+    and #$03
+    beq @poll
+    cmp #$03
+    beq @poll
+    ldx trial_selection
+    ldy #nes_area_trial_count
+    jsr step_area_selection
+    stx trial_selection
+    jsr draw_trial_number
+    jmp @poll
+@cancel:
+    jsr blank_display
+    lda #$ff
+    rts
+@confirm:
+    jsr blank_display
+    lda trial_selection
+    clc
+    adc #nes_area_trial_bank
+    rts
+
+draw_trial_number:
+    bit $2002
+    lda #$21
+    sta $2006
+    lda #$4e
+    sta $2006
+    ldx #campaign_zero
+    lda trial_selection
+    clc
+    adc #1
+    cmp #10
+    bcc :+
+    sbc #10
+    inx
+:
+    stx $2007
+    clc
+    adc #campaign_zero
+    sta $2007
+    lda #0
+    sta $2005
+    sta $2005
+    rts
+
+trial_selector_text:
+    .byte $13, $11, $0a, $02, $0c, $00, 0, 0, $00, $0f, $07, $00 ; TRIAL 00 OF
+    .byte campaign_zero + nes_area_trial_count / 10
+    .byte campaign_zero + nes_area_trial_count .mod 10
+    .res 18, 0
+    .byte $0c, $06, $07, $13, $00, $11, $0a, $08, $09, $13, $00, $04, $09, $0f, $0f, $12, $06 ; LEFT RIGHT CHOOSE
+    .res 15, 0
+    .byte $12, $13, $02, $11, $13, $00, $10, $0c, $02, $17 ; START PLAY
+    .res 22, 0
+    .byte $12, $06, $0c, $06, $04, $13, $00, $03, $02, $04, $0b ; SELECT BACK
+trial_selector_length = * - trial_selector_text
+.endif
+.endif
+
+.segment "RODATA"
+area_view_menu:
+    .byte $0c, $06, $07, $13, $17, $02, $00, $02, $11, $06, $02, $00, $15, $0a, $06, $16 ; LEFT+A AREA VIEW
+area_view_menu_length = * - area_view_menu

@@ -133,6 +133,8 @@ BGMは1から順に開始、ステージ1・2、ボス、クリア、ゲーム�
 ./tools/test-mesen.ps1 -AreaTrial
 ```
 
+同じコマンドで11コース構成の選択画面も検証する。第3・第11コースの直接開始、第3コースのクリア後に第4コースへ進むこと、番号の折り返しとキャンセルを確認する。
+
 入力は `build/area-trial-fixture/` に生成される。平坦コース (`stage.json`) と段差コース (`steps.json`) は、共通の `areas.json` で別々のエリアを選ぶ。最終コース (`finish.json`) は平坦コースと同じエリアを使い、地形と開始位置、敵配置、ゴールを変更している。入力の生成後に3コースを手動でビルドする場合は、次を実行する。
 
 ```powershell
@@ -140,7 +142,9 @@ $fixture = 'build/area-trial-fixture'
 ./build.ps1 -Hardware -AreaManifest "$fixture/areas.json" -AreaTrial @("$fixture/stage.json", "$fixture/steps.json", "$fixture/finish.json")
 ```
 
-`build/vrc7a-test-512k-areas-trial.nes` を Mesen で開く。タイトルで **SELECT** を押し、テストメニューの **左＋B** で1番目、**右＋B** で2番目を始める。左右で移動、**A** でジャンプ、**B** で射撃、被弾後は **START** で再挑戦する。クリア画面の `START NEXT` で **START** を押すと次のコースに進む。最後のクリア画面では `START PLAY` が表示され、**START** でそのコースを再プレイする。**SELECT** でテストメニューに戻る。試験コース JSON の `player_poses` でプレイヤーの画像、`enemies` で固定敵と射撃敵の位置を指定できる。[試験コース JSON の条件](docs/stage-design.md#38-エリア-bg-を試験コースに組み込む)
+`build/vrc7a-test-512k-areas-trial.nes` を Mesen で開く。タイトルで **SELECT** を押し、テストメニューの **左＋B** で1番目、**右＋B** で2番目を始める。3コース以上を収録した場合は **上＋B** でコース選択画面を開ける。左右で収録順の番号を切り替え、**START** または **B** で開始、**SELECT** でキャンセルする。
+
+プレイ中は左右で移動、**A** でジャンプ、**B** で射撃、被弾後は **START** で再挑戦する。クリア画面の `START NEXT` で **START** を押すと次のコースに進む。最後のクリア画面では `START PLAY` が表示され、**START** でそのコースを再プレイする。**SELECT** でテストメニューに戻る。試験コース JSON の `player_poses` でプレイヤーの画像、`enemies` で固定敵と射撃敵の位置を指定できる。[試験コース JSON の条件](docs/stage-design.md#38-エリア-bg-を試験コースに組み込む)
 
 ### コース音声の録音と測定
 
