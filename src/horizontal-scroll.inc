@@ -22,11 +22,21 @@ column_right_tiles: .res 30
 toggle_scene:
     jsr blank_display
     lda scene
+.if PRG_ROM_UNITS = 32
+    cmp #title_scene
+    beq show_sound_screen
+    ldx arcade_mode
+    bne show_title_screen_entry
+.endif
     bne show_sound_screen
     lda #1
     sta scene
     jsr draw_terrain
     jmp enable_terrain
+.if PRG_ROM_UNITS = 32
+show_title_screen_entry:
+    jmp show_title_screen
+.endif
 
 blank_display:
     jsr wait_terrain_frame
@@ -45,13 +55,14 @@ show_sound_screen:
     jsr select_bank0    ; Previews and horizontal play use the original terrain.
     sta scene
 .if PRG_ROM_UNITS = 32
-    lda arcade_mode
-    beq @skip_snd_reset
     jsr call_bank8_audio_init
-@skip_snd_reset:
     lda #0
     sta campaign_stage
     sta arcade_mode
+    sta mode
+    sta channel
+    sta phrase
+    sta frames
     lda #1
     jsr select_bank1
     lda #2

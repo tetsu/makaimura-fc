@@ -27,7 +27,7 @@ arcade_stage6_desc:
     .word 208                           ; sd_cp_y
     .byte 0                             ; sd_cp_cam_y_page
     .word 144                           ; sd_goal_y
-    .byte snd_song_stage                ; sd_bgm_stage
+    .byte snd_song_stage5               ; sd_bgm_stage
     .byte snd_song_boss                 ; sd_bgm_boss
     .word arcade_stage6_bg_pal          ; sd_bg_pal_ptr (inner castle crimson/bone/black)
     .word arcade_stage6_spr_pal         ; sd_spr_pal_ptr (throne guard crimson/bone/gold)

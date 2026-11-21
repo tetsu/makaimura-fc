@@ -64,7 +64,7 @@ arcade_stage5_desc:
     .word 208                           ; sd_cp_y
     .byte 0                             ; sd_cp_cam_y_page
     .word 144                           ; sd_goal_y
-    .byte snd_song_stage                ; sd_bgm_stage
+    .byte snd_song_stage5               ; sd_bgm_stage
     .byte snd_song_boss                 ; sd_bgm_boss
     .word arcade_stage5_bg_pal          ; sd_bg_pal_ptr (castle purple/iron/gold)
     .word arcade_stage5_spr_pal         ; sd_spr_pal_ptr (dark knight silver/violet)

@@ -81,6 +81,29 @@ arcade_boss_hp_init = 4
 arcade_boss_shield_init = 2
 arcade_boss_fire_period = 48
 
+; Authentic Makaimura Stage 1 graveyard/mountain background column helpers
+; All background deco metatiles (mt_cross..mt_castle) have tile_type_air so
+; collision and gameplay physics remain 100% identical to arcade_flat_col.
+.macro arcade_flat_deco_col r4, r5, r9, r10
+    .repeat map_col_stride, row
+        .if row = 4
+            .byte r4
+        .elseif row = 5
+            .byte r5
+        .elseif row = 9
+            .byte r9
+        .elseif row = 10
+            .byte r10
+        .elseif row < 11
+            .byte mt_sky
+        .elseif row = 11
+            .byte mt_ledge
+        .else
+            .byte mt_rock
+        .endif
+    .endrepeat
+.endmacro
+
 .macro arcade_flat_col
     cliff_col_2d 11
 .endmacro
@@ -134,8 +157,9 @@ arcade_stage_header:
 .assert arcade_stage_header = stage_header_base, lderror, "Arcade stage header offset mismatch"
 
 arcade_stage_palettes:
+    ; Use BG pal 0 (grass/earth/dead tree) and BG pal 1 (graveyard fence/cross/mountain)
     .repeat default_stage_width / 2, idx
-        pal_pair (idx .mod 4)
+        pal_pair (idx .mod 2)
     .endrepeat
 .assert * - arcade_stage_palettes = default_stage_width, error, "Unexpected arcade palette width"
 .res 127 - (* - arcade_stage_header), $ff
@@ -182,10 +206,17 @@ arcade_stage1_desc:
 
 arcade_stage_map:
 .assert arcade_stage_map = $8100, lderror, "Stage 1 map must be 256-byte aligned"
-    ; Columns 0-9 (X=0..159): flat start zone
-    .repeat 10
-        arcade_flat_col
-    .endrepeat
+    ; Columns 0-9 (X=0..159): Authentic Makaimura Stage 1 graveyard start with mountains, castle, crosses, tombstones, dead trees
+    arcade_flat_deco_col mt_sky,    mt_sky,    mt_sky,     mt_gravel
+    arcade_flat_deco_col mt_sky,    mt_sky,    mt_sky,     mt_cross
+    arcade_flat_deco_col mt_sky,    mt_sky,    mt_sky,     mt_gravel
+    arcade_flat_deco_col mt_sky,    mt_sky,    mt_sky,     mt_tomb_bg
+    arcade_flat_deco_col mt_sky,    mt_mtn_l,  mt_sky,     mt_gravel
+    arcade_flat_deco_col mt_mtn_c,  mt_mtn_r,  mt_tree_hi, mt_tree_lo
+    arcade_flat_deco_col mt_sky,    mt_sky,    mt_sky,     mt_gravel
+    arcade_flat_deco_col mt_castle, mt_mtn_c,  mt_sky,     mt_cross
+    arcade_flat_deco_col mt_sky,    mt_mtn_r,  mt_sky,     mt_gravel
+    arcade_flat_deco_col mt_sky,    mt_sky,    mt_sky,     mt_tomb_bg
     ; Columns 10-11 (X=160..191): hazard pit (32 px wide)
     arcade_pit_col
     arcade_pit_col
@@ -204,18 +235,33 @@ arcade_stage_map:
     .repeat 6
         arcade_oneway_col 7, 0
     .endrepeat
-    ; Columns 24-30 (X=384..495): tombstone (col 26), pot enemy (col 28), checkpoint (col 30)
-    .repeat 7
-        arcade_flat_col
-    .endrepeat
+    ; Columns 24-30 (X=384..495): graveyard crosses, dead tree, tombstone (col 26), pot enemy (col 28), checkpoint (col 30)
+    arcade_flat_deco_col mt_sky,    mt_sky,    mt_sky,     mt_gravel
+    arcade_flat_deco_col mt_sky,    mt_mtn_l,  mt_sky,     mt_cross
+    arcade_flat_deco_col mt_mtn_c,  mt_mtn_r,  mt_sky,     mt_gravel
+    arcade_flat_deco_col mt_sky,    mt_sky,    mt_tree_hi, mt_tree_lo
+    arcade_flat_deco_col mt_castle, mt_mtn_c,  mt_sky,     mt_tomb_bg
+    arcade_flat_deco_col mt_sky,    mt_mtn_r,  mt_sky,     mt_gravel
+    arcade_flat_deco_col mt_sky,    mt_sky,    mt_sky,     mt_cross
     ; Columns 31-33 (X=496..543, across X=512 page 1->2 boundary): pit with moving platform
     arcade_pit_col
     arcade_pit_col
     arcade_pit_col
-    ; Columns 34-47 (X=544..767): vertical platform (col 36), dagger item (col 40), goal (X=760)
-    .repeat 14
-        arcade_flat_col
-    .endrepeat
+    ; Columns 34-47 (X=544..767): graveyard approach to Unicorn Cyclops arena (X=760)
+    arcade_flat_deco_col mt_sky,    mt_sky,    mt_sky,     mt_gravel
+    arcade_flat_deco_col mt_sky,    mt_sky,    mt_tree_hi, mt_tree_lo
+    arcade_flat_deco_col mt_sky,    mt_sky,    mt_sky,     mt_gravel
+    arcade_flat_deco_col mt_sky,    mt_mtn_l,  mt_sky,     mt_cross
+    arcade_flat_deco_col mt_mtn_c,  mt_mtn_r,  mt_sky,     mt_tomb_bg
+    arcade_flat_deco_col mt_sky,    mt_sky,    mt_sky,     mt_gravel
+    arcade_flat_deco_col mt_castle, mt_mtn_c,  mt_sky,     mt_cross
+    arcade_flat_deco_col mt_sky,    mt_mtn_r,  mt_tree_hi, mt_tree_lo
+    arcade_flat_deco_col mt_sky,    mt_sky,    mt_sky,     mt_gravel
+    arcade_flat_deco_col mt_sky,    mt_sky,    mt_sky,     mt_tomb_bg
+    arcade_flat_deco_col mt_sky,    mt_mtn_l,  mt_sky,     mt_gravel
+    arcade_flat_deco_col mt_mtn_c,  mt_mtn_r,  mt_sky,     mt_cross
+    arcade_flat_deco_col mt_castle, mt_mtn_c,  mt_sky,     mt_gravel
+    arcade_flat_deco_col mt_sky,    mt_mtn_r,  mt_sky,     mt_tomb_bg
 .assert * - arcade_stage_map = default_stage_width * map_col_stride, error, "Unexpected arcade map size"
 
 ; Stage 1 data tables (referenced by arcade_stage1_desc)
@@ -238,10 +284,19 @@ arcade_stage1_plats:
     .word arcade_vplat_x, arcade_vplat_y
     .byte arcade_vplat_span
 
+; Authentic Makaimura Stage 1 palettes (matched to revg Stage 1 graveyard screenshot):
+;   BG0: Black night sky, dark brown soil, tan dirt, vivid green grass
+;   BG1: Black night sky, dark gray stone, silver fence/cross/mtn, green grass highlight
+;   BG2: Black night sky, deep navy, castle blue, white
+;   BG3: Black night sky, crimson red, gold HUD, white
 arcade_stage1_bg_pal:
-    .byte $0f, $2a, $09, $19,  $0f, $38, $17, $27
-    .byte $0f, $31, $11, $21,  $0f, $34, $14, $24
+    .byte $0f, $07, $17, $1a,  $0f, $00, $10, $1a
+    .byte $0f, $01, $12, $30,  $0f, $16, $28, $30
 
+;   OBJ0: Armored Arthur / Tombstone / Lance / Dagger (dark steel, silver, white)
+;   OBJ1: Naked Arthur / Torch Flame / Key / Fireball (crimson, flesh/orange, yellow-white)
+;   OBJ2: Zombie (blue coat, red hair/eyes, pale white face)
+;   OBJ3: Unicorn Cyclops Boss / Green Monster / Moving Platform (green, tan/brown, white)
 arcade_stage1_spr_pal:
-    .byte $0f, $12, $21, $30,  $0f, $06, $26, $36
-    .byte $0f, $16, $27, $30,  $0f, $17, $28, $30
+    .byte $0f, $00, $10, $30,  $0f, $16, $27, $38
+    .byte $0f, $12, $16, $30,  $0f, $1a, $27, $30

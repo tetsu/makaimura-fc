@@ -14,6 +14,16 @@ mt_rock = 3
 mt_oneway = 4
 mt_ladder = 5
 mt_hazard = 6
+.if PRG_ROM_UNITS = 32
+mt_cross = 7
+mt_tomb_bg = 8
+mt_tree_lo = 9
+mt_tree_hi = 10
+mt_mtn_l = 11
+mt_mtn_c = 12
+mt_mtn_r = 13
+mt_castle = 14
+.endif
 
 ; Metatile collision attribute bits (bits 2-4 select terrain type).
 tile_type_mask = $1c
@@ -287,6 +297,16 @@ metatile_attr:
     .byte tile_type_oneway  ; mt_oneway
     .byte tile_type_ladder  ; mt_ladder
     .byte tile_type_hazard  ; mt_hazard
+.if PRG_ROM_UNITS = 32
+    .byte tile_type_air     ; mt_cross
+    .byte tile_type_air     ; mt_tomb_bg
+    .byte tile_type_air     ; mt_tree_lo
+    .byte tile_type_air     ; mt_tree_hi
+    .byte tile_type_air     ; mt_mtn_l
+    .byte tile_type_air     ; mt_mtn_c
+    .byte tile_type_air     ; mt_mtn_r
+    .byte tile_type_air     ; mt_castle
+.endif
 
 cliff_gravel = (terrain_tiles - glyphs) / 16
 cliff_ledge = cliff_gravel + 1

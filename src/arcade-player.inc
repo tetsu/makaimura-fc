@@ -399,6 +399,37 @@ ap_init_stage:
 ap_load_stage_visuals:
     lda #$ff
     sta map_cached_col
+    ; Upload authentic Makaimura sprite CHR (2048 B -> $1000) and Stage 1 BG CHR (704 B -> $0400) from BANK10.
+    lda prg_bank0
+    pha
+    lda #arcade_gfx_bank
+    jsr select_bank0
+    lda #>chr_sprite_address
+    sta $2006
+    lda #<chr_sprite_address
+    sta $2006
+    lda #<arcade_spr_chr_data
+    sta chr_source
+    lda #>arcade_spr_chr_data
+    sta chr_source+1
+    ldx #>arcade_spr_chr_bytes
+    lda #<arcade_spr_chr_bytes
+    jsr upload_chr_patterns
+
+    lda #>arcade_bg_chr_vram
+    sta $2006
+    lda #<arcade_bg_chr_vram
+    sta $2006
+    lda #<arcade_bg_chr_data
+    sta chr_source
+    lda #>arcade_bg_chr_data
+    sta chr_source+1
+    ldx #>arcade_bg_chr_bytes
+    lda #<arcade_bg_chr_bytes
+    jsr upload_chr_patterns
+    pla
+    jsr select_bank0
+
     ; BG palette ($3F00, 16 bytes)
     lda sd_bg_pal_ptr
     ora sd_bg_pal_ptr+1
@@ -467,16 +498,10 @@ ap_load_stage_visuals:
     cpy #64
     bne :-
     ; OBJ enemy/boss tiles (4 tiles = 64 bytes at $1040, 8x16 sprite tiles 5 and 7).
-    ; Restore default sprite_patterns+64 when sd_spr_chr_ptr == 0.
+    ; Keep authentic BANK10 zombie/boss sprites when sd_spr_chr_ptr == 0.
     lda sd_spr_chr_ptr
     ora sd_spr_chr_ptr+1
-    bne @custom_spr_chr
-    lda #<(sprite_patterns + 64)
-    sta map_ptr
-    lda #>(sprite_patterns + 64)
-    sta map_ptr+1
-    jmp @upload_spr_chr
-@custom_spr_chr:
+    beq @visuals_done
     lda sd_spr_chr_ptr
     sta map_ptr
     lda sd_spr_chr_ptr+1
@@ -2283,18 +2308,54 @@ ap_set_sprite_y_off:
     rts
 
 ; --- OAM sprite rendering for arcade mode ---
+; Helper: draw 16x16 pair (draw_tile, draw_tile+2) with optional horizontal flip
+; when A != 0 (sets OAM bit 6 and swaps left/right tiles around world center).
+ap_draw_pair_dir:
+    beq @dpd_normal
+    lda draw_palette
+    ora #$40
+    sta draw_palette
+    inc draw_tile
+    inc draw_tile
+    lda ap_tmp0
+    ldx ap_tmp1
+    jsr set_sprite_x
+    sec
+    lda draw_x
+    sbc #8
+    sta draw_x
+    bcs :+
+    dec draw_x+1
+:
+    jsr emit_sprite
+    clc
+    lda draw_x
+    adc #8
+    sta draw_x
+    bcc :+
+    inc draw_x+1
+:
+    dec draw_tile
+    dec draw_tile
+    jmp emit_sprite
+@dpd_normal:
+    lda ap_tmp0
+    ldx ap_tmp1
+    jmp draw_pair
+
 ap_draw_sprites:
     lda #$f8
-    ldx #30 * 4
+    ldx #0
 :
     sta sprites,x
-    dex
-    dex
-    dex
-    dex
-    bpl :-
+    inx
+    inx
+    inx
+    inx
+    cpx #48 * 4
+    bne :-
 
-    ; Slots 0-1: Player
+    ; Slots 0-1 (bottom) + Slots 31-32 (top): Authentic 16x32 Arthur!
     lda #0
     sta draw_slot
     lda ap_state
@@ -2304,8 +2365,10 @@ ap_draw_sprites:
     beq @draw_player_now
     lda ap_invuln
     and #4
-    bne @draw_enemies
+    beq @draw_player_now
+    jmp @draw_enemies
 @draw_player_now:
+    ; Select palette: 0=armored silver, 1=naked flesh/red, 2=dead flash
     lda #2
     ldx ap_armor
     cpx #ap_armor_full
@@ -2318,6 +2381,102 @@ ap_draw_sprites:
     lda #1
 @set_player_pal:
     sta draw_palette
+
+    ; Choose Arthur pose tiles (ap_tmp2 = top tile or 0 if crouch, ap_tmp3 = bottom tile)
+    lda ap_armor
+    cmp #ap_armor_naked
+    beq @pose_naked
+    ; Armored Arthur poses
+    lda ap_crouch
+    beq @arm_not_crouch
+    lda #0
+    sta ap_tmp2
+    lda #$2d
+    sta ap_tmp3
+    jmp @emit_arthur
+@arm_not_crouch:
+    lda ap_state
+    cmp #ap_state_ladder
+    bne @arm_not_lad
+    lda #$31
+    sta ap_tmp2
+    lda #$35
+    sta ap_tmp3
+    jmp @emit_arthur
+@arm_not_lad:
+    cmp #ap_state_air
+    bne @arm_ground
+    lda #$25
+    sta ap_tmp2
+    lda #$29
+    sta ap_tmp3
+    jmp @emit_arthur
+@arm_ground:
+    lda pad
+    and #$03
+    beq @arm_stand
+    lda player_x
+    and #$08
+    bne @arm_walk2
+    lda #$15
+    sta ap_tmp2
+    lda #$19
+    sta ap_tmp3
+    jmp @emit_arthur
+@arm_walk2:
+    lda #$1d
+    sta ap_tmp2
+    lda #$21
+    sta ap_tmp3
+    jmp @emit_arthur
+@arm_stand:
+    lda #$11
+    sta ap_tmp2
+    lda #$01
+    sta ap_tmp3
+    jmp @emit_arthur
+
+@pose_naked:
+    lda ap_crouch
+    beq @nk_not_crouch
+    lda #0
+    sta ap_tmp2
+    lda #$51
+    sta ap_tmp3
+    bne @emit_arthur
+@nk_not_crouch:
+    lda ap_state
+    cmp #ap_state_air
+    bne @nk_ground
+    lda #$49
+    sta ap_tmp2
+    lda #$4d
+    sta ap_tmp3
+    bne @emit_arthur
+@nk_ground:
+    lda pad
+    and #$03
+    beq @nk_stand
+    lda player_x
+    and #$08
+    beq @nk_stand
+    lda #$41
+    sta ap_tmp2
+    lda #$45
+    sta ap_tmp3
+    bne @emit_arthur
+@nk_stand:
+    lda #$39
+    sta ap_tmp2
+    lda #$3d
+    sta ap_tmp3
+
+@emit_arthur:
+    ; Draw bottom 16x16 in OAM slots 0-1 (feet - 17)
+    lda player_x
+    sta ap_tmp0
+    lda player_x+1
+    sta ap_tmp1
     ldy #player_height + 1
     lda ap_crouch
     beq :+
@@ -2326,31 +2485,58 @@ ap_draw_sprites:
     lda player_feet
     ldx ap_player_y_hi
     jsr ap_set_sprite_y_off
-    lda #1
+    lda ap_tmp3
     sta draw_tile
-    lda player_x
-    ldx player_x+1
-    jsr draw_pair
+    lda player_left
+    jsr ap_draw_pair_dir
+
+    ; Draw top 16x16 in OAM slots 31-32 (feet - 33) if standing/jumping/ladder
+    lda ap_tmp2
+    beq @draw_enemies
+    lda #31 * 4
+    sta draw_slot
+    lda draw_palette
+    and #$3f                    ; restore unflipped palette before ap_draw_pair_dir
+    sta draw_palette
+    ldy #player_height + 17
+    lda player_feet
+    ldx ap_player_y_hi
+    jsr ap_set_sprite_y_off
+    lda ap_tmp2
+    sta draw_tile
+    lda player_left
+    jsr ap_draw_pair_dir
 
 @draw_enemies:
-    ; Slots 2-3: Fixed enemy 1
+    ; Slots 2-3 (bottom) + Slots 33-34 (top): Fixed enemy 1 (Zombie)
     lda ap_enemy_active
     beq @draw_pot_enemy
     lda #2 * 4
     sta draw_slot
-    lda #1
+    lda #2                      ; Zombie blue/red/white palette
     sta draw_palette
     ldy #player_height + 1
     lda sd_enemy1_y
     ldx sd_enemy1_y+1
     jsr ap_set_sprite_y_off
-    lda #5
+    lda #$05
+    sta draw_tile
+    lda sd_enemy1_x
+    ldx sd_enemy1_x+1
+    jsr draw_pair
+    lda #33 * 4
+    sta draw_slot
+    ldy #player_height + 17
+    lda sd_enemy1_y
+    ldx sd_enemy1_y+1
+    jsr ap_set_sprite_y_off
+    lda #$55
     sta draw_tile
     lda sd_enemy1_x
     ldx sd_enemy1_x+1
     jsr draw_pair
 @draw_pot_enemy:
-    ; Slots 9-10: Pot-carrying enemy
+    ; Slots 9-10 (bottom) + Slots 35-36 (top): Pot-carrying Zombie
     lda ap_pot_enemy_active
     beq @draw_shots
     lda #9 * 4
@@ -2361,7 +2547,18 @@ ap_draw_sprites:
     lda sd_pot_y
     ldx sd_pot_y+1
     jsr ap_set_sprite_y_off
-    lda #5
+    lda #$59
+    sta draw_tile
+    lda sd_pot_x
+    ldx sd_pot_x+1
+    jsr draw_pair
+    lda #35 * 4
+    sta draw_slot
+    ldy #player_height + 17
+    lda sd_pot_y
+    ldx sd_pot_y+1
+    jsr ap_set_sprite_y_off
+    lda #$5d
     sta draw_tile
     lda sd_pot_x
     ldx sd_pot_x+1
@@ -2376,18 +2573,24 @@ ap_draw_sprites:
     lda ps_active,y
     beq @skip_shot_draw
     sty ap_loop_idx
-    lda #3
     ldx ps_active,y
     cpx #2
-    bne :+
-    lda #2
+    bne @shot_not_flame
+    lda #1                      ; Flame: red/orange/yellow
+    sta draw_palette
+    lda #$65                    ; Arcade ground flame sprite
+    bne @shot_tile_ready
+@shot_not_flame:
+    ldx ps_kind,y
+    lda ap_shot_pal_tbl,x
+    ldx ps_vx,y
+    bpl :+
+    ora #$40                    ; Flip projectile horizontally when flying left
 :
     sta draw_palette
-    lda #9
-    cpx #2
-    bne :+
-    lda #15
-:
+    ldx ps_kind,y
+    lda ap_shot_tile_tbl,x
+@shot_tile_ready:
     sta draw_tile
     lda ps_y,y
     ldx ps_y_hi,y
@@ -2410,7 +2613,7 @@ ap_draw_sprites:
     cpy #ap_max_shots
     bne @draw_shot_loop
 
-    ; Slots 7-8: High-priority enemy bolts
+    ; Slots 7-8: High-priority enemy bolts (arcade glowing fireball)
     lda #7 * 4
     sta draw_slot
     ldy #0
@@ -2418,9 +2621,9 @@ ap_draw_sprites:
     lda eb_active,y
     beq @skip_ebolt_draw
     sty ap_loop_idx
-    lda #2
+    lda #1
     sta draw_palette
-    lda #15
+    lda #$0f
     sta draw_tile
     lda eb_y,y
     ldx eb_y_hi,y
@@ -2443,33 +2646,79 @@ ap_draw_sprites:
     cpy #ap_max_ebolts
     bne @draw_ebolt_loop
 
-    ; Slots 11-18: Generic enemy pool
+    ; Slots 11-18: Generic enemy pool (Zombies 16x32 + Green Monster turret 16x16)
     lda #11 * 4
     sta draw_slot
     ldy #0
 @draw_pool_en_loop:
     lda en_type,y
-    beq @next_pool_en_draw
+    bne :+
+    jmp @next_pool_en_draw
+:
     sty ap_loop_idx
-    lda #1
-    cmp en_type,y
-    beq @zombie_pal
+    cmp #en_turret
+    beq @draw_pool_turret
+    ; Zombie: palette 2 (blue/red/white), 2-frame walk animation, 16x32
+    lda #2
+    sta draw_palette
+    lda frames
+    and #$10
+    bne @zb_f2
+    lda #$05
+    sta ap_tmp3
+    lda #$55
+    sta ap_tmp2
+    bne @zb_draw
+@zb_f2:
+    lda #$59
+    sta ap_tmp3
+    lda #$5d
+    sta ap_tmp2
+@zb_draw:
+    lda ap_tmp3
+    sta draw_tile
+    lda en_y,y
+    ldx en_y_hi,y
+    ldy #player_height + 1
+    jsr ap_set_sprite_y_off
+    ldy ap_loop_idx
+    lda en_x_lo,y
+    ldx en_x_hi,y
+    jsr draw_pair
+    ; Top half in slots 37 + y*2
+    lda draw_slot
+    pha
+    lda ap_loop_idx
+    asl a
+    clc
+    adc #37
+    asl a
+    asl a
+    sta draw_slot
+    ldy ap_loop_idx
+    lda en_y,y
+    ldx en_y_hi,y
+    ldy #player_height + 17
+    jsr ap_set_sprite_y_off
+    lda ap_tmp2
+    sta draw_tile
+    ldy ap_loop_idx
+    lda en_x_lo,y
+    ldx en_x_hi,y
+    jsr draw_pair
+    pla
+    sta draw_slot
+    ldy ap_loop_idx
+    jmp @next_pool_en_draw
+@draw_pool_turret:
     lda #3
     ldx en_timer,y
     cpx #ap_turret_windup
-    bcs @set_en_pal
-    lda #2
-    bne @set_en_pal
-@zombie_pal:
-    lda #0
-@set_en_pal:
-    sta draw_palette
-    lda #5
-    ldx en_type,y
-    cpx #en_turret
-    bne :+
-    lda #11
+    bcs :+
+    lda #1                      ; Flash red/orange during windup
 :
+    sta draw_palette
+    lda #$6d                    ; Arcade Green Monster plant sprite
     sta draw_tile
     lda en_y,y
     ldx en_y_hi,y
@@ -2483,16 +2732,17 @@ ap_draw_sprites:
 @next_pool_en_draw:
     iny
     cpy #ap_max_enemies
-    bne @draw_pool_en_loop
-
-    ; Slots 11-14 reused for 16x32 multi-part boss during boss battle
+    beq :+
+    jmp @draw_pool_en_loop
+:
+    ; Slots 11-14 reused for 16x32 Unicorn Cyclops boss during boss battle
     lda ap_boss_state
     cmp #boss_active
     bne @draw_plats
     jsr ap_draw_boss
 
 @draw_plats:
-    ; Slots 19-26: Dynamic platforms (up to 4 x 2 sprites)
+    ; Slots 19-26: Dynamic platforms (Tombstone $69/$6b, Moving platforms $0b/$0d)
     lda #19 * 4
     sta draw_slot
     ldy #0
@@ -2500,13 +2750,17 @@ ap_draw_sprites:
     lda plat_type,y
     beq @next_plat_draw
     sty ap_loop_idx
-    lda #3
-    cmp plat_type,y
-    bne :+
-    lda #0
-:
+    cmp #plat_tombstone
+    bne @plat_is_moving
+    lda #0                      ; Tombstone: stone gray/white
     sta draw_palette
-    lda #11
+    lda #$69                    ; Authentic arcade tombstone
+    bne @plat_tile_ready
+@plat_is_moving:
+    lda #3                      ; Moving platform: wood/stone
+    sta draw_palette
+    lda #$0b
+@plat_tile_ready:
     sta draw_tile
     lda plat_y,y
     ldx plat_y_hi,y
@@ -2520,7 +2774,9 @@ ap_draw_sprites:
 @next_plat_draw:
     iny
     cpy #ap_max_plats
-    bne @draw_plat_loop
+    beq :+
+    jmp @draw_plat_loop
+:
 
     ; Slots 27-30: Items / weapon drops / key (up to 4 sprites)
     lda #27 * 4
@@ -2530,18 +2786,14 @@ ap_draw_sprites:
     lda item_type,y
     beq @next_item_draw
     sty ap_loop_idx
-    lda #3
-    ldx item_type,y
-    cpx #item_key
-    bne :+
-    lda #2
-:
+    tax
+    lda ap_item_pal_tbl,x
     sta draw_palette
-    lda #15
+    lda ap_item_tile_tbl,x
     sta draw_tile
     lda item_y,y
     ldx item_y_hi,y
-    ldy #9
+    ldy #15
     jsr ap_set_sprite_y_off
     ldy ap_loop_idx
     lda item_x_lo,y
@@ -3186,18 +3438,18 @@ ap_shot_check_boss:
     clc
     rts
 
-; Draw 16x32 multi-part boss in OAM slots 11-14 (4 sprites):
-; Head 2 + Body 2; max scanline = player(2) + boss(2) + 3 daggers(3) + bolt(1) = 8.
+; Draw 16x32 Unicorn Cyclops boss in OAM slots 11-14 (4 sprites):
+; Head/torso ($77/$79) + Legs/armor ($7b/$7d); max scanline = 8 sprites.
 ap_draw_boss:
     lda #11 * 4
     sta draw_slot
-    lda #1
+    lda #3
     ldx ap_boss_flash
     beq :+
-    lda #2
+    lda #1
 :
     sta draw_palette
-    lda #5
+    lda #$77
     sta draw_tile
     ldy #33
     lda ap_boss_y
@@ -3207,17 +3459,17 @@ ap_draw_boss:
     ldx ap_boss_x_hi
     jsr draw_pair
 
-    lda #0
+    lda #3
     ldx ap_boss_shield_hp
     beq :+
-    lda #3
+    lda #0
 :
     ldx ap_boss_flash
     beq :+
-    lda #2
+    lda #1
 :
     sta draw_palette
-    lda #11
+    lda #$7b
     sta draw_tile
     ldy #17
     lda ap_boss_y
@@ -3226,3 +3478,15 @@ ap_draw_boss:
     lda ap_boss_x_lo
     ldx ap_boss_x_hi
     jmp draw_pair
+
+; Weapon projectile sprite/palette lookup tables (0=Lance, 1=Dagger, 2=Torch, 3=Shield)
+ap_shot_tile_tbl:
+    .byte $09, $61, $63, $67
+ap_shot_pal_tbl:
+    .byte 0, 0, 1, 1
+
+; Item sprite/palette lookup tables (0=none, 1=armor, 2=dagger, 3=torch, 4=lance, 5=key, 6=shield)
+ap_item_tile_tbl:
+    .byte $75, $73, $61, $63, $09, $71, $67
+ap_item_pal_tbl:
+    .byte 1, 0, 0, 1, 0, 1, 1

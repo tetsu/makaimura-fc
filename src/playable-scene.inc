@@ -113,7 +113,7 @@ next_campaign_stage:
     lda ap_loop
     beq @begin_loop2
     jsr blank_display
-    jmp show_sound_screen
+    jmp show_title_screen
 @begin_loop2:
     lda #1
     sta ap_loop

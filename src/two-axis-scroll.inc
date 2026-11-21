@@ -447,7 +447,8 @@ pan_goal_flag:
 .endif
     lda pan_data_y
     jsr scenery_tile
-    bcs pan_scenery
+    bcc @skip_scenery
+    rts
 @skip_scenery:
     lda pan_data_y
     lsr a
@@ -456,6 +457,27 @@ pan_goal_flag:
     lsr a
     jsr read_map_cell
     beq pan_sky
+.if PRG_ROM_UNITS = 32
+    cmp #mt_cross
+    bcs @pan_arc_deco
+    tay
+    lda arcade_mode
+    beq @pan_legacy_restore
+    lda sd_bg_chr_ptr
+    ora sd_bg_chr_ptr+1
+    bne @pan_legacy_restore
+    tya
+    cmp #mt_gravel
+    beq @pan_arc_fence
+    cmp #mt_ledge
+    beq @pan_arc_grass
+    cmp #mt_rock
+    beq @pan_arc_dirt
+    jmp @pan_legacy_mt
+@pan_legacy_restore:
+    tya
+@pan_legacy_mt:
+.endif
     cmp #mt_gravel
     beq pan_gravel
     cmp #mt_ledge
@@ -469,6 +491,34 @@ pan_goal_flag:
     beq @pan_hazard
 .endif
     jmp pan_rock
+.if PRG_ROM_UNITS = 32
+@pan_arc_grass:
+    lda #$40
+    bne @pan_arc_quad
+@pan_arc_dirt:
+    lda #$44
+    bne @pan_arc_quad
+@pan_arc_fence:
+    lda #$48
+    bne @pan_arc_quad
+@pan_arc_deco:
+    ; mt_cross(7)..mt_castle(14) -> base tile $4C, $50, ..., $68
+    sec
+    sbc #4
+    asl a
+    asl a
+    clc
+    adc #$40
+@pan_arc_quad:
+    sta pan_attrib
+    lda pan_data_x
+    lsr a
+    lda pan_data_y
+    rol a
+    and #3
+    ora pan_attrib
+    rts
+.endif
 @check_ledge_half:
     lda pan_data_y
     and #1

@@ -116,17 +116,17 @@ emu.addEventCallback(function()
                 emu.stop(0)
                 return
             end
-            check(read(SND_SONG_ID) == 0 and read(SND_PLAYING) == 0, 10, "sound driver not idle at boot")
+            check(read(SND_SONG_ID) == 1 and read(SND_PLAYING) == 1, 10, "title BGM not playing at boot")
+            check(read(SND_CUSTOM_PATCH) == 0 and customPatchWrites >= 8, 12, "custom FM patch 0 not loaded")
             nextPhase("enter")
         end
     elseif phase == "enter" then
         if phaseFrame == 1 then
-            customPatchWrites = 0
             fmVoicesKeyed = {}
-            input = { right = true, start = true }
+            input = { start = true }
         elseif phaseFrame == 16 then
             check(read(SND_SONG_ID) == 2 and read(SND_PLAYING) == 1, 11, "stage BGM did not start")
-            check(read(SND_CUSTOM_PATCH) == 0 and customPatchWrites >= 8, 12, "custom FM patch 0 not loaded")
+            check(read(SND_CUSTOM_PATCH) == 0, 12, "custom FM patch 0 not retained")
             startTicks = read(SND_TICK_COUNT)
             nextPhase("test_shot_se")
         end
@@ -137,10 +137,10 @@ emu.addEventCallback(function()
         if read(SND_SE_ID) == 1 and read(SND_SE_APU_MASK) == 2 then
             sawShotSe = true
         end
-        if phaseFrame == 24 then
+        if phaseFrame == 48 then
             check(sawShotSe, 13, "shot SE did not trigger on APU Pulse 2")
             check(read(SND_SE_ID) == 0 and read(SND_SE_APU_MASK) == 0, 14, "shot SE did not release cleanly")
-            -- Verify all 6 FM voices have been keyed by the stage BGM.
+            -- Verify all 6 FM voices have been keyed by the authentic arcade stage BGM.
             local keyed = 0
             for ch = 0, 5 do
                 if fmVoicesKeyed[ch] then keyed = keyed + 1 end
@@ -285,11 +285,11 @@ emu.addEventCallback(function()
         if phaseFrame == 4 then
             check(read(SND_SONG_ID) == 4 and read(SND_PLAYING) == 1, 28, "clear fanfare did not start")
             check(read(SND_CUSTOM_PATCH) == 0, 29, "clear fanfare did not restore patch 0")
-        elseif phaseFrame == 80 then
-            -- Non-looping 66-frame fanfare should have stopped cleanly on its own.
+        elseif phaseFrame == 380 then
+            -- Authentic arcade Makaimura clear fanfare (~359 frames) should have stopped cleanly on its own.
             check(read(SND_PLAYING) == 0, 30, "clear fanfare did not auto-stop after completion")
             input = { start = true }
-        elseif phaseFrame == 100 then
+        elseif phaseFrame == 400 then
             check(read(0x8000) == 0x8d, 31, "did not transition to Stage 2 (Bank 13)")
             check(read(SND_SONG_ID) == 2 and read(SND_PLAYING) == 1, 32, "stage 2 BGM did not start cleanly")
             nextPhase("return_title")
@@ -298,13 +298,17 @@ emu.addEventCallback(function()
         if phaseFrame == 4 then
             input = { select = true }
         elseif phaseFrame == 20 then
-            check(read(SND_SONG_ID) == 0 and read(SND_PLAYING) == 0 and read(SND_SE_ID) == 0, 33,
-                "audio state not reset on title return")
+            check(read(SND_SONG_ID) == 1 and read(SND_PLAYING) == 1 and read(SND_SE_ID) == 0, 33,
+                "title BGM not restored on title return")
+            input = { select = true }
+        elseif phaseFrame == 36 then
+            check(read(SND_SONG_ID) == 0 and read(SND_PLAYING) == 0 and read(SND_SE_ID) == 0, 34,
+                "audio state not reset when entering test menu")
             emu.stop(0)
         end
     end
 
-    if frame > 3000 then
+    if frame > 3500 then
         check(false, 99, "arcade-audio-smoke timed out")
     end
 end, emu.eventType.endFrame)

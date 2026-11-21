@@ -39,7 +39,7 @@ arcade_stage3_desc:
     .word 176                           ; sd_cp_y
     .byte 0                             ; sd_cp_cam_y_page
     .word 176                           ; sd_goal_y
-    .byte snd_song_stage                ; sd_bgm_stage
+    .byte snd_song_stage3               ; sd_bgm_stage
     .byte snd_song_boss                 ; sd_bgm_boss
     .word arcade_stage3_bg_pal          ; sd_bg_pal_ptr (cavern navy/teal/white)
     .word arcade_stage3_spr_pal         ; sd_spr_pal_ptr (aqua/ice guardian)

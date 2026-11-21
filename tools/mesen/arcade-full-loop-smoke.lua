@@ -686,8 +686,8 @@ emu.addEventCallback(function()
         elseif phaseFrame == 20 then
             input = { start = true }
         elseif phaseFrame == 44 then
-            -- Returned to Title screen (VRC7A TEST MENU at $2108: V=$15, R=$11, C=$04)
-            check(readNt(0x0108) == 0x15 and readNt(0x0109) == 0x11 and readNt(0x010a) == 0x04, 61,
+            -- Returned to Title screen (MAKAIMURA FC at $20CA: M=$0d, A=$02, K=$0b)
+            check(readNt(0x00ca) == 0x0d and readNt(0x00cb) == 0x02 and readNt(0x00cc) == 0x0b, 61,
                 "START on True Ending did not return to Title")
             local summary = string.format("VBLANK_OK checkedFrames=%d overallMax=%d", totalCheckedFrames, overallWorstBudget)
             for s = 1, 7 do

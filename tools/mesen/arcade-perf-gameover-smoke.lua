@@ -174,8 +174,8 @@ emu.addEventCallback(function()
                     string.format("expected Game Over BGM (5), got %d", read(SND_SONG_ID)))
                 input = { start = true }
             elseif phaseFrame == 44 then
-                -- Returned to Title screen (VRC7A TEST MENU at $2108: V=$15, R=$11, C=$04)
-                check(readNt(0x0108) == 0x15 and readNt(0x0109) == 0x11 and readNt(0x010a) == 0x04, 18,
+                -- Returned to Title screen (MAKAIMURA FC at $20CA: M=$0d, A=$02, K=$0b)
+                check(readNt(0x00ca) == 0x0d and readNt(0x00cb) == 0x02 and readNt(0x00cc) == 0x0b, 18,
                     "START on GAME OVER did not return to Title")
                 nextPhase("restart_fresh")
             end
@@ -190,7 +190,7 @@ emu.addEventCallback(function()
         end
     elseif phase == "restart_fresh" then
         if phaseFrame == 10 then
-            input = { right = true, start = true }
+            input = { start = true }
         elseif phaseFrame == 36 then
             check(read(0x8000) == 0x8c and stageNum() == 1, 20, "fresh restart did not enter Stage 1 Bank 12")
             check(lives() == 3, 21, string.format("fresh restart lives != 3 (%d)", lives()))

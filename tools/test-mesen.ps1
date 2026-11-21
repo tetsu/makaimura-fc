@@ -39,9 +39,15 @@ $logDir = Join-Path $root 'build/mesen-smoke'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
 $failures = @()
+$testCount = 0
 foreach ($rom in @($rom32, $rom512)) {
     $romName = [IO.Path]::GetFileName($rom)
+    $is512k = ($rom -eq $rom512)
     foreach ($suite in $suites) {
+        $isArcadeSuite = $suite.Name -like 'arcade-*'
+        if ($is512k -and !$isArcadeSuite) { continue }
+        if (!$is512k -and $isArcadeSuite) { continue }
+        $testCount++
         $testName = "$romName / $($suite.Name)"
         $logBase = Join-Path $logDir "$([IO.Path]::GetFileNameWithoutExtension($rom))-$($suite.BaseName)"
         $arguments = "--doNotSaveSettings --testRunner --timeout=$TimeoutSeconds `"$($suite.FullName)`" `"$rom`""
@@ -58,7 +64,6 @@ foreach ($rom in @($rom32, $rom512)) {
     }
 }
 
-$testCount = 2 * $suites.Count
 Write-Host "$($testCount - $failures.Count)/$testCount passed. Logs: $logDir"
 if ($failures.Count) {
     $failures | ForEach-Object { Write-Host "FAIL $_" }
