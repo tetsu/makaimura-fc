@@ -24,6 +24,13 @@ draw_hud:
     sta $2007
     dex
     bne :-
+.if PRG_ROM_UNITS = 32
+    lda campaign_stage
+    beq :+
+    jsr draw_campaign_hud
+    jmp enable_hud_irq
+:
+.endif
     lda #$20
     sta $2006
     lda #$24
@@ -46,6 +53,9 @@ draw_hud:
     inx
     cpx #hud_options_length
     bne :-
+.if PRG_ROM_UNITS = 32
+enable_hud_irq:
+.endif
     lda #256-hud_irq_lines
     sta $e010
     rts

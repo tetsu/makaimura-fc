@@ -62,6 +62,7 @@ next_campaign_stage:
     inc campaign_stage
 start_campaign_stage:
     jsr blank_display
+    jsr reset_campaign_clock
     lda campaign_stage
     sec
     sbc #1
@@ -186,6 +187,18 @@ check_player_hit:
     jsr update_shot
     jsr check_enemy_contact
     jsr update_ranged
+.if PRG_ROM_UNITS = 32
+    lda campaign_stage
+    beq :+
+    jsr tick_campaign_clock
+    lda player_hit
+    beq :+
+    dec campaign_lives
+    beq show_game_over
+    inc campaign_hud_dirty
+    jmp game_camera
+:
+.endif
     jsr check_course_progress
     bcs show_course_clear
 game_camera:
@@ -234,6 +247,14 @@ check_course_progress:
     lda player_x
     cmp course_checkpoint_x
     bcc :+
+.if PRG_ROM_UNITS = 32
+    ldx campaign_stage
+    beq checkpoint_marked
+    ldx checkpoint_reached
+    bne checkpoint_marked
+    inc campaign_hud_dirty
+checkpoint_marked:
+.endif
     lda #1
     sta checkpoint_reached
     lda player_x
@@ -252,10 +273,23 @@ course_finished:
     sec
     rts
 
+.if PRG_ROM_UNITS = 32
+show_game_over:
+    lda #game_over_scene
+    bne show_result
+show_course_clear:
+    lda #clear_scene
+show_result:
+    pha
+    jsr blank_display
+    pla
+    sta scene
+.else
 show_course_clear:
     jsr blank_display
     lda #clear_scene
     sta scene
+.endif
     jsr clear_screen
     lda #$21
     sta $2006
@@ -263,6 +297,10 @@ show_course_clear:
     sta $2006
     ldx #0
 .if PRG_ROM_UNITS = 32
+    ldy #game_over_title - clear_title
+    lda scene
+    cmp #game_over_scene
+    beq :+
     ldy #0
     lda campaign_stage
     cmp #campaign_stage_count
@@ -290,6 +328,11 @@ show_course_clear:
     ldy #0
     lda campaign_stage
     beq :+
+    ldy #final_prompt - clear_prompt
+    lda scene
+    cmp #game_over_scene
+    beq :+
+    lda campaign_stage
     ldy #next_prompt - clear_prompt
     cmp #campaign_stage_count
     bcc :+

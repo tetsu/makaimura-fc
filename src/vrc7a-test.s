@@ -48,6 +48,10 @@ shot_sound_pending: .res 1
 shot_sound_frames: .res 1
 .if PRG_ROM_UNITS = 32
 campaign_stage: .res 1 ; Zero in diagnostics, otherwise the 1-based stage number.
+campaign_lives: .res 1
+campaign_subsecond: .res 1
+campaign_clock: .res 3 ; Decimal digits stored as tile IDs for VBlank.
+campaign_hud_dirty: .res 1
 .endif
 
 .include "fixed-hud.inc"
@@ -57,6 +61,9 @@ campaign_stage: .res 1 ; Zero in diagnostics, otherwise the 1-based stage number
 .include "horizontal-scroll.inc"
 .include "two-axis-scroll.inc"
 .include "playable-scene.inc"
+.if PRG_ROM_UNITS = 32
+.include "campaign.inc"
+.endif
 
 .segment "CODE"
 reset:
@@ -201,9 +208,16 @@ same_scene:
     lda scene
     cmp #clear_scene
     beq advance_campaign
+    cmp #game_over_scene
+    beq finish_campaign
     lda player_hit
     beq dispatch_scene
+    jsr reset_campaign_clock
     jmp start_pressed
+finish_campaign:
+    jsr blank_display
+    jsr show_sound_screen
+    jmp audio_tick
 advance_campaign:
     jsr next_campaign_stage
     jmp audio_tick
@@ -215,6 +229,8 @@ check_campaign_start:
     beq start_pressed
     lda #1
     sta campaign_stage
+    lda #campaign_initial_lives
+    sta campaign_lives
     jsr start_campaign_stage
     jmp audio_tick
 start_pressed:
@@ -230,6 +246,10 @@ dispatch_scene:
     beq game_screen
     cmp #clear_scene
     beq clear_screen_idle
+.if PRG_ROM_UNITS = 32
+    cmp #game_over_scene
+    beq clear_screen_idle
+.endif
     cmp #4
     bne free_camera
 game_screen:
@@ -254,10 +274,18 @@ commit_frame:
     cmp #3
     beq commit_pan_preview
     cmp #4
-    bne :+
+    bne commit_horizontal
+.if PRG_ROM_UNITS = 32
+    lda campaign_stage
+    beq commit_pan_game
+    lda campaign_hud_dirty
+    beq commit_pan_game
+    jsr upload_campaign_hud
+commit_pan_game:
+.endif
     jsr upload_pan
     jmp commit_render
-:
+commit_horizontal:
     lda column_pending
     beq commit_render
     lda #$84
@@ -577,6 +605,7 @@ clear_title: .byte $04, $0f, $14, $11, $12, $06, $00, $04, $0c, $06, $02, $11 ; 
 clear_title_length = * - clear_title
 .if PRG_ROM_UNITS = 32
 final_title: .byte $07, $0a, $0e, $02, $0c, $00, $04, $0c, $06, $02, $11, $00 ; FINAL CLEAR
+game_over_title: .byte $08, $02, $0d, $06, $00, $0f, $15, $06, $11, $00, $00, $00 ; GAME OVER
 .endif
 clear_prompt: .byte $12, $13, $02, $11, $13, $00, $10, $0c, $02, $17 ; START PLAY
 clear_prompt_length = * - clear_prompt
@@ -637,6 +666,29 @@ glyphs:
     .byte $00, $11, $11, $0a, $04, $04, $04, $04, $00, $00, $00, $00, $00, $00, $00, $00 ; Y
     .byte $00, $07, $02, $02, $02, $12, $12, $0c, $00, $00, $00, $00, $00, $00, $00, $00 ; J
     .byte $00, $0e, $11, $01, $02, $04, $08, $1f, $00, $00, $00, $00, $00, $00, $00, $00 ; 2
+.if PRG_ROM_UNITS = 32
+campaign_digit_patterns:
+    .byte $00, $0e, $11, $11, $11, $11, $11, $0e
+    .res 8, 0 ; 0
+    .byte $00, $04, $0c, $04, $04, $04, $04, $0e
+    .res 8, 0 ; 1
+    .byte $00, $0e, $11, $01, $02, $04, $08, $1f
+    .res 8, 0 ; 2
+    .byte $00, $1e, $01, $01, $0e, $01, $01, $1e
+    .res 8, 0 ; 3
+    .byte $00, $02, $06, $0a, $12, $1f, $02, $02
+    .res 8, 0 ; 4
+    .byte $00, $1f, $10, $10, $1e, $01, $01, $1e
+    .res 8, 0 ; 5
+    .byte $00, $0e, $10, $10, $1e, $11, $11, $0e
+    .res 8, 0 ; 6
+    .byte $00, $1f, $01, $02, $04, $08, $08, $08
+    .res 8, 0 ; 7
+    .byte $00, $0e, $11, $11, $0e, $11, $11, $0e
+    .res 8, 0 ; 8
+    .byte $00, $0e, $11, $11, $0f, $01, $01, $0e
+    .res 8, 0 ; 9
+.endif
 terrain_tiles:
     ; Pebbles, ledge, and two alternating rock textures.
     .byte $00, $00, $10, $38, $10, $00, $02, $00, $00, $00, $00, $10, $00, $00, $00, $00
