@@ -1,12 +1,12 @@
 ; The encounter uses the same scrolling terrain and an independent sprite table.
-enemy_x = 272
-enemy_feet = 176
-ranged_x = 742
-ranged_feet = 160
+default_enemy_x = 272
+default_enemy_feet = 176
+default_ranged_x = 742
+default_ranged_feet = 160
 ranged_range = 34
 ranged_windup = 30
 ranged_cooldown = 48
-bolt_y = ranged_feet - 9
+bolt_height_offset = 9
 clear_scene = 5
 player_height = 16
 jump_fall = 18
@@ -29,8 +29,16 @@ shot_left: .res 1
 shot_life: .res 1
 ranged_active: .res 1
 ranged_timer: .res 1
-bolt_x: .res 1         ; This encounter and the bolt's entire path are on page 2.
+bolt_x: .res 2
 bolt_active: .res 1
+bolt_min_page: .res 1  ; Default courses reclaim bolts at the start of page 2.
+bolt_bottom: .res 1
+; Both ROM tables use this order: fixed X and feet, then ranged X and feet.
+enemy_x: .res 2
+enemy_feet: .res 1
+ranged_x: .res 2
+ranged_feet: .res 1
+encounter_bytes = * - enemy_x
 old_x: .res 2
 ground: .res 1
 draw_x: .res 2
@@ -47,6 +55,28 @@ checkpoint_tile_x: .res 1
 sprites: .res 256
 
 .segment "CODE"
+
+; Branch if position - center lies outside [-left, width-left).
+.macro require_x_window position, center, left, width, outside
+    sec
+    lda position
+    sbc center
+    tay
+    lda position+1
+    sbc center+1
+    tax
+    tya
+    clc
+    adc #left
+    bcc :+
+    inx
+:
+    cpx #0
+    bne outside
+    cmp #width
+    bcs outside
+.endmacro
+
 .if PRG_ROM_UNITS = 32
 campaign_stage_count = 2
 arcade_stage_count = 7
@@ -237,19 +267,43 @@ setup_game:
     sta player_hit
     sta player_left
     sta shot_life
-    sta ranged_active
     sta ranged_timer
     sta bolt_active
     sta crowd_enabled
     sta crowd_first
     lda #$ff
     sta jump_step
+.if PRG_ROM_UNITS = 32
+    lda arcade_mode
+    bne @init_checkpoint
+    ; The diagnostic encounters run in the $A000 window.
+    lda prg_bank1
+    cmp #1
+    beq :+
     lda #1
+    jsr select_bank1
+:
+.endif
+    jsr load_course_enemies
+    lda ranged_feet
+    sec
+    sbc #bolt_height_offset-3
+    sta bolt_bottom
+    lda enemy_x
+    ora enemy_x+1
     sta enemy_active
+    lda #0
+    ldx scene
+    cpx #4
+    bne :+
+    lda ranged_x
+    ora ranged_x+1
+:
+    sta ranged_active
+@init_checkpoint:
     ldx scene
     cpx #4
     bne setup_game_sprites
-    sta ranged_active
     lda checkpoint_reached
     beq setup_game_sprites
     lda stage_cp_x_lo
@@ -277,6 +331,38 @@ setup_game_sprites:
     jsr draw_sprites
     jsr upload_sprites
     jmp enable_terrain
+
+load_course_enemies:
+    ldx #encounter_bytes-1
+.ifdef NES_AREA_TRIAL
+.if nes_area_trial_enemies
+    lda prg_bank0
+    cmp #nes_area_trial_bank
+    bne @defaults
+@trial:
+    lda trial_enemy_positions,x
+    sta enemy_x,x
+    dex
+    bpl @trial
+    lda #0
+    sta bolt_min_page
+    rts
+.endif
+.endif
+@defaults:
+    lda default_encounters,x
+    sta enemy_x,x
+    dex
+    bpl @defaults
+    lda #>default_ranged_x
+    sta bolt_min_page
+    rts
+
+default_encounters:
+    .word default_enemy_x
+    .byte default_enemy_feet
+    .word default_ranged_x
+    .byte default_ranged_feet
 
 update_game:
 .if PRG_ROM_UNITS = 32
@@ -648,7 +734,9 @@ update_shot:
     bne travel_shot
     lda pressed
     and #$40
-    beq shot_done
+    bne :+
+    rts
+:
     lda player_x
     sta shot_x
     lda player_x+1
@@ -694,18 +782,13 @@ shot_position:
     bcs remove_shot
     lda enemy_active
     beq age_shot
-    lda shot_x+1
-    cmp #>enemy_x
-    bne age_shot
-    lda shot_x
-    cmp #<(enemy_x-8)
-    bcc age_shot
-    cmp #<(enemy_x+9)
-    bcs age_shot
+    require_x_window shot_x, enemy_x, 8, 17, age_shot
     lda shot_y
-    cmp #enemy_feet-player_height
-    bcc age_shot
-    cmp #enemy_feet
+    sec
+    sbc enemy_feet
+    clc
+    adc #player_height
+    cmp #player_height
     bcs age_shot
     lda #0
     sta enemy_active
@@ -715,25 +798,24 @@ remove_shot:
     rts
 age_shot:
     dec shot_life
-shot_done:
     rts
+
+.if PRG_ROM_UNITS = 32
+; Share the alternate map's bank for diagnostic gameplay in the $A000 window.
+.segment "BANK1"
+.endif
 
 ; Carry set if the player's shot destroyed the kiln.
 check_ranged_shot:
     lda ranged_active
     beq ranged_shot_missed
-    lda shot_x+1
-    cmp #>ranged_x
-    bne ranged_shot_missed
-    lda shot_x
-    cmp #<(ranged_x-8)
-    bcc ranged_shot_missed
-    cmp #<(ranged_x+8)
-    bcs ranged_shot_missed
+    require_x_window shot_x, ranged_x, 8, 16, ranged_shot_missed
     lda shot_y
-    cmp #ranged_feet-player_height
-    bcc ranged_shot_missed
-    cmp #ranged_feet
+    sec
+    sbc ranged_feet
+    clc
+    adc #player_height
+    cmp #player_height
     bcs ranged_shot_missed
     lda #0
     sta ranged_active
@@ -746,18 +828,13 @@ ranged_shot_missed:
 check_enemy_contact:
     lda enemy_active
     beq contact_done
-    lda player_x+1
-    cmp #>enemy_x
-    bne contact_done
-    lda player_x
-    cmp #<(enemy_x-10)
-    bcc contact_done
-    cmp #<(enemy_x+11)
-    bcs contact_done
+    require_x_window player_x, enemy_x, 10, 21, contact_done
     lda player_feet
-    cmp #enemy_feet-player_height+1
-    bcc contact_done
-    cmp #enemy_feet+player_height
+    sec
+    sbc enemy_feet
+    clc
+    adc #player_height-1
+    cmp #2*player_height-1
     bcs contact_done
     lda #1
     sta player_hit
@@ -771,29 +848,32 @@ update_ranged:
     lda bolt_x
     sec
     sbc #2
-    bcc reclaim_bolt    ; Leave page 2 without wrapping to the right.
     sta bolt_x
+    lda bolt_x+1
+    sbc #0
+    sta bolt_x+1
     ; Check the left edge against the cliff before testing the player.
-    sbc #2
-    bcc reclaim_bolt
-    ldx #>ranged_x
-    jsr floor_height
-    cmp #bolt_y+3
-    bcc reclaim_bolt    ; The bolt's bottom pixel entered solid terrain.
-    lda player_x+1
-    cmp #>ranged_x
-    bne aim_bolt
-    lda player_x
     sec
-    sbc bolt_x
-    clc
-    adc #8
-    cmp #17
-    bcs aim_bolt
+    lda bolt_x
+    sbc #2
+    tay
+    lda bolt_x+1
+    sbc #0
+    bmi reclaim_bolt
+    cmp bolt_min_page
+    bcc reclaim_bolt
+    tax
+    tya
+    jsr floor_height
+    cmp bolt_bottom
+    bcc reclaim_bolt    ; The bolt's bottom pixel entered solid terrain.
+    require_x_window player_x, bolt_x, 8, 17, aim_bolt
     lda player_feet
-    cmp #bolt_y
-    bcc aim_bolt
-    cmp #bolt_y+player_height+3
+    sec
+    sbc ranged_feet
+    clc
+    adc #bolt_height_offset
+    cmp #player_height+3
     bcs aim_bolt
     lda #1
     sta player_hit
@@ -809,26 +889,26 @@ aim_bolt:
     lda ranged_timer
     cmp #ranged_cooldown
     bne ranged_done
-    lda #<(ranged_x-10)
+    sec
+    lda ranged_x
+    sbc #10
     sta bolt_x
+    lda ranged_x+1
+    sbc #0
+    sta bolt_x+1
     lda #1
     sta bolt_active
     rts
 begin_aim:
     lda bolt_active
     bne ranged_done
-    lda player_x+1
-    cmp #>ranged_x
-    bne ranged_done
-    lda player_x
-    cmp #<(ranged_x-ranged_range)
-    bcc ranged_done
-    cmp #<(ranged_x-8)
-    bcs ranged_done
+    require_x_window player_x, ranged_x, ranged_range, ranged_range-8, ranged_done
     lda #ranged_cooldown+ranged_windup
     sta ranged_timer
 ranged_done:
     rts
+
+.segment "CODE"
 
 draw_sprites:
 .if PRG_ROM_UNITS = 32
@@ -890,12 +970,14 @@ draw_enemy:
     sta draw_slot
     lda #1
     sta draw_palette
-    lda #enemy_feet-player_height-1
+    sec
+    lda enemy_feet
+    sbc #player_height+1
     jsr set_sprite_y
     lda #5
     sta draw_tile
-    lda #<enemy_x
-    ldx #>enemy_x
+    lda enemy_x
+    ldx enemy_x+1
     jsr draw_pair
 draw_shot:
     lda shot_life
@@ -919,7 +1001,9 @@ draw_ranged:
     beq draw_bolt
     lda #ranged_slot
     sta draw_slot
-    lda #ranged_feet-player_height-1
+    sec
+    lda ranged_feet
+    sbc #player_height+1
     jsr set_sprite_y
     lda #3
     ldx ranged_timer
@@ -930,8 +1014,8 @@ draw_ranged:
     sta draw_palette
     lda #11
     sta draw_tile
-    lda #<ranged_x
-    ldx #>ranged_x
+    lda ranged_x
+    ldx ranged_x+1
     jsr draw_pair
 draw_bolt:
     lda bolt_active
@@ -942,12 +1026,18 @@ draw_bolt:
     sta draw_palette
     lda #15
     sta draw_tile
-    lda #bolt_y-3
+    sec
+    lda ranged_feet
+    sbc #bolt_height_offset+3
     jsr set_sprite_y
     lda bolt_x
     sec
     sbc #2
-    ldx #>ranged_x
+    tay
+    lda bolt_x+1
+    sbc #0
+    tax
+    tya
     jsr set_sprite_x
     jsr emit_sprite
 sprites_done:

@@ -47,15 +47,15 @@ def make_trial(path, areas):
     stage_map = import_module("convert-stage-map")
     trial = json.loads(path.read_text(encoding="utf-8-sig"))
     fields = {"area", "tiles", "regions", "start_x", "checkpoint_x", "goal_x"}
-    if not isinstance(trial, dict) or not fields <= trial.keys() <= fields | {"player_poses"}:
-        raise ValueError(f"trial must define {', '.join(sorted(fields))} and may define player_poses")
+    if not isinstance(trial, dict) or not fields <= trial.keys() <= fields | {"player_poses", "enemies"}:
+        raise ValueError(f"trial must define {', '.join(sorted(fields))} and may define player_poses or enemies")
     name = trial["area"]
     if not isinstance(name, str) or name not in areas:
         raise ValueError("trial.area must name an area from the manifest")
     stage = {"tiles": trial["tiles"]}
     width, height, columns = stage_map.encode_map(stage["tiles"])
     if (width, height) != (48, 15):
-        raise ValueError("trial must have 48 columns and 15 rows for the existing course encounters")
+        raise ValueError("trial must have 48 columns and 15 rows")
     solid = {stage_map.TILES["ledge"], stage_map.TILES["rock"]}
     floors = [next((row * 16 for row, tile in enumerate(column) if tile in solid), 240)
               for column in columns]
@@ -74,8 +74,10 @@ def make_trial(path, areas):
         raise ValueError(f"trial.regions must define {', '.join(stage_map.TILES)}")
     bg = f"area_{name}_bg"
     use_player = "player_poses" in trial
+    use_enemies = "enemies" in trial
     lines = [
         f"nes_area_trial_player = {int(use_player)}",
+        f"nes_area_trial_enemies = {int(use_enemies)}",
         ".macro emit_area_trial",
         f'.segment "BANK{TRIAL_BANK}"',
         f"nes_area_trial_bank = {TRIAL_BANK}",
@@ -118,6 +120,20 @@ def make_trial(path, areas):
                      'error, "Trial OBJ overlaps gameplay sprite patterns"')
     else:
         lines.append("    .word 0           ; No trial player poses")
+    if use_enemies:
+        enemies = trial["enemies"]
+        stage_map.check_fields(enemies, {"fixed", "ranged"}, "trial.enemies")
+        lines.append("trial_enemy_positions:")
+        for kind, min_x in (("fixed", 8), ("ranged", 12)):
+            x, y = 0, 0
+            if kind in enemies:
+                field = f"trial.enemies.{kind}"
+                x, y = stage_map.enemy_position(enemies[kind], field, width, height)
+                bounded(x, min_x, width * 16 - 8, f"{field}.x")
+                if y != floors[x // 16]:
+                    raise ValueError(f"{field}.y must equal the floor at x={x} (Y={floors[x // 16]})")
+            lines.append(f"    .word {x}")
+            lines.append(f"    .byte {y}")
     lines.extend([
         '    .res $100 - (* - trial_bank_start), $ff',
         stage_map.convert(stage, "trial").rstrip(),
