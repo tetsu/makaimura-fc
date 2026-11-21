@@ -110,6 +110,13 @@ def main():
         "enemies": {"fixed": {"x": 112, "y": 176}},
     })
 
+    hazard_tiles = [row.copy() for row in tiles]
+    hazard_tiles[10][8] = "hazard"  # X=128..143, immediately above the floor.
+    write_json(output / "hazard.json", {
+        **stage, "tiles": hazard_tiles, "start_x": 32, "checkpoint_x": 96, "goal_x": 176,
+        "enemies": {},
+    })
+
     # The raised floor spans X=96..319 at Y=144. The enemy on the
     # lower floor forces a retry after crossing the elevated checkpoint.
     for column in range(6, 20):

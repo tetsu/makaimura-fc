@@ -438,6 +438,9 @@ check_player_hit:
     jsr update_shot
     jsr check_enemy_contact
     jsr update_ranged
+.ifdef NES_AREA_TRIAL
+    jsr check_trial_hazard
+.endif
 .if PRG_ROM_UNITS = 32
     lda campaign_stage
     beq @after_campaign_tick
@@ -897,6 +900,36 @@ check_enemy_contact:
     sta player_hit
 contact_done:
     rts
+
+.ifdef NES_AREA_TRIAL
+check_trial_hazard:
+    jsr check_trial_bank
+    bcs @done
+    ldy player_feet
+    beq @done
+    ; Sample the last pixel above the feet at the player's center X.
+    dey
+    tya
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda player_x
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ldx player_x+1
+    ora page_columns,x
+    jsr read_map_cell
+    cmp #mt_hazard
+    bne @done
+    lda #1
+    sta player_hit
+@done:
+    rts
+.endif
 
 update_ranged:
     ; Continue the launched bolt even if the shooter is destroyed.
