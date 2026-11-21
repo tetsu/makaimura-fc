@@ -290,7 +290,8 @@ ap_init_stage:
     sta eb_active,x
     dex
     bpl :-
-    rts
+    lda #snd_song_stage
+    jmp call_bank8_play_song
 
 ap_update_frame:
     lda player_hit
@@ -1503,10 +1504,18 @@ ap_check_items:
 @consume_item:
     lda #item_none
     sta item_type,x
+    txa
+    pha
+    lda #snd_se_key
+    jsr call_bank8_play_se
+    pla
+    tax
 @next_item:
     inx
     cpx #ap_max_items
-    bne @item_loop
+    beq :+
+    jmp @item_loop
+:
     rts
 
 ; --- Enemy contact (both test enemy and pot enemy) ---
@@ -1563,7 +1572,9 @@ ap_check_enemies_contact:
     ; Check contact with active boss body/head (24x32 px).
     lda ap_boss_state
     cmp #boss_active
-    bne @contact_none
+    beq :+
+    rts
+:
     sec
     lda player_x
     sbc ap_boss_x_lo
@@ -1596,6 +1607,8 @@ ap_check_enemies_contact:
     beq @contact_none
     bcs @do_player_damage
 @do_player_damage:
+    lda #snd_se_damage
+    jsr call_bank8_play_se
     lda ap_armor
     cmp #ap_armor_full
     bne @fatal_contact
@@ -2274,6 +2287,8 @@ ap_update_ebolts:
     rts
 
 ap_apply_bolt_damage:
+    lda #snd_se_damage
+    jsr call_bank8_play_se
     lda ap_armor
     cmp #ap_armor_full
     bne @eb_fatal
@@ -2366,6 +2381,8 @@ ap_update_boss:
     sta item_type,x
     dex
     bpl :-
+    lda #snd_song_boss
+    jmp call_bank8_play_song
 @boss_done:
     rts
 
@@ -2416,13 +2433,10 @@ ap_update_boss:
     jmp ap_boss_fire_bolt
 
 ap_boss_fire_bolt:
+    ; Keep at most 1 active boss bolt so player(2) + boss(2) + 3 daggers(3) + bolt(1) <= 8/scanline.
     ldy #0
-@bfb_find:
-    lda eb_active,y
+    lda eb_active+0
     beq @bfb_alloc
-    iny
-    cpy #ap_max_ebolts
-    bne @bfb_find
     rts
 @bfb_alloc:
     lda #1
@@ -2530,11 +2544,11 @@ ap_shot_check_boss:
     clc
     rts
 
-; Draw 16x32 multi-part boss in OAM slots 11-14:
+; Draw 24x32 multi-part boss in OAM slots 11-15:
 ; - Upper head: 2 sprites (16x16) at Y = boss_y - 33
-; - Lower body: 2 sprites (16x16) at Y = boss_y - 17
-; Max scanline sprites even with 3 daggers + enemy bolt + player:
-; head 2 + shots 3 + bolt 1 = 6; body 2 + player 2 + shots 3 + bolt 1 = 8 (<= 8).
+; - Lower body: 3 sprites (24x16) at Y = boss_y - 17
+; Max scanline sprites during boss fight: head 2 + shots 2 + bolt 1 = 5;
+; body 3 + player 2 + shots 2 + bolt 1 = 8 (within hardware 8-sprite limit).
 ap_draw_boss:
     lda #11 * 4
     sta draw_slot
@@ -2572,6 +2586,23 @@ ap_draw_boss:
     sec
     sbc #17
     jsr set_sprite_y
+    ; Draw 3 contiguous 8x16 sprites centered on ap_boss_x (X-12, X-4, X+4).
     lda ap_boss_x_lo
-    ldx ap_boss_x_hi
-    jmp draw_pair
+    sec
+    sbc #4
+    pha
+    lda ap_boss_x_hi
+    sbc #0
+    tax
+    pla
+    jsr draw_pair               ; Emits X-12 and X-4
+    lda ap_boss_x_lo
+    clc
+    adc #4
+    pha
+    lda ap_boss_x_hi
+    adc #0
+    tax
+    pla
+    jsr set_sprite_x
+    jmp emit_sprite

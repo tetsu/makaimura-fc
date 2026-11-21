@@ -23,9 +23,14 @@ bank_tag_base = $80
 .segment "BANK2"
 .byte bank_tag_base + 2
 .if fixed_bank > 3
-.segment "PAD_4_11"
-.repeat 8, index
+.segment "PAD_4_7"
+.repeat 4, index
     .byte bank_tag_base + 4 + index
+    .res $1fff, $ff
+.endrepeat
+.segment "PAD_9_11"
+.repeat 3, index
+    .byte bank_tag_base + 9 + index
     .res $1fff, $ff
 .endrepeat
 .segment "PAD_13_62"
@@ -64,6 +69,7 @@ campaign_subsecond: .res 1
 campaign_clock: .res 3 ; Decimal digits stored as tile IDs for VBlank.
 campaign_hud_dirty: .res 1
 arcade_mode: .res 1    ; Non-zero in Bank 3 arcade player mode.
+snd_ptr: .res 2        ; Bank 8 sound driver stream pointer.
 .endif
 
 .include "fixed-hud.inc"
@@ -75,6 +81,7 @@ arcade_mode: .res 1    ; Non-zero in Bank 3 arcade player mode.
 .include "playable-scene.inc"
 .if PRG_ROM_UNITS = 32
 .include "campaign.inc"
+.include "sound-driver.inc"
 .include "arcade-stage.inc"
 .include "arcade-player.inc"
 .endif
@@ -170,6 +177,9 @@ check_bank:
 .if PRG_ROM_UNITS = 32
     sta campaign_stage
     sta arcade_mode
+    jsr call_bank8_audio_init
+    lda #2
+    jsr select_bank2
 .endif
     jsr enable_static_screen
     jmp main
@@ -370,6 +380,13 @@ select_mode:
     sta phrase
     sta frames
 audio_tick:
+.if PRG_ROM_UNITS = 32
+    lda arcade_mode
+    beq @legacy_audio_tick
+    jsr call_bank8_audio_tick
+    jmp main
+@legacy_audio_tick:
+.endif
     jsr tick_shot_sound
     lda frames
     beq play
@@ -554,6 +571,30 @@ call_bank3_draw_sprites:
     lda #3
     jsr select_bank1
     jmp ap_draw_sprites
+
+call_bank8_audio_init:
+    lda #8
+    jsr select_bank2
+    jmp snd_init
+
+call_bank8_play_song:
+    pha
+    lda #8
+    jsr select_bank2
+    pla
+    jmp snd_play_song
+
+call_bank8_play_se:
+    pha
+    lda #8
+    jsr select_bank2
+    pla
+    jmp snd_play_se
+
+call_bank8_audio_tick:
+    lda #8
+    jsr select_bank2
+    jmp snd_tick
 .endif
 
 ; A = register, Y = value. Preserve X and Y.

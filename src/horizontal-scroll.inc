@@ -45,10 +45,17 @@ show_sound_screen:
     jsr select_bank0    ; Previews and horizontal play use the original terrain.
     sta scene
 .if PRG_ROM_UNITS = 32
+    lda arcade_mode
+    beq @skip_snd_reset
+    jsr call_bank8_audio_init
+@skip_snd_reset:
+    lda #0
     sta campaign_stage
     sta arcade_mode
     lda #1
     jsr select_bank1
+    lda #2
+    jsr select_bank2
 .endif
     jsr draw_screen
 enable_static_screen:

@@ -295,9 +295,19 @@ course_finished:
 
 .if PRG_ROM_UNITS = 32
 show_game_over:
+    lda arcade_mode
+    beq :+
+    lda #snd_song_gameover
+    jsr call_bank8_play_song
+:
     lda #game_over_scene
     bne show_result
 show_course_clear:
+    lda arcade_mode
+    beq :+
+    lda #snd_song_clear
+    jsr call_bank8_play_song
+:
     lda #clear_scene
 show_result:
     pha
