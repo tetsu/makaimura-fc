@@ -4,6 +4,7 @@
 import argparse
 import json
 import re
+from collections import Counter
 from pathlib import Path
 
 from PIL import Image
@@ -13,6 +14,7 @@ TILE_WIDTH = 8
 TABLE_TILES = 256
 TILE_BYTES = 16
 REGION_SIZES = {"bg": (16, 16), "obj": (8, 16)}
+IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def validate_grid(grid, rows, columns, maximum, label):
@@ -118,6 +120,60 @@ def byte_line(values):
     return "    .byte " + ", ".join(f"${value:02x}" for value in values)
 
 
+def pack_poses(manifest, palette_ids, references):
+    if not isinstance(manifest, dict) or not 1 <= len(manifest) <= 255:
+        raise ValueError("pose manifest must be an object containing 1..255 named poses")
+    rows, columns = len(palette_ids), len(palette_ids[0])
+    poses = {}
+    for name, parts in manifest.items():
+        if not IDENTIFIER.fullmatch(name) or not isinstance(parts, list):
+            raise ValueError(f"pose {name!r} must have an identifier name and an array of parts")
+        records = []
+        scanlines = Counter()
+        for index, part in enumerate(parts):
+            label = f"pose {name!r} part {index}"
+            if not isinstance(part, dict) or part.keys() - {"region", "dx", "dy", "flip_x", "flip_y"}:
+                raise ValueError(f"{label} must specify region, dx, dy and optional flip_x, flip_y")
+            region = part.get("region")
+            if (not isinstance(region, list) or len(region) != 2
+                    or any(type(value) is not int for value in region)
+                    or not (0 <= region[0] < columns and 0 <= region[1] < rows)):
+                raise ValueError(f"{label} region must be [column, row] inside the OBJ sheet")
+            dx, dy = part.get("dx"), part.get("dy")
+            if any(type(value) is not int or not -128 <= value <= 127 for value in (dx, dy)):
+                raise ValueError(f"{label} dx and dy must be integers in -128..127")
+            flip_x, flip_y = part.get("flip_x", False), part.get("flip_y", False)
+            if type(flip_x) is not bool or type(flip_y) is not bool:
+                raise ValueError(f"{label} flip_x and flip_y must be booleans")
+
+            column, row = region
+            tile, palette = references[row * columns + column]
+            if palette != 0xFF:
+                attributes = palette | (flip_x << 6) | (flip_y << 7)
+                records.append((dx & 0xFF, dy & 0xFF, tile, attributes))
+                scanlines.update(range(dy, dy + REGION_SIZES["obj"][1]))
+
+        if len(records) > 64:
+            raise ValueError(f"pose {name!r} exceeds 64 OAM entries")
+        for scanline, count in scanlines.items():
+            if count > 8:
+                raise ValueError(f"pose {name!r} exceeds 8 sprites on relative scanline {scanline}")
+        poses[name] = records
+    return poses
+
+
+def pose_assembly(prefix, poses):
+    yield f"{prefix}_pose_count = {len(poses)}"
+    yield f"{prefix}_poses:"
+    for name in poses:
+        yield f"    .addr {prefix}_pose_{name}"
+    for name, records in poses.items():
+        yield f"{prefix}_pose_{name}:"
+        yield byte_line([len(records)])
+        yield from map(byte_line, records)
+    yield ""
+
+
 def to_assembly(prefix, metadata, first_tile, chr_data, references):
     mode = metadata["mode"]
     ppu_base = 0x1000 if mode == "obj" else 0
@@ -147,10 +203,14 @@ def main():
     parser.add_argument("--prefix", required=True, help="prefix for generated ca65 symbols")
     parser.add_argument("--first-tile", type=lambda value: int(value, 0), default=0,
                         help="first available tile number within the pattern table")
+    parser.add_argument("--poses", type=Path, help="OBJ pose manifest in JSON")
     args = parser.parse_args()
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", args.prefix):
+    if not IDENTIFIER.fullmatch(args.prefix):
         parser.error("--prefix must be a ca65 identifier")
-    if args.output.resolve() in (args.image.resolve(), args.palette_json.resolve()):
+    inputs = [args.image, args.palette_json]
+    if args.poses is not None:
+        inputs.append(args.poses)
+    if any(args.output.resolve() == path.resolve() for path in inputs):
         parser.error("output must be different from the inputs")
 
     try:
@@ -158,6 +218,12 @@ def main():
         with Image.open(args.image, formats=["PNG"]) as image:
             chr_data, references = pack(image, metadata, args.first_tile)
         asm = to_assembly(args.prefix, metadata, args.first_tile, chr_data, references)
+        if args.poses is not None:
+            if metadata["mode"] != "obj":
+                raise ValueError("--poses requires OBJ input")
+            manifest = json.loads(args.poses.read_text(encoding="utf-8-sig"))
+            poses = pack_poses(manifest, metadata["palette_ids"], references)
+            asm += "\n" + "\n".join(pose_assembly(args.prefix, poses))
         args.output.write_text(asm, encoding="utf-8", newline="\n")
     except (OSError, ValueError) as error:
         parser.error(str(error))
