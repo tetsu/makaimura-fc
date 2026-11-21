@@ -1,9 +1,13 @@
--- MAME 0.289, makaimurg, default DIP switches. Section 4 boss projectile allocation.
+-- MAME 0.289, makaimurg, default DIP switches. Section 4 boss projectile.
 local machine = manager.machine
 local cpu = machine.devices[":maincpu"]
 local mem = cpu.spaces.program
 local trial = os.getenv("REVG_TYPE06_PROJECTILE") or "normal"
 assert(trial == "normal" or trial == "pool", "Expected REVG_TYPE06_PROJECTILE=normal or pool")
+local move_trial = os.getenv("REVG_TYPE06_MOVEMENT")
+if move_trial then
+    assert(move_trial == "1" and trial == "normal", "Movement requires REVG_TYPE06_MOVEMENT=1 and normal allocation")
+end
 local aim_trial = os.getenv("REVG_TYPE06_AIM")
 local dx, dy
 if aim_trial then
@@ -18,6 +22,8 @@ local entry = 0x6cee + 4 * 4
 local frame, attempts, shots, reloads = 0, 0, 0, 0
 local selected, boss, activated, attempt_frame, effective_pool, failure
 local target_x, target_y, aim_reads, quotient, remainder
+local moving_slot, last_x, last_y, init_frame
+local moves, move_limit = 0, 4
 
 local function field(port, mask)
     for _, item in pairs(machine.ioport.ports[port].fields) do
@@ -28,6 +34,10 @@ end
 
 local function word(address)
     return 256 * mem:read_u8(address) + mem:read_u8(address + 1)
+end
+
+local function signed_delta(next_position, previous_position)
+    return ((next_position - previous_position + 0x800000) & 0xffffff) - 0x800000
 end
 
 local function log(event, format, ...)
@@ -88,6 +98,12 @@ revg_type06_projectile_taps = {
         shots = shots + 1
         local direction = mem:read_u8(slot - 2)
         log("shot", "%d,%04x,%d,%d,%d", shots, slot, x, y, direction)
+        if move_trial and shots == 1 then
+            moving_slot = slot
+            last_x = 256 * x + mem:read_u8(slot - 8)
+            last_y = 256 * y + mem:read_u8(slot - 5)
+            log("origin", "%06x,%06x", last_x, last_y)
+        end
         if aim_trial then
             if aim_reads ~= 4 or not quotient or direction > 15 then
                 failure = "Unexpected aim measurement"
@@ -118,13 +134,40 @@ if aim_trial then
     end)
 end
 
-local attempt_limit = aim_trial and 1 or 3
+if move_trial then
+    revg_type06_projectile_taps.movement = mem:install_write_tap(0x13c3, 0x1469, "boss projectile movement",
+        function(address, value)
+            if not moving_slot or cpu.state.X.value ~= moving_slot then return end
+            local pc = cpu.state.PC.value
+            if pc == 0xfc20 and address == moving_slot - 0x0d then
+                if init_frame or value ~= 1 or frame ~= attempt_frame then
+                    failure = "Unexpected projectile initialization"
+                end
+                init_frame = frame
+                log("init", "%d,%04x", value, word(moving_slot - 4))
+            elseif pc == 0xa2c3 and address == moving_slot - 7 then
+                if not init_frame or frame ~= init_frame + moves + 1 then
+                    failure = "Unexpected movement frame"
+                end
+                local x = 256 * word(moving_slot - 0x0a) + mem:read_u8(moving_slot - 8)
+                local y = 65536 * value + word(moving_slot - 6)
+                local dx, dy = signed_delta(x, last_x), signed_delta(y, last_y)
+                moves = moves + 1
+                log("move", "%d,%06x,%06x,%d,%d", moves, x, y, dx, dy)
+                last_x, last_y = x, y
+            end
+        end)
+end
+
+local attempt_limit = (aim_trial or move_trial) and 1 or 3
 revg_type06_projectile_frame = emu.add_machine_frame_notifier(function()
-    if failure or attempts >= attempt_limit or frame >= 2300 then
+    local complete = (move_trial and moves >= move_limit) or (not move_trial and attempts >= attempt_limit)
+    if failure or complete or frame >= 2300 then
         machine:exit()
         assert(not failure, failure)
         assert(attempts == attempt_limit and reloads == attempts and shots == (trial == "pool" and 2 or attempt_limit),
             "Unexpected projectile or reload count")
+        assert(not move_trial or moves == move_limit, "Unexpected projectile movement count")
         log("done", "%d,%d", attempts, shots)
         return
     end
