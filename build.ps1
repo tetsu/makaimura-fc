@@ -18,20 +18,20 @@ $sourceDir = Join-Path $PSScriptRoot 'src'
 $buildDir = Join-Path $PSScriptRoot 'build'
 New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 $basename = 'vrc7a-test'
+$linkerConfig = 'vrc7a-test.cfg'
 $assembleOptions = @()
 $linkOptions = @()
 if ($Hardware) {
     $basename = 'vrc7a-test-512k'
+    $linkerConfig = 'vrc7a-512k.cfg'
     $assembleOptions = @('-D', 'PRG_ROM_UNITS=32')
-    # Banks 0–2 stay at the beginning. The fixed bank is the last of 64.
-    $linkOptions = @('-D', 'PRG_PADDING=$78000')
 }
 $object = Join-Path $buildDir "$basename.o"
 $rom = Join-Path $buildDir "$basename.nes"
 $labels = Join-Path $buildDir "$basename.lbl"
 & $assembler @assembleOptions (Join-Path $sourceDir 'vrc7a-test.s') -o $object
 if ($LASTEXITCODE -ne 0) { throw "ca65 exited with code $LASTEXITCODE" }
-& $linker @linkOptions -C (Join-Path $sourceDir 'vrc7a-test.cfg') -Ln $labels -o $rom $object
+& $linker @linkOptions -C (Join-Path $sourceDir $linkerConfig) -Ln $labels -o $rom $object
 if ($LASTEXITCODE -ne 0) { throw "ld65 exited with code $LASTEXITCODE" }
 
 $chrUsage = @{}

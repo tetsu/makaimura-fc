@@ -105,6 +105,16 @@ upload_campaign_hud:
     ldx checkpoint_reached
     lda campaign_checkpoint_glyphs,x
     sta $2007
+    lda arcade_mode
+    beq @skip_weapon_hud
+    lda #$20
+    sta $2006
+    lda #$3e
+    sta $2006
+    ldx ap_weapon
+    lda campaign_weapon_glyphs,x
+    sta $2007
+@skip_weapon_hud:
     lda #0
     sta campaign_hud_dirty
     rts
@@ -119,3 +129,4 @@ campaign_controls: ; A JUMP  B FIRE  START RETRY
     .byte $12, $13, $02, $11, $13, 0, $11, $06, $13, $11, $17
 campaign_controls_length = * - campaign_controls
 campaign_checkpoint_glyphs: .byte $0e, $17 ; N, Y
+campaign_weapon_glyphs: .byte $0c, $05, $13 ; L (Lance), D (Dagger), T (Torch)

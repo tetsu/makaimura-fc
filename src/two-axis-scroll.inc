@@ -1,8 +1,6 @@
 ; Horizontal mirroring gives this camera a 32x60 tile ring. The PPU
 ; masks the leftmost eight pixels so a replaced column is offscreen.
 pan_page_rows = 30
-pan_x_limit_high = 2           ; 512 px of travel across a 768 px map
-pan_y_limit_page = 2           ; 480 px of travel across a 720 px map
 pan_no_update = $ff
 
 .segment "ZEROPAGE"
@@ -28,6 +26,8 @@ pan_ctrl: .res 1
 pan_directions: .res 1
 pan_top_rows: .res 1
 pan_col_length: .res 1
+goal_tile_x: .res 1
+goal_flag_row: .res 1
 
 .segment "BSS"
 pan_row_tiles: .res 32
@@ -68,13 +68,41 @@ draw_pan:
     clc
     adc #pan_page_rows
     sta pan_tile_y
-    lda course_checkpoint_x
-    lsr a
-    lsr a
-    lsr a
-    clc
-    adc #(checkpoint_page * 32) - 1
+    lda stage_cp_x_hi
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
     sta z:checkpoint_tile_x
+    lda stage_cp_x_lo
+    lsr a
+    lsr a
+    lsr a
+    ora z:checkpoint_tile_x
+    sec
+    sbc #1
+    sta z:checkpoint_tile_x
+    lda stage_goal_x_hi
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    sta goal_tile_x
+    lda stage_goal_x_lo
+    lsr a
+    lsr a
+    lsr a
+    ora goal_tile_x
+    sta goal_tile_x
+    lda stage_goal_feet
+    lsr a
+    lsr a
+    lsr a
+    sec
+    sbc #2
+    sta goal_flag_row
     lda #$81
     sta $e000           ; Horizontal mirroring: upper/lower nametables.
     lda #0
@@ -178,7 +206,7 @@ pan_move_x:
     cmp #1
     bne pan_x_done
     lda pan_x+1
-    cmp #pan_x_limit_high
+    cmp stage_cam_x_max_hi
     beq pan_x_done
     inc pan_x
     bne :+
@@ -216,7 +244,7 @@ pan_move_y:
     cmp #$04
     bne pan_y_done
     lda pan_y_page
-    cmp #pan_y_limit_page
+    cmp stage_cam_y_max_page
     beq pan_y_done
     inc pan_y
     lda pan_y
@@ -384,12 +412,13 @@ prepare_pan_column:
 ; X is the buffer index; Y is scratch.
 pan_tile:
     lda pan_data_x
-    cmp #goal_x / 8
+    cmp goal_tile_x
     bne :+
-    ldy pan_data_y
-    cpy #(goal_feet / 8) - 2
+    lda pan_data_y
+    sec
+    sbc goal_flag_row
     beq pan_goal_flag
-    cpy #(goal_feet / 8) - 1
+    cmp #1
     bne :+
     lda #(goal_pattern-glyphs)/16 + 1
     rts
@@ -407,18 +436,55 @@ pan_goal_flag:
 :
     lsr a
     tay
+.if PRG_ROM_UNITS = 32
+    lda arcade_mode
+    bne @skip_scenery
+.endif
     lda pan_data_y
     jsr scenery_tile
     bcs pan_scenery
-    lda terrain_columns,y
-    and #cliff_height_mask
-    asl a
-    cmp pan_data_y
-    beq pan_ledge
-    bcc pan_rock
-    sbc #1              ; The sky tile immediately above the ledge has gravel.
-    cmp pan_data_y
+@skip_scenery:
+    lda pan_data_y
+    lsr a
+    tay
+    lda pan_data_x
+    lsr a
+    jsr read_map_cell
+    beq pan_sky
+    cmp #mt_gravel
     beq pan_gravel
+    cmp #mt_ledge
+    beq @check_ledge_half
+.if PRG_ROM_UNITS = 32
+    cmp #mt_oneway
+    beq @pan_oneway
+    cmp #mt_ladder
+    beq @pan_ladder
+    cmp #mt_hazard
+    beq @pan_hazard
+.endif
+    jmp pan_rock
+@check_ledge_half:
+    lda pan_data_y
+    and #1
+    bne pan_rock
+    ldy #metatile_ledge
+    jmp pan_metatile_tile
+.if PRG_ROM_UNITS = 32
+@pan_oneway:
+    lda pan_data_y
+    and #1
+    bne pan_sky
+    lda #(oneway_pattern-glyphs)/16
+    rts
+@pan_ladder:
+    lda #(ladder_pattern-glyphs)/16
+    rts
+@pan_hazard:
+    lda #(hazard_pattern-glyphs)/16
+    rts
+.endif
+pan_sky:
     ldy #metatile_sky
     beq pan_metatile_tile
 pan_gravel:
@@ -426,9 +492,6 @@ pan_gravel:
     jmp pan_metatile_tile
 pan_scenery:
     rts
-pan_ledge:
-    ldy #metatile_ledge
-    jmp pan_metatile_tile
 pan_rock:
     lda pan_data_y
     eor pan_data_x

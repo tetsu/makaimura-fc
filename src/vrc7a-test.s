@@ -23,9 +23,14 @@ bank_tag_base = $80
 .segment "BANK2"
 .byte bank_tag_base + 2
 .if fixed_bank > 3
-.segment "PADDING"
-.repeat fixed_bank - 3, index
-    .byte bank_tag_base + 3 + index
+.segment "PAD_4_11"
+.repeat 8, index
+    .byte bank_tag_base + 4 + index
+    .res $1fff, $ff
+.endrepeat
+.segment "PAD_13_62"
+.repeat 50, index
+    .byte bank_tag_base + 13 + index
     .res $1fff, $ff
 .endrepeat
 .endif
@@ -46,12 +51,19 @@ pan_y: .res 1          ; Current Y within a 240 px nametable.
 apu_channels: .res 1
 shot_sound_pending: .res 1
 shot_sound_frames: .res 1
+prg_bank0: .res 1
+prg_bank1: .res 1
+prg_bank2: .res 1
+map_ptr: .res 2
+map_tmp: .res 1
+map_cached_col: .res 1
 .if PRG_ROM_UNITS = 32
 campaign_stage: .res 1 ; Zero in diagnostics, otherwise the 1-based stage number.
 campaign_lives: .res 1
 campaign_subsecond: .res 1
 campaign_clock: .res 3 ; Decimal digits stored as tile IDs for VBlank.
 campaign_hud_dirty: .res 1
+arcade_mode: .res 1    ; Non-zero in Bank 3 arcade player mode.
 .endif
 
 .include "fixed-hud.inc"
@@ -63,6 +75,8 @@ campaign_hud_dirty: .res 1
 .include "playable-scene.inc"
 .if PRG_ROM_UNITS = 32
 .include "campaign.inc"
+.include "arcade-stage.inc"
+.include "arcade-player.inc"
 .endif
 
 .segment "CODE"
@@ -88,11 +102,11 @@ reset:
     jsr wait_frame
 
     lda #0
-    sta $8000
+    jsr select_bank0
     lda #1
-    sta $8010
+    jsr select_bank1
     lda #2
-    sta $9000
+    jsr select_bank2
     lda #0
     sta $a000
     lda #1
@@ -130,7 +144,7 @@ check_bank:
     cpx #fixed_bank + 1
     bne check_bank
     lda #0
-    sta $8000
+    jsr select_bank0
     lda $6000            ; Preserve the byte on battery-backed donor boards.
     tax
     lda #$96
@@ -155,6 +169,7 @@ check_bank:
     sta render_pending
 .if PRG_ROM_UNITS = 32
     sta campaign_stage
+    sta arcade_mode
 .endif
     jsr enable_static_screen
     jmp main
@@ -226,7 +241,20 @@ check_campaign_start:
     bne start_pressed
     lda pad
     and #$08            ; Hold Up and press Start on the title to start the campaign.
+    bne @begin_campaign
+    lda pad
+    and #$01            ; Hold Right and press Start to enter Bank 3 arcade test stage.
     beq start_pressed
+    lda #1
+    sta arcade_mode
+    sta campaign_stage
+    lda #campaign_initial_lives
+    sta campaign_lives
+    jsr start_arcade_stage
+    jmp audio_tick
+@begin_campaign:
+    lda #0
+    sta arcade_mode
     lda #1
     sta campaign_stage
     lda #campaign_initial_lives
@@ -493,6 +521,41 @@ set_apu_channels:
     sta $4015
     rts
 
+select_bank0:
+    sta prg_bank0
+    sta $8000
+    lda #$ff
+    sta map_cached_col
+    lda prg_bank0
+    rts
+
+select_bank1:
+    sta prg_bank1
+    sta $8010
+    rts
+
+select_bank2:
+    sta prg_bank2
+    sta $9000
+    rts
+
+.if PRG_ROM_UNITS = 32
+call_bank3_init:
+    lda #3
+    jsr select_bank1
+    jmp ap_init_stage
+
+call_bank3_update:
+    lda #3
+    jsr select_bank1
+    jmp ap_update_frame
+
+call_bank3_draw_sprites:
+    lda #3
+    jsr select_bank1
+    jmp ap_draw_sprites
+.endif
+
 ; A = register, Y = value. Preserve X and Y.
 fm_write:
     sta $9010
@@ -708,6 +771,17 @@ goal_pattern:
     ; Pennant and its post, followed by the base.
     .byte $7e, $42, $7a, $46, $78, $40, $40, $40, $00, $3c, $04, $38, $00, $00, $00, $00
     .byte $40, $40, $40, $40, $40, $40, $e0, $e0, $00, $00, $00, $00, $00, $00, $40, $00
+.if PRG_ROM_UNITS = 32
+oneway_pattern:
+    ; Thin timber plank at the top of the cell.
+    .byte $ff, $aa, $ff, $00, $00, $00, $00, $00, $ff, $55, $00, $00, $00, $00, $00, $00
+ladder_pattern:
+    ; Side rails and two rungs.
+    .byte $42, $7e, $42, $42, $42, $7e, $42, $42, $42, $42, $42, $42, $42, $42, $42, $42
+hazard_pattern:
+    ; Water / spike wave surface.
+    .byte $00, $18, $3c, $7e, $ff, $db, $ff, $ff, $00, $00, $18, $3c, $7e, $ff, $ff, $ff
+.endif
 CHR_TEXT_BYTES = terrain_tiles - glyphs
 CHR_TERRAIN_BYTES = * - terrain_tiles
 CHR_BACKGROUND_BYTES = CHR_TEXT_BYTES + CHR_TERRAIN_BYTES

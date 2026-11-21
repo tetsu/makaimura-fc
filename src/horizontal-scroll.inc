@@ -1,6 +1,5 @@
 ; At most one 16-pixel column becomes visible per frame at 1 px/frame.
 ; Vertical mirroring gives a 32-metatile ring across $2000 and $2400.
-camera_limit_high = (terrain_width - 16) / 16
 
 .segment "ZEROPAGE"
 camera_low: .res 1
@@ -43,10 +42,13 @@ blank_display:
 
 show_sound_screen:
     lda #0
-    sta $8000           ; Previews and horizontal play use the original terrain.
+    jsr select_bank0    ; Previews and horizontal play use the original terrain.
     sta scene
 .if PRG_ROM_UNITS = 32
     sta campaign_stage
+    sta arcade_mode
+    lda #1
+    jsr select_bank1
 .endif
     jsr draw_screen
 enable_static_screen:
@@ -120,7 +122,7 @@ step_camera:
     cmp #1
     bne stationary
     lda camera_high
-    cmp #camera_limit_high
+    cmp stage_cam_x_max_hi
     beq stationary
     inc camera_low
     bne :+
@@ -186,60 +188,41 @@ prepare_column:
     sta attribute_address
 
     ; Both neighbors in each 32-pixel attribute cell use the same palette.
-    ldx world_column
-    lda terrain_columns,x
-    lsr a
-    lsr a
-    lsr a
-    lsr a
+    lda #$ff
+    sta map_cached_col
+    lda stage_col_pal_ptr
+    sta map_ptr
+    lda stage_col_pal_ptr+1
+    sta map_ptr+1
+    ldy world_column
+    lda (map_ptr),y
     tay
     lda terrain_palette_full,y
     sta attribute_value
-    lda terrain_columns,x
-    and #cliff_height_mask
-    asl a
-    tay
+    lda world_column
+    jsr set_map_col_ptr
+    ldy #0
     ldx #0
 :
-    lda terrain_metatiles+metatile_sky
-    sta column_tiles,x
-    lda terrain_metatiles+metatile_sky+1
-    sta column_right_tiles,x
-    inx
-    lda terrain_metatiles+metatile_sky+2
-    sta column_tiles,x
-    lda terrain_metatiles+metatile_sky+3
-    sta column_right_tiles,x
-    inx
-    dey
-    dey
-    bne :-
-    lda terrain_metatiles+metatile_gravel+2
-    sta column_tiles-1,x
-    lda terrain_metatiles+metatile_gravel+3
-    sta column_right_tiles-1,x
-    lda terrain_metatiles+metatile_ledge
-    sta column_tiles,x
-    lda terrain_metatiles+metatile_ledge+1
-    sta column_right_tiles,x
-    inx
-    lda terrain_metatiles+metatile_ledge+2
-    sta column_tiles,x
-    lda terrain_metatiles+metatile_ledge+3
-    sta column_right_tiles,x
-    inx
-    cpx #30
-    beq decorate_column
-    ldy #metatile_rock
-:
+    tya
+    pha
+    lda (map_ptr),y
+    asl a
+    asl a
+    tay
     lda terrain_metatiles,y
     sta column_tiles,x
     lda terrain_metatiles+1,y
     sta column_right_tiles,x
-    tya
-    eor #2              ; Alternate upper and lower rows of the rock cell.
-    tay
     inx
+    lda terrain_metatiles+2,y
+    sta column_tiles,x
+    lda terrain_metatiles+3,y
+    sta column_right_tiles,x
+    inx
+    pla
+    tay
+    iny
     cpx #30
     bne :-
     jmp decorate_column

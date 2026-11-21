@@ -6,93 +6,270 @@ metatile_rock = 12
 metatile_rock_light = 16
 metatile_rock_dark = 20
 
-terrain_width = 48
-cliff_height_mask = $0f
-checkpoint_page = 2
+; 2D metatile IDs stored in stage maps (column-major, 16 rows per column).
+mt_sky = 0
+mt_gravel = 1
+mt_ledge = 2
+mt_rock = 3
+mt_oneway = 4
+mt_ladder = 5
+mt_hazard = 6
 
-; A column descriptor packs solid floor height (bits 0–3, in 16 px
-; cells) and a background palette ID (bits 4–5). Both columns of a
-; horizontal attribute cell share the same palette in this course.
-.macro cliff_pair left_height, right_height, palette
-    .assert left_height > 0 .and left_height < 15, error, "Invalid cliff height"
-    .assert right_height > 0 .and right_height < 15, error, "Invalid cliff height"
-    .assert palette >= 0 .and palette < 4, error, "Invalid background palette"
-    .byte (palette << 4) | left_height, (palette << 4) | right_height
+; Metatile collision attribute bits (bits 2-4 select terrain type).
+tile_type_mask = $1c
+tile_type_air = $00
+tile_type_solid = $04
+tile_type_oneway = $08
+tile_type_ladder = $0c
+tile_type_hazard = $10
+
+map_col_stride = 16
+default_stage_width = 48
+default_stage_height = 15
+
+; Stage header located immediately after the 1-byte bank tag at $8000.
+; Every stage bank shares the same header layout in the $8000 window.
+.macro stage_header width_cols, height_rows, cam_x_max_hi, cam_y_max_page, start_x, cp_x, cp_feet, cp_cam_hi, cp_cam_y, goal_x_val, goal_feet_val, map_label, pal_label
+    .assert height_rows > 0 .and height_rows <= map_col_stride, error, "Invalid stage height"
+    .assert cp_feet >= 160 .and (cp_feet .mod 8) = 0, error, "Invalid checkpoint scroll"
+    .byte width_cols
+    .byte height_rows
+    .byte cam_x_max_hi
+    .byte cam_y_max_page
+    .word start_x
+    .word cp_x
+    .byte cp_feet
+    .byte cp_cam_hi
+    .byte cp_cam_y
+    .word goal_x_val
+    .byte goal_feet_val
+    .word map_label
+    .word pal_label
 .endmacro
 
-; Both course records are read through the $8000 window. Bank 1 is
-; also mapped at $A000 at boot for the independent mapper test.
-.macro course_header start_x, checkpoint_x, checkpoint_feet
-    .assert >checkpoint_x = checkpoint_page, error, "Checkpoint outside the last page"
-    .assert checkpoint_feet >= 160 .and (checkpoint_feet .mod 8) = 0, error, "Invalid checkpoint scroll"
-    .byte start_x, <checkpoint_x, checkpoint_feet
+; Emit one 16-row column of 2D metatiles from a solid floor height (1..14).
+.macro cliff_col_2d height
+    .assert height > 0 .and height < 15, error, "Invalid cliff height"
+    .repeat map_col_stride, row
+        .if row < height - 1
+            .byte mt_sky
+        .elseif row = height - 1
+            .byte mt_gravel
+        .elseif row = height
+            .byte mt_ledge
+        .else
+            .byte mt_rock
+        .endif
+    .endrepeat
+.endmacro
+
+.macro cliff_pair_2d left_height, right_height
+    cliff_col_2d left_height
+    cliff_col_2d right_height
+.endmacro
+
+.macro pal_pair palette
+    .assert palette >= 0 .and palette < 4, error, "Invalid background palette"
+    .byte palette, palette
 .endmacro
 
 .segment "BANK0"
-course_start_x:
-    course_header 176, 704, 176
-course_checkpoint_x = course_start_x + 1
-course_checkpoint_feet = course_start_x + 2
-terrain_columns:
-    cliff_pair 12, 12, 0
-    cliff_pair 11, 11, 0
-    cliff_pair 10, 10, 1
-    cliff_pair 11, 12, 1
-    cliff_pair 12, 13, 3
-    cliff_pair 11, 11, 3
-    cliff_pair 11, 11, 2
-    cliff_pair 11, 11, 2
-    cliff_pair 11, 11, 3
-    cliff_pair 12, 12, 3
-    cliff_pair 12, 12, 2
-    cliff_pair 12, 11, 1
-    cliff_pair 11, 10, 1
-    cliff_pair 9, 8, 0
-    cliff_pair 8, 9, 3
-    cliff_pair 10, 11, 3
-    cliff_pair 12, 13, 1
-    cliff_pair 12, 11, 1
-    cliff_pair 10, 9, 2
-    cliff_pair 8, 9, 2
-    cliff_pair 9, 10, 3
-    cliff_pair 11, 12, 0
-    cliff_pair 11, 10, 1
-    cliff_pair 10, 11, 1
-.assert * - terrain_columns = terrain_width, error, "Unexpected terrain width"
+stage_header_base:
+    stage_header default_stage_width, default_stage_height, 2, 2, 176, 704, 176, 2, 16, 760, 176, stage0_map, stage0_palettes
+stage_width_cols     = stage_header_base + 0
+stage_height_rows    = stage_header_base + 1
+stage_cam_x_max_hi   = stage_header_base + 2
+stage_cam_y_max_page = stage_header_base + 3
+stage_start_x_lo     = stage_header_base + 4
+stage_start_x_hi     = stage_header_base + 5
+stage_cp_x_lo        = stage_header_base + 6
+stage_cp_x_hi        = stage_header_base + 7
+stage_cp_feet        = stage_header_base + 8
+stage_cp_cam_hi      = stage_header_base + 9
+stage_cp_cam_y       = stage_header_base + 10
+stage_goal_x_lo      = stage_header_base + 11
+stage_goal_x_hi      = stage_header_base + 12
+stage_goal_feet      = stage_header_base + 13
+stage_map_ptr        = stage_header_base + 14
+stage_col_pal_ptr    = stage_header_base + 16
+
+stage0_palettes:
+    pal_pair 0
+    pal_pair 0
+    pal_pair 1
+    pal_pair 1
+    pal_pair 3
+    pal_pair 3
+    pal_pair 2
+    pal_pair 2
+    pal_pair 3
+    pal_pair 3
+    pal_pair 2
+    pal_pair 1
+    pal_pair 1
+    pal_pair 0
+    pal_pair 3
+    pal_pair 3
+    pal_pair 1
+    pal_pair 1
+    pal_pair 2
+    pal_pair 2
+    pal_pair 3
+    pal_pair 0
+    pal_pair 1
+    pal_pair 1
+.assert * - stage0_palettes = default_stage_width, error, "Unexpected stage0 palette width"
+.res 255 - (* - stage_header_base), $ff
+
+stage0_map:
+    cliff_pair_2d 12, 12
+    cliff_pair_2d 11, 11
+    cliff_pair_2d 10, 10
+    cliff_pair_2d 11, 12
+    cliff_pair_2d 12, 13
+    cliff_pair_2d 11, 11
+    cliff_pair_2d 11, 11
+    cliff_pair_2d 11, 11
+    cliff_pair_2d 11, 11
+    cliff_pair_2d 12, 12
+    cliff_pair_2d 12, 12
+    cliff_pair_2d 12, 11
+    cliff_pair_2d 11, 10
+    cliff_pair_2d 9, 8
+    cliff_pair_2d 8, 9
+    cliff_pair_2d 10, 11
+    cliff_pair_2d 12, 13
+    cliff_pair_2d 12, 11
+    cliff_pair_2d 10, 9
+    cliff_pair_2d 8, 9
+    cliff_pair_2d 9, 10
+    cliff_pair_2d 11, 12
+    cliff_pair_2d 11, 10
+    cliff_pair_2d 10, 11
+.assert * - stage0_map = default_stage_width * map_col_stride, error, "Unexpected stage0 map size"
 
 .segment "BANK1"
-alternate_course:
-    course_header 160, 696, 192
-alternate_columns:
-    cliff_pair 13, 13, 2
-    cliff_pair 12, 12, 2
-    cliff_pair 12, 12, 3
-    cliff_pair 12, 12, 3
-    cliff_pair 12, 12, 0
-    cliff_pair 12, 12, 0
-    cliff_pair 11, 11, 1
-    cliff_pair 11, 11, 1
-    cliff_pair 11, 11, 0
-    cliff_pair 12, 12, 0
-    cliff_pair 12, 12, 1
-    cliff_pair 12, 11, 2
-    cliff_pair 11, 10, 2
-    cliff_pair 9, 8, 1
-    cliff_pair 8, 9, 0
-    cliff_pair 10, 11, 0
-    cliff_pair 12, 13, 2
-    cliff_pair 12, 11, 2
-    cliff_pair 10, 9, 3
-    cliff_pair 8, 9, 3
-    cliff_pair 9, 10, 0
-    cliff_pair 11, 12, 1
-    cliff_pair 11, 10, 2
-    cliff_pair 10, 11, 2
-.assert * - alternate_columns = terrain_width, error, "Unexpected terrain width"
-.assert alternate_course = course_start_x + $2000, lderror, "Course header offsets differ"
-.assert alternate_columns = terrain_columns + $2000, lderror, "Course column offsets differ"
+stage1_header_base:
+    stage_header default_stage_width, default_stage_height, 2, 2, 160, 696, 192, 2, 32, 760, 176, stage1_map - $2000, stage1_palettes - $2000
+stage1_palettes:
+    pal_pair 2
+    pal_pair 2
+    pal_pair 3
+    pal_pair 3
+    pal_pair 0
+    pal_pair 0
+    pal_pair 1
+    pal_pair 1
+    pal_pair 0
+    pal_pair 0
+    pal_pair 1
+    pal_pair 2
+    pal_pair 2
+    pal_pair 1
+    pal_pair 0
+    pal_pair 0
+    pal_pair 2
+    pal_pair 2
+    pal_pair 3
+    pal_pair 3
+    pal_pair 0
+    pal_pair 1
+    pal_pair 2
+    pal_pair 2
+.assert * - stage1_palettes = default_stage_width, error, "Unexpected stage1 palette width"
+.res 255 - (* - stage1_header_base), $ff
+
+stage1_map:
+    cliff_pair_2d 13, 13
+    cliff_pair_2d 12, 12
+    cliff_pair_2d 12, 12
+    cliff_pair_2d 12, 12
+    cliff_pair_2d 12, 12
+    cliff_pair_2d 12, 12
+    cliff_pair_2d 11, 11
+    cliff_pair_2d 11, 11
+    cliff_pair_2d 11, 11
+    cliff_pair_2d 12, 12
+    cliff_pair_2d 12, 12
+    cliff_pair_2d 12, 11
+    cliff_pair_2d 11, 10
+    cliff_pair_2d 9, 8
+    cliff_pair_2d 8, 9
+    cliff_pair_2d 10, 11
+    cliff_pair_2d 12, 13
+    cliff_pair_2d 12, 11
+    cliff_pair_2d 10, 9
+    cliff_pair_2d 8, 9
+    cliff_pair_2d 9, 10
+    cliff_pair_2d 11, 12
+    cliff_pair_2d 11, 10
+    cliff_pair_2d 10, 11
+.assert * - stage1_map = default_stage_width * map_col_stride, error, "Unexpected stage1 map size"
+.assert stage1_header_base = stage_header_base + $2000, lderror, "Stage header offsets differ"
+
+.segment "CODE"
+; A = metatile column (0..255). Sets map_ptr to the column start in $8000.
+; Requires stage_map_ptr to be 256-byte aligned. Preserves X and Y.
+set_map_col_ptr:
+    cmp map_cached_col
+    beq @cached
+    sta map_cached_col
+    sta map_tmp
+    asl a
+    asl a
+    asl a
+    asl a
+    sta map_ptr
+    lda map_tmp
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    clc
+    adc stage_map_ptr+1
+    sta map_ptr+1
+@cached:
+    rts
+
+; A = metatile column (0..255), Y = metatile row.
+; Returns metatile ID in A (mt_rock below the map). Preserves X and Y.
+read_map_cell:
+    cpy stage_height_rows
+    bcs @below_map
+    cmp map_cached_col
+    beq @read_cell
+    sta map_cached_col
+    sta map_tmp
+    asl a
+    asl a
+    asl a
+    asl a
+    sta map_ptr
+    lda map_tmp
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    clc
+    adc stage_map_ptr+1
+    sta map_ptr+1
+@read_cell:
+    lda (map_ptr),y
+    rts
+@below_map:
+    lda #mt_rock
+    rts
 
 .segment "RODATA"
+metatile_attr:
+    .byte tile_type_air     ; mt_sky
+    .byte tile_type_air     ; mt_gravel
+    .byte tile_type_solid   ; mt_ledge
+    .byte tile_type_solid   ; mt_rock
+    .byte tile_type_oneway  ; mt_oneway
+    .byte tile_type_ladder  ; mt_ladder
+    .byte tile_type_hazard  ; mt_hazard
+
 cliff_gravel = (terrain_tiles - glyphs) / 16
 cliff_ledge = cliff_gravel + 1
 cliff_light = cliff_gravel + 2
@@ -101,7 +278,7 @@ terrain_metatiles:
     .byte 0, 0, 0, 0
     .byte 0, 0, cliff_gravel, cliff_gravel
     .byte cliff_ledge, cliff_ledge, cliff_light, cliff_light
-    .byte cliff_ledge, cliff_ledge, cliff_light, cliff_light
+    .byte cliff_light, cliff_light, cliff_light, cliff_light
     .byte cliff_light, cliff_light, cliff_light, cliff_light
     .byte cliff_dark, cliff_dark, cliff_dark, cliff_dark
 

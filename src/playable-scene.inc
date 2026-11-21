@@ -7,8 +7,6 @@ ranged_range = 34
 ranged_windup = 30
 ranged_cooldown = 48
 bolt_y = ranged_feet - 9
-goal_x = terrain_width * 16 - 8
-goal_feet = 176
 clear_scene = 5
 player_height = 16
 jump_fall = 18
@@ -52,10 +50,20 @@ sprites: .res 256
 .if PRG_ROM_UNITS = 32
 campaign_stage_count = 2
 
+start_arcade_stage:
+    jsr blank_display
+    jsr reset_campaign_clock
+    lda #arcade_stage_bank
+    jsr select_bank0
+    jmp show_pan_game
+
 next_campaign_stage:
+    lda arcade_mode
+    bne @finish_campaign_now
     lda campaign_stage
     cmp #campaign_stage_count
     bcc :+
+@finish_campaign_now:
     jsr blank_display
     jmp show_sound_screen
 :
@@ -66,7 +74,7 @@ start_campaign_stage:
     lda campaign_stage
     sec
     sbc #1
-    sta $8000
+    jsr select_bank0
     jmp show_pan_game
 .endif
 
@@ -76,7 +84,7 @@ start_course:
     and #$04            ; Hold Down with B to map the alternate course.
     lsr a
     lsr a
-    sta $8000
+    jsr select_bank0
     jmp show_pan_game
 
 show_game:
@@ -107,11 +115,8 @@ draw_pan_game:
     ldy #0
     lda checkpoint_reached
     beq :+
-    ldx #pan_x_limit_high
-    lda course_checkpoint_feet
-    sec
-    sbc #160
-    tay
+    ldx stage_cp_cam_hi
+    ldy stage_cp_cam_y
 :
     txa
     sta camera_high
@@ -129,13 +134,13 @@ setup_game:
     sta sprites,x
     inx
     bne :-
-    lda course_start_x
+    lda stage_start_x_lo
     sta player_x
-    ldx #0
+    ldx stage_start_x_hi
+    stx player_x+1
     jsr floor_height
     sta player_feet
     lda #0
-    sta player_x+1
     sta player_hit
     sta player_left
     sta shot_life
@@ -154,19 +159,29 @@ setup_game:
     sta ranged_active
     lda checkpoint_reached
     beq setup_game_sprites
-    lda course_checkpoint_x
+    lda stage_cp_x_lo
     sta player_x
-    lda #checkpoint_page
+    lda stage_cp_x_hi
     sta player_x+1
-    lda course_checkpoint_feet
+    lda stage_cp_feet
     sta player_feet
 setup_game_sprites:
+.if PRG_ROM_UNITS = 32
+    lda arcade_mode
+    beq :+
+    jsr call_bank3_init
+:
+.endif
     jsr draw_sprites
     jsr upload_sprites
     jmp enable_terrain
 
 update_game:
 .if PRG_ROM_UNITS = 32
+    lda arcade_mode
+    beq :+
+    jmp call_bank3_update
+:
     lda campaign_stage
     bne check_player_hit
 .endif
@@ -189,18 +204,21 @@ check_player_hit:
     jsr update_ranged
 .if PRG_ROM_UNITS = 32
     lda campaign_stage
-    beq :+
+    beq @after_campaign_tick
     jsr tick_campaign_clock
     lda player_hit
-    beq :+
+    beq @after_campaign_tick
     dec campaign_lives
-    beq show_game_over
+    bne @campaign_retry_hud
+    jmp show_game_over
+@campaign_retry_hud:
     inc campaign_hud_dirty
     jmp game_camera
-:
+@after_campaign_tick:
 .endif
     jsr check_course_progress
-    bcs show_course_clear
+    bcc game_camera
+    jmp show_course_clear
 game_camera:
     jsr follow_player
     jmp submit_frame
@@ -242,11 +260,13 @@ check_course_progress:
     lda player_hit
     bne :+
     lda player_x+1
-    cmp #checkpoint_page
-    bne :+
-    lda player_x
-    cmp course_checkpoint_x
+    cmp stage_cp_x_hi
     bcc :+
+    bne checkpoint_passed
+    lda player_x
+    cmp stage_cp_x_lo
+    bcc :+
+checkpoint_passed:
 .if PRG_ROM_UNITS = 32
     ldx campaign_stage
     beq checkpoint_marked
@@ -257,11 +277,14 @@ checkpoint_marked:
 .endif
     lda #1
     sta checkpoint_reached
+    lda player_x+1
+    cmp stage_goal_x_hi
+    bne :+
     lda player_x
-    cmp #<goal_x
+    cmp stage_goal_x_lo
     bne :+
     lda player_feet
-    cmp #goal_feet
+    cmp stage_goal_feet
     bne :+
     lda jump_step
     cmp #$ff
@@ -404,10 +427,10 @@ move_player:
     lda #0
     sta player_left
     lda player_x+1
-    cmp #>goal_x
+    cmp stage_goal_x_hi
     bne advance_player
     lda player_x
-    cmp #<goal_x
+    cmp stage_goal_x_lo
     beq read_ground
 advance_player:
     inc player_x
@@ -444,16 +467,27 @@ read_ground:
 move_done:
     rts
 
-; A = world X low byte, X = high byte (0–2). A returns floor Y in pixels.
+; A = world X low byte, X = high byte. A returns first solid floor Y in pixels.
 floor_height:
     lsr a
     lsr a
     lsr a
     lsr a
     ora page_columns,x
+    jsr set_map_col_ptr
+    ldy #0
+@scan_floor:
+    lda (map_ptr),y
     tax
-    lda terrain_columns,x
-    and #cliff_height_mask
+    lda metatile_attr,x
+    and #tile_type_mask
+    cmp #tile_type_solid
+    beq @found_floor
+    iny
+    cpy stage_height_rows
+    bne @scan_floor
+@found_floor:
+    tya
     asl a
     asl a
     asl a
@@ -683,6 +717,12 @@ ranged_done:
     rts
 
 draw_sprites:
+.if PRG_ROM_UNITS = 32
+    lda arcade_mode
+    beq :+
+    jmp call_bank3_draw_sprites
+:
+.endif
     ; Hide the gameplay entries before drawing visible pieces.
     lda #$f8
     ldx #bolt_slot
