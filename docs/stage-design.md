@@ -253,7 +253,7 @@ python tools/pack-nes-chr.py build/obj-indexed.png build/obj-palette.json build/
 
 ### 3.8 エリア BG を試験コースに組み込む
 
-`-Hardware -AreaManifest build/areas.json -AreaTrial build/trial-stage.json` でコースを追加する。2コースを入れる場合は `-AreaTrial @('build/first.json', 'build/second.json')` と指定する。引数順に **左＋B**、**右＋B** で選ぶ。試験コース JSON の項目は次のとおり。
+`-Hardware -AreaManifest build/areas.json -AreaTrial build/trial-stage.json` でコースを追加する。複数コースは `-AreaTrial @('build/first.json', 'build/second.json', 'build/third.json')` のように最大11個まで指定できる。テストメニューから **左＋B** で1番目、**右＋B** で2番目を始める。クリア画面の **START** で引数順に進み、最終コースのクリア後は **START** で再プレイできる。試験コース JSON の項目は次のとおり。
 
 | 項目 | 内容 |
 | --- | --- |
@@ -266,7 +266,7 @@ python tools/pack-nes-chr.py build/obj-indexed.png build/obj-palette.json build/
 
 BG を `pack-nes-chr.py --first-tile 0x40` でパックすると、HUD と目印に使う既存パターンを保てる。参照する7区画には同じパレットと背景色 `$0F` を使う。ビルドで CHR の重複、区画座標、リンク後のパレット番号と背景色を検査する。ゲーム内ではそのパレットの色1～3を BG パレット1に割り当て、HUD はパレット0を使う。
 
-`BANK52` と `BANK53` に引数順で地形と区画表へのオフセットを配置する。コース開始・再挑戦時は `BANK51` の転送処理がエリア参照表を読み、描画を止めている間に BG を CHR-RAM へ転送する。スクロール中は RAM に展開した7種類のタイル番号を参照する。メタタイルの描画と床判定は同じ JSON を使う。試験コースの床判定は `ledge` と `rock` を使い、`ladder` と `hazard` は描画に使う。[Mesen での操作](../README.md#マニフェストの試験コース)
+`BANK52`〜`BANK62` に引数順で地形と区画表へのオフセットを配置する。コース開始・再挑戦時は `BANK51` の転送処理がエリア参照表を読み、描画を止めている間に BG を CHR-RAM へ転送する。スクロール中は RAM に展開した7種類のタイル番号を参照する。メタタイルの描画と床判定は同じ JSON を使う。試験コースの床判定は `ledge` と `rock` を使い、`ladder` と `hazard` は描画に使う。[Mesen での操作](../README.md#マニフェストの試験コース)
 
 #### 試験コースのプレイヤーポーズ
 

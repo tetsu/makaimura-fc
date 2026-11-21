@@ -101,6 +101,15 @@ def main():
     }
     write_json(output / "stage.json", stage)
 
+    # A short final route reuses the first area's graphics with its own
+    # starting point, marker, encounter and goal.
+    finish_tiles = [row.copy() for row in tiles]
+    finish_tiles[5][1] = "gravel"
+    write_json(output / "finish.json", {
+        **stage, "tiles": finish_tiles, "start_x": 32, "checkpoint_x": 96, "goal_x": 176,
+        "enemies": {"fixed": {"x": 112, "y": 176}},
+    })
+
     # The raised floor spans X=96..319 at Y=144. The enemy on the
     # lower floor forces a retry after crossing the elevated checkpoint.
     for column in range(6, 20):

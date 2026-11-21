@@ -696,7 +696,7 @@ area_view_menu_length = * - area_view_menu
 .ifdef NES_AREA_TRIAL
 area_trial_menu:
     .byte $0c, $06, $07, $13, $17, $03, $00, $02, $11, $06, $02, $00, $13, $11, $0a, $02, $0c ; LEFT+B AREA TRIAL
-.if nes_area_trial_count = 2
+.if nes_area_trial_count > 1
     .res 15, 0
     .byte $11, $0a, $08, $09, $13, $17, $03, $00, $02, $11, $06, $02, $00, $13, $11, $0a, $02, $0c ; RIGHT+B AREA TRIAL
 .endif

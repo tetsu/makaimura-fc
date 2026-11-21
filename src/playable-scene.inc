@@ -180,7 +180,7 @@ start_course:
     lda #nes_area_trial_bank
     bne @map_course
 :
-.if nes_area_trial_count = 2
+.if nes_area_trial_count > 1
     lda pad
     and #$01            ; Right+B selects the second manifest trial.
     beq :+
@@ -199,18 +199,31 @@ start_course:
     jsr select_bank0
     jmp show_pan_game
 
+.if nes_area_trial_count > 1
+; Return the next manifest bank, or zero at the end or outside the manifest.
+next_trial_bank:
+    lda prg_bank0
+    cmp #nes_area_trial_bank
+    bcc @none
+    cmp #nes_area_last_trial_bank
+    bcs @none
+    adc #1
+    rts
+@none:
+    lda #0
+    rts
+.endif
+
 show_game:
     jsr blank_display
     lda scene
     cmp #3
     beq show_pan_game
     cmp #clear_scene
-.if nes_area_trial_count = 2
+.if nes_area_trial_count > 1
     bne :+
-    lda prg_bank0
-    cmp #nes_area_trial_bank
-    bne show_pan_game
-    lda #nes_area_trial_bank + 1
+    jsr next_trial_bank
+    beq show_pan_game
     jsr select_bank0
     jmp show_pan_game
 :
@@ -333,8 +346,8 @@ setup_game:
     sta player_feet
 setup_game_sprites:
 .ifdef NES_AREA_TRIAL
-    cmp_trial_bank
-    bne :+
+    jsr check_trial_bank
+    bcs :+
     lda trial_player_pose_addresses+1
     beq :+
     jsr load_trial_player_banked
@@ -353,8 +366,8 @@ setup_game_sprites:
 load_course_enemies:
     ldx #encounter_bytes-1
 .ifdef NES_AREA_TRIAL
-    cmp_trial_bank
-    bne @defaults
+    jsr check_trial_bank
+    bcs @defaults
     lda trial_has_enemies
     beq @defaults
 @trial:
@@ -564,11 +577,10 @@ show_course_clear:
 .if PRG_ROM_UNITS = 32
     ldy #0
     lda campaign_stage
-.if nes_area_trial_count = 2
+.if nes_area_trial_count > 1
     bne @campaign_prompt
-    lda prg_bank0
-    cmp #nes_area_trial_bank
-    bne :+
+    jsr next_trial_bank
+    beq :+
     ldy #trial_next_prompt - clear_prompt
     bne :+
 @campaign_prompt:
@@ -957,8 +969,8 @@ draw_sprites:
     lda #0
     sta draw_slot
 .ifdef NES_AREA_TRIAL
-    cmp_trial_bank
-    bne :+
+    jsr check_trial_bank
+    bcs :+
     lda trial_player_pose_addresses+1
     beq :+
     jsr draw_trial_player_banked

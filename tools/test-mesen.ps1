@@ -38,7 +38,9 @@ if ($AreaTrial) {
     $fixture = Join-Path $root 'build/area-trial-fixture'
     & python (Join-Path $PSScriptRoot 'make-area-trial.py') $fixture
     if ($LASTEXITCODE -ne 0) { throw "Area trial fixture generation failed with code $LASTEXITCODE" }
-    $courses = (Join-Path $fixture 'stage.json'), (Join-Path $fixture 'steps.json')
+    $courses = foreach ($course in 'stage.json', 'steps.json', 'finish.json') {
+        Join-Path $fixture $course
+    }
     $rom = (& $buildScript -Hardware -Cc65Bin $Cc65Bin `
         -AreaManifest (Join-Path $fixture 'areas.json') -AreaTrial $courses)[0]
     foreach ($suite in 'area-trial.lua', 'area-trial-steps.lua') {

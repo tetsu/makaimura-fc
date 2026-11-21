@@ -12,9 +12,9 @@ DIRECTORY_BANK = 11
 FIRST_BANK = 19
 LAST_BANK = 50
 VIEWER_BANK = 51
-TRIAL_BANK = 52
-MAX_TRIALS = 2
+TRIAL_BANK = VIEWER_BANK + 1
 FIXED_BANK = 63
+MAX_TRIALS = FIXED_BANK - TRIAL_BANK
 BANK_SIZE = 0x2000
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 TRIAL_POSES = ("idle", "walk_a", "walk_b", "jump")
@@ -227,12 +227,15 @@ def make_include(areas, trials):
             ".endrepeat",
         ])
     tail_start = VIEWER_BANK + 1 + len(trials)
+    if tail_start < FIXED_BANK:
+        lines.extend([
+            '.segment "AREA_TAIL"',
+            f".repeat {FIXED_BANK - tail_start}, index",
+            f"    .byte bank_tag_base + {tail_start} + index",
+            "    .res $1fff, $ff",
+            ".endrepeat",
+        ])
     lines.extend([
-        '.segment "AREA_TAIL"',
-        f".repeat {FIXED_BANK - tail_start}, index",
-        f"    .byte bank_tag_base + {tail_start} + index",
-        "    .res $1fff, $ff",
-        ".endrepeat",
         f'.segment "BANK{DIRECTORY_BANK}"',
         f"    .byte bank_tag_base + {DIRECTORY_BANK}",
         f"nes_area_directory_bank = {DIRECTORY_BANK}",
@@ -285,9 +288,10 @@ def make_config(base_config, bank_count, trial_count):
         memory.append(f"    PRG{bank}: start = $8000, size = $2000, type = ro, fill = yes, fillval = $FF;")
         segments.append(f"    BANK{bank}: load = PRG{bank}, type = ro;")
     tail_banks = FIXED_BANK - VIEWER_BANK - 1 - trial_count
-    memory.append(f"    AREA_TAIL: start = $0000, size = ${tail_banks * BANK_SIZE:x},"
-                  " type = ro, fill = yes, fillval = $FF;")
-    segments.append("    AREA_TAIL: load = AREA_TAIL, type = ro;")
+    if tail_banks:
+        memory.append(f"    AREA_TAIL: start = $0000, size = ${tail_banks * BANK_SIZE:x},"
+                      " type = ro, fill = yes, fillval = $FF;")
+        segments.append("    AREA_TAIL: load = AREA_TAIL, type = ro;")
     config = base_config.splitlines()
     for pad, replacement_memory, replacement_segments in (
         ("PAD_19_62", memory, segments),

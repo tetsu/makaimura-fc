@@ -75,17 +75,18 @@ snd_ptr: .res 2        ; Bank 8 sound driver stream pointer.
 .endif
 
 .ifdef NES_AREA_TRIAL
-; The two optional course banks are consecutive and start at an even bank.
-.if nes_area_trial_count = 2
-    .assert (nes_area_trial_bank & 1) = 0, error, "Trial bank pair must be aligned"
-.endif
+nes_area_last_trial_bank = nes_area_trial_bank + nes_area_trial_count - 1
+; Carry is clear when Bank 0 maps a manifest course.
 .macro cmp_trial_bank
     lda prg_bank0
-.if nes_area_trial_count = 2
-    and #$fe
-.endif
-    cmp #nes_area_trial_bank
+    sec
+    sbc #nes_area_trial_bank
+    cmp #nes_area_trial_count
 .endmacro
+.segment "CODE"
+check_trial_bank:
+    cmp_trial_bank
+    rts
 .else
 nes_area_trial_count = 0
 .endif
@@ -1118,7 +1119,7 @@ clear_prompt_length = * - clear_prompt
 next_prompt: .byte $12, $13, $02, $11, $13, $00, $12, $13, $08, $1a ; START STG2
 arcade_next_prompt: .byte $12, $13, $02, $11, $13, $00, $04, $0f, $0e, $13 ; START CONT
 final_prompt: .byte $12, $13, $02, $11, $13, $00, $0d, $06, $0e, $14 ; START MENU
-.if nes_area_trial_count = 2
+.if nes_area_trial_count > 1
 trial_next_prompt: .byte $12, $13, $02, $11, $13, $00, $0e, $06, $18, $13 ; START NEXT
 .endif
 campaign_menu: .byte $14, $10, $18, $12, $13, $02, $11, $13, $00, $04, $02, $0d, $10, $02, $0a, $08, $0e ; UP+START CAMPAIGN
