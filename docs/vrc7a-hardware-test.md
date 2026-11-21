@@ -1,6 +1,6 @@
 # 352402 基板の実機試験
 
-[基板向けの出力と照合手順](../README.md#352402-基板向けの出力)で書き込みを確認したあと、日本版 NTSC ファミコンで試験する。書き込み時の `.prg` と同じビルドの `.nes` を保存し、比較にはその `.nes` を Mesen で開く。Mesen は NTSC、1P に NES コントローラー、スプライト制限ありに設定する。
+[書き込みと照合](#書き込みと照合)を行ったあと、日本版 NTSC ファミコンで試験する。比較には `build/vrc7a-test-512k.nes` を Mesen で開く。Mesen は NTSC、1P に NES コントローラー、スプライト制限ありに設定する。
 
 ## 交換 ROM と U1 の確認
 
@@ -19,9 +19,23 @@
 
 ソケットを使う場合は、ROM を挿した高さでケースが閉じるかも確認する。[AT27C040 の読み出し条件と端子表](https://www.microchip.com/content/dam/mchp/documents/OTH/ProductDocuments/DataSheets/doc0189.pdf) · [VRC7 の端子表](https://www.nesdev.org/wiki/VRC7_pinout)
 
-T48 の対応表には `AT27C040 @DIP32` がある。Xgpro で同じ項目を選び、ガイドが示す向きで交換 ROM を ZIF ソケットに挿す。ブランクチェックの後、512 KiBの生 PRG をオフセット0から書き込む。取り付け前に全域を読み戻し、[照合スクリプト](../README.md#352402-基板向けの出力)で一致と SHA-256 を確認する。[T48 の対応表](https://docs.rs-online.com/f666/0900766b814b5d4b.pdf)
-
 書き換え用に SST39SF040 を選ぶ場合は専用の端子変換が必要。PDIP 版では A18 が1番、/WE が31番にある。U1 が上表の配線なら U1 の31番を Flash の A18 に回し、Flash の /WE は VCC に固定する。U1 の1番は Flash の1番から切り離す。[SST39SF040 データシート 図2-1](https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/SST39SF010A-SST39SF020A-SST39SF040-Data-Sheet-DS20005022.pdf)
+
+## 書き込みと照合
+
+試験用 ZIP は展開し、PowerShell で展開先のルートを開く。同梱の `SHA256SUMS.txt` で PRG と NES イメージのハッシュを確認できる。
+
+```powershell
+Get-FileHash -Algorithm SHA256 build/vrc7a-test-512k.prg, build/vrc7a-test-512k.nes
+```
+
+T48 の対応表には `AT27C040 @DIP32` がある。Xgpro で同じ項目を選び、ガイドが示す向きで交換 ROM を ZIF ソケットに挿す。ブランクチェックの後、`build/vrc7a-test-512k.prg`（524,288バイト）をオフセット0から書き込む。取り付け前に全域を `build/readback.bin` などの別ファイルへ読み戻す。[T48 の対応表](https://docs.rs-online.com/f666/0900766b814b5d4b.pdf)
+
+```powershell
+./tools/verify-prg-readback.ps1 -Readback build/readback.bin
+```
+
+照合が通ったら、表示された SHA-256 を試験記録に残す。別の場所に保存した書き込み元 PRG を使う場合は `-Prg` でパスを指定する。音声収録を行う場合は、先に `build/audio` を作っておく。
 
 ## 起動と音
 
