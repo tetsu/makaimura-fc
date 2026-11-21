@@ -166,7 +166,7 @@ arcade_stage2_bg_chr:
     .byte $ff, $99, $81, $81, $ff, $18, $18, $18
     .byte $ff, $66, $7e, $7e, $ff, $e7, $e7, $e7
 
-; Stage 2 custom OBJ warden/enemy tiles (4 tiles = 64 bytes: replaces sprite tiles 5..8)
+; Stage 2 custom OBJ tiles for the boss's upper half (64 bytes).
 arcade_stage2_spr_chr:
     ; Tile 5 top-left (horned tower warden helm)
     .byte $20, $30, $3f, $7f, $5b, $7f, $3e, $1c

@@ -103,7 +103,7 @@ arcade_stage7_bg_chr:
     .byte $db, $ff, $81, $bd, $bd, $81, $ff, $db
     .byte $24, $00, $7e, $42, $42, $7e, $00, $24
 
-; Stage 7 custom OBJ Demon King tiles (64 bytes: sprite tiles 5..8)
+; Stage 7 custom OBJ tiles for the boss's upper half (64 bytes).
 arcade_stage7_spr_chr:
     .byte $81, $c3, $e7, $ff, $db, $ff, $7e, $3f
     .byte $80, $c0, $67, $7f, $24, $7f, $3e, $1f

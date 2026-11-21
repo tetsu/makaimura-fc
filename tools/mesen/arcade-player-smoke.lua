@@ -91,6 +91,7 @@ emu.addEventCallback(function()
             check(read(0x8000) == 0x8c, 10, "bank 12 not mapped")
             check(read(AP_ARMOR) == 2 and read(AP_STATE) == 0, 11, "initial armor/state wrong")
             check(lives() == 3 and playerPalette() == 0, 12, "initial HUD/palette wrong")
+            check(read(0x201) == 0x01 and read(0x205) == 0x03, 80, "standing lower sprite tiles wrong")
             savedY = playerScreenY()
             nextPhase("crouch")
         end
@@ -101,6 +102,7 @@ emu.addEventCallback(function()
         elseif phaseFrame == 7 then
             check(read(AP_CROUCH) == 1, 13, "did not crouch")
             check(playerScreenY() == savedY + 4, 14, "crouch sprite Y did not drop 4px")
+            check(read(0x201) == 0x2d and read(0x205) == 0x2f, 81, "crouching lower sprite tiles wrong")
             savedX = playerScreenX()
             input = { down = true, b = true }
         elseif phaseFrame == 10 then

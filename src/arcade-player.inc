@@ -45,6 +45,8 @@ item_shield = 6
 boss_idle = 0
 boss_active = 1
 boss_defeated = 2
+boss_head_tile = $77
+boss_head_chr_address = chr_sprite_address + (boss_head_tile & $fe) * chr_tile_bytes
 
 ap_invuln_frames = 120
 ap_shoot_lock_frames = 15
@@ -497,8 +499,8 @@ ap_load_stage_visuals:
     iny
     cpy #64
     bne :-
-    ; OBJ enemy/boss tiles (4 tiles = 64 bytes at $1040, 8x16 sprite tiles 5 and 7).
-    ; Keep authentic BANK10 zombie/boss sprites when sd_spr_chr_ptr == 0.
+    ; Four CHR tiles replace the two 8x16 sprites in the boss's upper half.
+    ; A zero pointer keeps the default patterns loaded from BANK10.
     lda sd_spr_chr_ptr
     ora sd_spr_chr_ptr+1
     beq @visuals_done
@@ -507,9 +509,9 @@ ap_load_stage_visuals:
     lda sd_spr_chr_ptr+1
     sta map_ptr+1
 @upload_spr_chr:
-    lda #$10
+    lda #>boss_head_chr_address
     sta $2006
-    lda #$40
+    lda #<boss_head_chr_address
     sta $2006
     ldy #0
 :
@@ -2382,7 +2384,7 @@ ap_draw_sprites:
 @set_player_pal:
     sta draw_palette
 
-    ; Choose Arthur pose tiles (ap_tmp2 = top tile or 0 if crouch, ap_tmp3 = bottom tile)
+    ; Choose pose tiles (ap_tmp2 = top tile or 0 if crouch, ap_tmp3 = bottom tile).
     lda ap_armor
     cmp #ap_armor_naked
     beq @pose_naked
@@ -2473,6 +2475,8 @@ ap_draw_sprites:
 
 @emit_arthur:
     ; Draw bottom 16x16 in OAM slots 0-1 (feet - 17)
+    lda ap_tmp3
+    sta draw_tile
     lda player_x
     sta ap_tmp0
     lda player_x+1
@@ -2485,8 +2489,6 @@ ap_draw_sprites:
     lda player_feet
     ldx ap_player_y_hi
     jsr ap_set_sprite_y_off
-    lda ap_tmp3
-    sta draw_tile
     lda player_left
     jsr ap_draw_pair_dir
 
@@ -3449,7 +3451,7 @@ ap_draw_boss:
     lda #1
 :
     sta draw_palette
-    lda #$77
+    lda #boss_head_tile
     sta draw_tile
     ldy #33
     lda ap_boss_y

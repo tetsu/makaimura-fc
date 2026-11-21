@@ -146,7 +146,7 @@ arcade_stage3_bg_chr:
     .byte $ff, $7e, $3c, $7e, $ff, $db, $c3, $db
     .byte $00, $81, $c3, $81, $00, $24, $3c, $24
 
-; Stage 3 custom OBJ Deep Guardian tiles (64 bytes: sprite tiles 5..8)
+; Stage 3 custom OBJ tiles for the boss's upper half (64 bytes).
 arcade_stage3_spr_chr:
     .byte $0e, $1f, $3f, $7b, $7f, $3f, $1f, $0f
     .byte $06, $0f, $1f, $3c, $3f, $1f, $0f, $07

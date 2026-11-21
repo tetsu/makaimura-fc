@@ -138,7 +138,7 @@ arcade_stage5_bg_chr:
     .byte $ff, $aa, $d5, $aa, $ff, $81, $81, $ff
     .byte $00, $55, $2a, $55, $00, $7e, $7e, $00
 
-; Stage 5 custom OBJ Twin-Gate Knight tiles (64 bytes: sprite tiles 5..8)
+; Stage 5 custom OBJ tiles for the boss's upper half (64 bytes).
 arcade_stage5_spr_chr:
     .byte $40, $60, $7c, $7f, $5f, $7f, $3e, $1c
     .byte $00, $20, $3c, $3f, $20, $3f, $1e, $0c

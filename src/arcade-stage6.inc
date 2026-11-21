@@ -98,7 +98,7 @@ arcade_stage6_bg_chr:
     .byte $ff, $c3, $a5, $99, $99, $a5, $c3, $ff
     .byte $00, $3c, $5a, $66, $66, $5a, $3c, $00
 
-; Stage 6 custom OBJ Throne Guard Captain tiles (64 bytes: sprite tiles 5..8)
+; Stage 6 custom OBJ tiles for the boss's upper half (64 bytes).
 arcade_stage6_spr_chr:
     .byte $14, $3c, $7f, $7f, $5b, $7f, $3e, $1f
     .byte $00, $1c, $3f, $3f, $24, $3f, $1e, $0f

@@ -45,7 +45,7 @@ foreach ($rom in @($rom32, $rom512)) {
     $is512k = ($rom -eq $rom512)
     foreach ($suite in $suites) {
         $isArcadeSuite = $suite.Name -like 'arcade-*'
-        if ($is512k -and !$isArcadeSuite) { continue }
+        if ($is512k -and !$isArcadeSuite -and $suite.Name -ne 'campaign-smoke.lua') { continue }
         if (!$is512k -and $isArcadeSuite) { continue }
         $testCount++
         $testName = "$romName / $($suite.Name)"

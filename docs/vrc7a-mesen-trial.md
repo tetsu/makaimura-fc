@@ -32,4 +32,4 @@ ZIP を展開する。Mesen 2.1.1 の NES 設定を NTSC にし、1P に NES コ
 ./tools/test-mesen.ps1 -UseBuiltRoms -MesenPath 'C:/path/to/Mesen.exe'
 ```
 
-同梱の 32 KiB 版（診断・既存系 14 スイート）と 512 KiB 版（タイトル・アーケード系 8 スイート）で全 22 試験の回帰試験を行う。結果は端末と `build/mesen-smoke/` に出力される。両 ROM の SHA-256 は `SHA256SUMS.txt` に記載している。
+同梱の 32 KiB 版では診断・既存系 14 スイート、512 KiB 版ではタイトル・アーケード系 8 スイートと従来の2コース連続プレイを実行する。結果は端末と `build/mesen-smoke/` に出力される。両 ROM の SHA-256 は `SHA256SUMS.txt` に記載している。

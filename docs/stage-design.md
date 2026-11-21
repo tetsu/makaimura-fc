@@ -69,7 +69,7 @@ VRC7a（Mapper 85 / Submapper 2、PRG 512 KiB / CHR-RAM 8 KiB / WRAM 8 KiB）向
 | `$808A` | `sd_bg_pal_ptr` | 2 B | BG パレット 16 B ポインタ（`0` ならデフォルト） |
 | `$808C` | `sd_spr_pal_ptr` | 2 B | OBJ パレット 16 B ポインタ（`0` ならデフォルト） |
 | `$808E` | `sd_bg_chr_ptr` | 2 B | 固有 BG 地形 4 タイル (64 B) ポインタ（`0` ならデフォルト） |
-| `$8090` | `sd_spr_chr_ptr` | 2 B | 固有 OBJ 敵/ボス 4 タイル (64 B) ポインタ（`0` ならデフォルト） |
+| `$8090` | `sd_spr_chr_ptr` | 2 B | ボス上半身用 OBJ 4 タイル（64 B）のポインタ（`0` ならデフォルト）。CHR-RAM の `$1760` に転送する。 |
 | `$8092` | `sd_enemy1_x` | 2 B | 固定敵 1 X（`0` なら配置なし） |
 | `$8094` | `sd_enemy1_y` | 2 B | 固定敵 1 足元 Y（16bit） |
 | `$8096` | `sd_pot_x` | 2 B | ツボ持ち敵 X（`0` なら配置なし） |
@@ -94,6 +94,34 @@ VRC7a（Mapper 85 / Submapper 2、PRG 512 KiB / CHR-RAM 8 KiB / WRAM 8 KiB）向
 | `$80B8` | `sd_boss_hp` | 1 B | ボス本体 HP |
 | `$80B9` | `sd_boss_shield` | 1 B | ボス下段装甲 HP |
 | `$80BA` | `sd_boss_fire_per` | 1 B | ボス発射間隔（フレーム） |
+
+### 3.3 JSON からステージデータを生成する
+
+`tools/convert-stage-map.py` は、手元で作成した地形と初期配置を ca65 のインクルードに変換する。
+
+```powershell
+python tools/convert-stage-map.py stage.json build/stage.inc --prefix test_stage
+```
+
+```json
+{
+  "tiles": [
+    ["sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky",
+     "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky"],
+    ["rock", "rock", "rock", "rock", "rock", "rock", "rock", "rock",
+     "rock", "rock", "rock", "rock", "rock", "rock", "rock", "rock"]
+  ],
+  "palette_pairs": [0, 0, 1, 1, 2, 2, 3, 3],
+  "items": [{"type": "armor", "x": 80, "y": 16}],
+  "platforms": [{"type": "horizontal", "x": 112, "y": 8, "span": 32}]
+}
+```
+
+- `tiles` は画面上から下へ並べた行で、幅は16・32・48列、高さは1〜32行。セルには `sky`、`gravel`、`ledge`、`rock`、`oneway`、`ladder`、`hazard` を指定する。実行時に既存のメタタイル表が描画と衝突属性を決める。各ページを列優先で出力し、最後のページの不足分は岩で埋める。
+- `palette_pairs` は16 px幅の2列ごとに0〜3を指定し、省略時はすべて0。生成した列パレット表は `stage_header` の列パレットポインタに接続できる。現行の2軸描画は独自の行パレット処理を使う。
+- `items` と `platforms` は省略できる。座標はマップ左上からのピクセル単位。アイテムは `armor`、`dagger`、`torch`、`lance`、`shield` を最大3個、足場は `obstacle`、`horizontal`、`vertical` を最大4個指定できる。移動足場の `span` は初期位置から右または上への移動距離で、固定障害物は省略または0とする。
+
+ステージバンクを `$8100` まで埋めてから生成したファイルをインクルードする。先に宣言する `stage_header` から `test_stage_width`、`test_stage_height`、`test_stage_map`、`test_stage_palettes` を参照し、`$8080` の記述子から `test_stage_item_count` と `test_stage_items`、`test_stage_plat_count` と `test_stage_plats` を参照する。開始・復帰位置、カメラ上限、敵、ボスは既存の記述子に設定する。
 
 ---
 

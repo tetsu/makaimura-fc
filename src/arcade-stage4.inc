@@ -126,7 +126,7 @@ arcade_stage4_bg_chr:
     .byte $c3, $99, $3c, $66, $66, $3c, $99, $c3
     .byte $3c, $66, $c3, $99, $99, $c3, $66, $3c
 
-; Stage 4 custom OBJ Flame Shell Colossus tiles (64 bytes: sprite tiles 5..8)
+; Stage 4 custom OBJ tiles for the boss's upper half (64 bytes).
 arcade_stage4_spr_chr:
     .byte $18, $3c, $7e, $ff, $db, $ff, $7e, $3c
     .byte $00, $18, $3c, $7e, $24, $7e, $3c, $18

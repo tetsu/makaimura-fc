@@ -243,8 +243,6 @@ emu.addEventCallback(function()
             check(read(AP_PLAYER_Y_HI) == 1, 21, "stage 2 did not start on vertical page 1")
             -- Verify Stage 2 distinct BG palette ($2C at $3F01 vs Stage 1's $2A)
             check(readPpu(0x3f01) == 0x2c, 22, "stage 2 custom BG palette not loaded")
-            -- Verify Stage 2 custom OBJ sprite tile 5 ($1040 == $20, 8x16 tile 5 top half)
-            check(readPpu(0x1040) == 0x20, 23, "stage 2 custom OBJ sprite CHR not loaded")
             nextPhase("s2_tier0_fight_and_climb")
         end
 
@@ -359,6 +357,14 @@ emu.addEventCallback(function()
 
     -- Stage 2 Boss Fight: verify <= 8 sprites/scanline, dodge bolts, defeat boss, collect key
     elseif phase == "s2_fight_boss" then
+        if phaseFrame == 1 then
+            local headLeft = read(0x201 + 11 * 4)
+            local headRight = read(0x201 + 12 * 4)
+            check(headLeft % 2 == 1 and headRight % 2 == 1
+                and readPpu(0x1000 + (headLeft & 0xfe) * 16) == 0x20
+                and readPpu(0x1000 + (headRight & 0xfe) * 16) == 0x04,
+                23, "stage 2 boss OAM does not reference the custom CHR")
+        end
         local ok, row, cnt = checkScanlineSpriteLimit()
         check(ok, 38, string.format("stage 2 boss scanline %d exceeded 8 sprites (%d)", row, cnt))
         local pWorldX = playerScreenX() + 8

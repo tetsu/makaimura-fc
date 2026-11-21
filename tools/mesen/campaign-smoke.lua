@@ -1,5 +1,6 @@
 -- Mesen 2.1.1, NES controller on port 1, 256x240 NTSC framebuffer.
 local frame = 0
+local openDiagnosticMenu = 64
 local firstStart, secondStart = 144, 880
 local checkpointRetry = secondStart + 669
 local finish = checkpointRetry + 120
@@ -46,7 +47,7 @@ end
 
 local function check(condition, message)
     if condition then return true end
-    emu.log(message)
+    print(string.format("FAIL frame=%d: %s", frame, message))
     emu.stop(1)
     return false
 end
@@ -90,7 +91,7 @@ emu.addEventCallback(function()
         start = first == 0 or first == 60 or t == 0 or r == 0 or frame == finish or frame == newGame
             or frame == lossStage or frame == firstRetry or frame == secondRetry or frame == returnAfterLoss
             or frame == restartAfterLoss,
-        select = frame == quit or frame == leaveDiagnostic,
+        select = (supportsCampaign and frame == openDiagnosticMenu) or frame == quit or frame == leaveDiagnostic,
         up = first == 0 or frame == newGame or frame == restartAfterLoss,
         down = t == 0 or frame == diagnostic,
         right = (route >= 16 and route <= 584) or (route >= 594 and route <= 700)
@@ -107,9 +108,10 @@ end, emu.eventType.inputPolled)
 emu.addEventCallback(function()
     frame = frame + 1
     writes, switchedDisplay = 0, false
-    if frame == firstStart - 16 then
-        menu = emu.getScreenBuffer()
+    if frame == openDiagnosticMenu - 1 then
         supportsCampaign = read(0xe000) == 0xbf
+    elseif frame == firstStart - 16 then
+        menu = emu.getScreenBuffer()
         -- First row of U in UP+START CAMPAIGN.
         check((pixel(menu, 67, 153) ~= menu[1]) == supportsCampaign, "incorrect campaign menu for ROM size")
     elseif frame == firstStart + 12 then

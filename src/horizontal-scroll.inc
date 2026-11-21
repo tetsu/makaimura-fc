@@ -27,6 +27,7 @@ toggle_scene:
     beq show_sound_screen
     ldx arcade_mode
     bne show_title_screen_entry
+    cmp #0
 .endif
     bne show_sound_screen
     lda #1
