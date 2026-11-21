@@ -205,7 +205,18 @@ show_game:
     cmp #3
     beq show_pan_game
     cmp #clear_scene
+.if nes_area_trial_count = 2
+    bne :+
+    lda prg_bank0
+    cmp #nes_area_trial_bank
+    bne show_pan_game
+    lda #nes_area_trial_bank + 1
+    jsr select_bank0
+    jmp show_pan_game
+:
+.else
     beq show_pan_game
+.endif
     cmp #4
     beq retry_pan_game
     lda #2
@@ -553,7 +564,17 @@ show_course_clear:
 .if PRG_ROM_UNITS = 32
     ldy #0
     lda campaign_stage
+.if nes_area_trial_count = 2
+    bne @campaign_prompt
+    lda prg_bank0
+    cmp #nes_area_trial_bank
+    bne :+
+    ldy #trial_next_prompt - clear_prompt
+    bne :+
+@campaign_prompt:
+.else
     beq :+
+.endif
     ldy #final_prompt - clear_prompt
     lda scene
     cmp #game_over_scene

@@ -86,6 +86,8 @@ snd_ptr: .res 2        ; Bank 8 sound driver stream pointer.
 .endif
     cmp #nes_area_trial_bank
 .endmacro
+.else
+nes_area_trial_count = 0
 .endif
 
 .include "fixed-hud.inc"
@@ -1116,6 +1118,9 @@ clear_prompt_length = * - clear_prompt
 next_prompt: .byte $12, $13, $02, $11, $13, $00, $12, $13, $08, $1a ; START STG2
 arcade_next_prompt: .byte $12, $13, $02, $11, $13, $00, $04, $0f, $0e, $13 ; START CONT
 final_prompt: .byte $12, $13, $02, $11, $13, $00, $0d, $06, $0e, $14 ; START MENU
+.if nes_area_trial_count = 2
+trial_next_prompt: .byte $12, $13, $02, $11, $13, $00, $0e, $06, $18, $13 ; START NEXT
+.endif
 campaign_menu: .byte $14, $10, $18, $12, $13, $02, $11, $13, $00, $04, $02, $0d, $10, $02, $0a, $08, $0e ; UP+START CAMPAIGN
 campaign_menu_length = * - campaign_menu
 stage_view_menu: .byte $14, $10, $18, $02, 0, $12, $13, $02, $08, $06, 0, $15, $0a, $06, $16 ; UP+A STAGE VIEW
