@@ -4,7 +4,8 @@ param(
     [string]$Cc65Bin = '',
     [ValidateRange(1, 3600)]
     [int]$TimeoutSeconds = 120,
-    [switch]$UseBuiltRoms
+    [switch]$UseBuiltRoms,
+    [switch]$AreaTrial
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,6 +18,37 @@ if (!(Test-Path -LiteralPath $MesenPath -PathType Leaf)) {
 }
 $MesenPath = (Resolve-Path -LiteralPath $MesenPath).Path
 
+$logDir = Join-Path $root 'build/mesen-smoke'
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+
+function Invoke-MesenSuite($SuitePath, $RomPath) {
+    $romName = [IO.Path]::GetFileName($RomPath)
+    $suiteName = [IO.Path]::GetFileName($SuitePath)
+    $logBase = Join-Path $logDir "$([IO.Path]::GetFileNameWithoutExtension($romName))-$([IO.Path]::GetFileNameWithoutExtension($suiteName))"
+    $arguments = "--doNotSaveSettings --testRunner --timeout=$TimeoutSeconds `"$SuitePath`" `"$RomPath`""
+    Write-Host "RUN  $romName / $suiteName"
+    $process = Start-Process -FilePath $MesenPath -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru `
+        -RedirectStandardOutput "$logBase.log" -RedirectStandardError "$logBase-error.log"
+    return $process.ExitCode
+}
+
+$buildScript = Join-Path $root 'build.ps1'
+if ($AreaTrial) {
+    if ($UseBuiltRoms) { throw '-AreaTrial generates its own fixture and cannot use -UseBuiltRoms.' }
+    $fixture = Join-Path $root 'build/area-trial-fixture'
+    & python (Join-Path $PSScriptRoot 'make-area-trial.py') $fixture
+    if ($LASTEXITCODE -ne 0) { throw "Area trial fixture generation failed with code $LASTEXITCODE" }
+    $rom = (& $buildScript -Hardware -Cc65Bin $Cc65Bin `
+        -AreaManifest (Join-Path $fixture 'areas.json') -AreaTrial (Join-Path $fixture 'stage.json'))[0]
+    $code = Invoke-MesenSuite (Join-Path $PSScriptRoot 'mesen/area-trial.lua') $rom
+    if ($code -ne 0) {
+        Write-Host "FAIL area trial (Mesen exit $code). Logs: $logDir"
+        exit 1
+    }
+    Write-Host "PASS area trial. Logs: $logDir"
+    exit 0
+}
+
 $suiteDir = Join-Path $PSScriptRoot 'mesen'
 $suites = @(Get-ChildItem -LiteralPath $suiteDir -Filter '*-smoke.lua' -File | Sort-Object Name)
 if (!$suites.Count) {
@@ -26,7 +58,6 @@ if (!$suites.Count) {
 $rom32 = Join-Path $root 'build/vrc7a-test.nes'
 $rom512 = Join-Path $root 'build/vrc7a-test-512k.nes'
 if (!$UseBuiltRoms) {
-    $buildScript = Join-Path $root 'build.ps1'
     & $buildScript -Cc65Bin $Cc65Bin | Out-Null
     & $buildScript -Hardware -Cc65Bin $Cc65Bin | Out-Null
 }
@@ -35,9 +66,6 @@ foreach ($rom in @($rom32, $rom512)) {
         throw "ROM image not found: $rom"
     }
 }
-$logDir = Join-Path $root 'build/mesen-smoke'
-New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-
 $failures = @()
 $testCount = 0
 foreach ($rom in @($rom32, $rom512)) {
@@ -49,15 +77,11 @@ foreach ($rom in @($rom32, $rom512)) {
         if (!$is512k -and $isArcadeSuite) { continue }
         $testCount++
         $testName = "$romName / $($suite.Name)"
-        $logBase = Join-Path $logDir "$([IO.Path]::GetFileNameWithoutExtension($rom))-$($suite.BaseName)"
-        $arguments = "--doNotSaveSettings --testRunner --timeout=$TimeoutSeconds `"$($suite.FullName)`" `"$rom`""
-        Write-Host "RUN  $testName"
-        $process = Start-Process -FilePath $MesenPath -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru `
-            -RedirectStandardOutput "$logBase.log" -RedirectStandardError "$logBase-error.log"
-        if ($process.ExitCode -eq 0) {
+        $code = Invoke-MesenSuite $suite.FullName $rom
+        if ($code -eq 0) {
             Write-Host "PASS $testName"
         } else {
-            $failure = "$testName (Mesen exit $($process.ExitCode))"
+            $failure = "$testName (Mesen exit $code)"
             $failures += $failure
             Write-Host "FAIL $failure"
         }
