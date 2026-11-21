@@ -376,16 +376,22 @@ emu.addEventCallback(function()
     elseif phase == "s2_collect_key" then
         input = { right = true }
         if read(AP_KEY_COLLECTED) == 1 then
-            nextPhase("s2_verify_final_clear")
+            nextPhase("s2_verify_stage3_advance")
         elseif phaseFrame > 260 then
             check(false, 40, "stage 2 key not collected")
         end
-    elseif phase == "s2_verify_final_clear" then
+    elseif phase == "s2_verify_stage3_advance" then
         if phaseFrame == 12 then
             check(read(SND_SONG_ID) == 4, 41, "stage 2 clear fanfare did not play")
-            -- Check FINAL CLEAR title on nametable ($218A -> offset $018A: F=$07, I=$0a, N=$0e, A=$02, L=$0c)
-            check(readNt(0x018a) == 0x07 and readNt(0x018b) == 0x0a and readNt(0x018c) == 0x0e, 42,
-                "FINAL CLEAR title not displayed after Stage 2")
+            -- Check COURSE CLEAR title on nametable ($218A -> offset $018A: C=$04, O=$0f, U=$14)
+            check(readNt(0x018a) == 0x04 and readNt(0x018b) == 0x0f and readNt(0x018c) == 0x14, 42,
+                "COURSE CLEAR title not displayed after Stage 2")
+        elseif phaseFrame == 20 then
+            input = { start = true }
+        elseif phaseFrame == 44 then
+            check(read(0x8000) == 0x8e, 43, "stage 3 did not load Bank 14")
+            check(stageNum() == 3, 44, "stage 3 HUD number mismatch")
+            check(readPpu(0x3f01) == 0x21, 45, "stage 3 custom BG palette not loaded")
             emu.stop(0)
         end
     end

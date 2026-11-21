@@ -17,6 +17,7 @@ ap_armor_full = 2
 ap_weapon_lance = 0
 ap_weapon_dagger = 1
 ap_weapon_torch = 2
+ap_weapon_shield = 3
 
 ap_max_shots = 3
 ap_max_plats = 4
@@ -39,6 +40,7 @@ item_dagger = 2
 item_torch = 3
 item_lance = 4
 item_key = 5
+item_shield = 6
 
 boss_idle = 0
 boss_active = 1
@@ -165,12 +167,14 @@ ap_score_units: .res 2          ; $60C8: 16-bit cumulative 100-pt units
 ap_next_extend: .res 2          ; $60CA: next extend threshold in 100-pt units
 ap_new_game: .res 1             ; $60CC: 1 on fresh game start from title
 ap_tmp3: .res 1                 ; $60CD
+ap_loop: .res 1                 ; $60CE: 0 = Loop 1, 1 = Loop 2
+ap_bounce_back: .res 1          ; $60CF: 1 when Stage 6 bounced back to Stage 5
 
 .segment "BANK3"
     .byte bank_tag_base + 3
 
 ap_init_stage:
-    ; Reset score/extend only on fresh game start from title.
+    ; Reset score/extend/rank/loop only on fresh game start from title.
     lda ap_new_game
     beq @keep_score
     lda #0
@@ -181,6 +185,9 @@ ap_init_stage:
     sta ap_score+3
     sta ap_score_units+0
     sta ap_score_units+1
+    sta ap_rank
+    sta ap_loop
+    sta ap_bounce_back
     lda #<ap_extend_first
     sta ap_next_extend+0
     lda #>ap_extend_first
@@ -190,8 +197,12 @@ ap_init_stage:
     sta ap_state
     lda #ap_armor_full
     sta ap_armor
+    lda campaign_stage
+    cmp #arcade_stage_count
+    beq @keep_stage7_weapon
     lda #ap_weapon_lance
     sta ap_weapon
+@keep_stage7_weapon:
     lda #$ff
     sta ap_riding_plat
     lda #0
@@ -351,15 +362,12 @@ ap_init_stage:
     bne @load_plat_loop
 
 @init_scheduler_state:
-    lda checkpoint_reached
+    ; On Loop 2, retain difficulty rank with a minimum floor of 1.
+    lda ap_loop
+    beq @keep_rank_on_retry
+    lda ap_rank
     bne @keep_rank_on_retry
-    lda campaign_lives
-    cmp #campaign_initial_lives
-    bne @keep_rank_on_retry
-    lda campaign_stage
-    cmp #1
-    bne @keep_rank_on_retry
-    lda #0
+    lda #1
     sta ap_rank
 @keep_rank_on_retry:
     lda #ap_rank_step_frames
@@ -2016,8 +2024,13 @@ ap_check_items:
     jmp @set_weapon_hud
 @check_torch_drop:
     cmp #item_torch
-    bne @set_lance_drop
+    bne @check_shield_drop
     lda #ap_weapon_torch
+    jmp @set_weapon_hud
+@check_shield_drop:
+    cmp #item_shield
+    bne @set_lance_drop
+    lda #ap_weapon_shield
     jmp @set_weapon_hud
 @set_lance_drop:
     lda #ap_weapon_lance
@@ -2526,11 +2539,11 @@ ap_draw_sprites:
     bne @draw_item_loop
     rts
 
-ap_weapon_max_shots: .byte 2, 3, 2
-ap_weapon_vx_pos:    .byte 3, 4, 2
-ap_weapon_vx_neg:    .byte $fd, $fc, $fe
-ap_weapon_vy_init:   .byte 0, 0, $fc
-ap_weapon_life:      .byte 48, 48, 56
+ap_weapon_max_shots: .byte 2, 3, 2, 2
+ap_weapon_vx_pos:    .byte 3, 4, 2, 3
+ap_weapon_vx_neg:    .byte $fd, $fc, $fe, $fd
+ap_weapon_vy_init:   .byte 0, 0, $fc, 0
+ap_weapon_life:      .byte 48, 48, 56, 40
 
 ap_rank_zombie_cap:  .byte 2, 2, 3, 3
 ap_rank_spawn_wait:  .byte 48, 36, 28, 20

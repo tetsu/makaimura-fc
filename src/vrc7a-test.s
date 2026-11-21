@@ -33,9 +33,9 @@ bank_tag_base = $80
     .byte bank_tag_base + 9 + index
     .res $1fff, $ff
 .endrepeat
-.segment "PAD_14_62"
-.repeat 49, index
-    .byte bank_tag_base + 14 + index
+.segment "PAD_19_62"
+.repeat 44, index
+    .byte bank_tag_base + 19 + index
     .res $1fff, $ff
 .endrepeat
 .endif
@@ -84,6 +84,11 @@ snd_ptr: .res 2        ; Bank 8 sound driver stream pointer.
 .include "sound-driver.inc"
 .include "arcade-stage.inc"
 .include "arcade-stage2.inc"
+.include "arcade-stage3.inc"
+.include "arcade-stage4.inc"
+.include "arcade-stage5.inc"
+.include "arcade-stage6.inc"
+.include "arcade-stage7.inc"
 .include "arcade-player.inc"
 .endif
 

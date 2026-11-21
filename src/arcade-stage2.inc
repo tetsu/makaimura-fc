@@ -100,7 +100,7 @@ arcade_stage2_desc:
     .byte 0                             ; sd_sched_page (vertical page 0 turret)
     .word 216                           ; sd_turret_x
     .word 208                           ; sd_turret_y
-    .word 224                           ; sd_zombie_x
+    .word 120                           ; sd_zombie_x (patrols mid-left, clear of right ladder)
     .word 208                           ; sd_zombie_y
     .word 0                             ; sd_boss_trig_x (unused in vertical)
     .word 144                           ; sd_boss_trig_y (trigger when player_y <= 144)

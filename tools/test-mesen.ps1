@@ -3,7 +3,7 @@ param(
     [string]$MesenPath = '',
     [string]$Cc65Bin = '',
     [ValidateRange(1, 3600)]
-    [int]$TimeoutSeconds = 50,
+    [int]$TimeoutSeconds = 120,
     [switch]$UseBuiltRoms
 )
 

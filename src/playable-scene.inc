@@ -49,6 +49,7 @@ sprites: .res 256
 .segment "CODE"
 .if PRG_ROM_UNITS = 32
 campaign_stage_count = 2
+arcade_stage_count = 7
 
 start_arcade_stage:
     lda #1
@@ -59,19 +60,71 @@ start_arcade_stage:
     sta ap_score+1
     sta ap_score+2
     sta ap_score+3
+    sta ap_loop
+    sta ap_bounce_back
     jsr blank_display
     jsr reset_campaign_clock
     lda #arcade_stage_bank
     jsr select_bank0
     jmp show_pan_game
 
-next_campaign_stage:
+is_final_clear:
+    lda arcade_mode
+    bne @check_arcade_final
     lda campaign_stage
     cmp #campaign_stage_count
-    bcc :+
+    rts
+@check_arcade_final:
+    lda campaign_stage
+    cmp #arcade_stage_count
+    bcc @not_final
+    lda ap_loop
+    bne @is_final
+@not_final:
+    clc
+    rts
+@is_final:
+    sec
+    rts
+
+next_campaign_stage:
+    lda arcade_mode
+    bne @arcade_next
+    lda campaign_stage
+    cmp #campaign_stage_count
+    bcc @advance_stage
     jsr blank_display
     jmp show_sound_screen
-:
+@arcade_next:
+    lda campaign_stage
+    cmp #6
+    bne @check_stage7
+    lda ap_weapon
+    cmp #ap_weapon_shield
+    beq @arcade_advance
+    lda #5
+    sta campaign_stage
+    lda #1
+    sta ap_bounce_back
+    jmp start_campaign_stage
+@check_stage7:
+    cmp #arcade_stage_count
+    bcc @arcade_advance
+    lda ap_loop
+    beq @begin_loop2
+    jsr blank_display
+    jmp show_sound_screen
+@begin_loop2:
+    lda #1
+    sta ap_loop
+    sta campaign_stage
+    lda #0
+    sta ap_bounce_back
+    jmp start_campaign_stage
+@arcade_advance:
+    lda #0
+    sta ap_bounce_back
+@advance_stage:
     inc campaign_stage
 start_campaign_stage:
     jsr blank_display
@@ -364,9 +417,8 @@ show_course_clear:
     cmp #game_over_scene
     beq :+
     ldy #0
-    lda campaign_stage
-    cmp #campaign_stage_count
-    bne :+
+    jsr is_final_clear
+    bcc :+
     ldy #final_title - clear_title
 :
 .endif
@@ -394,9 +446,8 @@ show_course_clear:
     lda scene
     cmp #game_over_scene
     beq :+
-    lda campaign_stage
     ldy #next_prompt - clear_prompt
-    cmp #campaign_stage_count
+    jsr is_final_clear
     bcc :+
     ldy #final_prompt - clear_prompt
 :
