@@ -2,6 +2,27 @@
 
 [基板向けの出力と照合手順](../README.md#352402-基板向けの出力)で書き込みを確認したあと、日本版 NTSC ファミコンで試験する。書き込み時の `.prg` と同じビルドの `.nes` を保存し、比較にはその `.nes` を Mesen で開く。Mesen は NTSC、1P に NES コントローラー、スプライト制限ありに設定する。
 
+## 交換 ROM と U1 の確認
+
+352402 の U1 には Sharp LH5341（512 KiB、DIP-32）が載っている。27C040 系を載せて動作した報告があるため、初回試験の候補を **AT27C040-70PU**（512 KiB、PDIP-32、ピン列間隔15.24 mm、読み出し時5 V ±10%、70 ns、ワンタイム書き込み）とする。使用する基板の U1 の配線と、この型番での動作は未確認。[基板写真と部品表](https://nescartdb.com/profile/view/3951/lagrange-point) · [27C040 系の交換報告](https://forums.nesdev.org/viewtopic.php?p=143260) · [AT27C040 データシート §2、§6、§8、§9.2](https://www.microchip.com/content/dam/mchp/documents/OTH/ProductDocuments/DataSheets/doc0189.pdf)
+
+以下は AT27C040 の端子に合わせた U1 側の確認箇所。カートリッジを本体から抜き、交換 ROM を載せる前に配線を追う。端子番号は部品面から見た向きで数える。変換基板を使う場合は、U1 のパッドから交換 ROM の端子までを照合する。
+
+| AT27C040 の端子 | 352402 側で確認する接続 |
+| --- | --- |
+| 1 VPP | パッドの接続先を確認する。読み出し時は VPP を32番の VCC につないで使える。パッドが別の信号につながっている場合は、変換基板でパッドから切り離して ROM 側の VPP を VCC につなぐ。 |
+| 16 GND、32 VCC | GND と +5 V の電源系統。ROM を載せる前に電源と GND の短絡がないことも確認する。 |
+| 22 /CE、24 /OE | 22番は VRC7 の44番（PRG ROM /CE）の系統。24番は読み出し時に Low になることを配線で確認する。両方が Low のとき ROM がデータバスを駆動する。 |
+| 4–12、23、25–27 | AT27C040 の端子表に従い、CPU A0–A12 に1本ずつ対応することを確認する。 |
+| 28、29、3、2、30、31 | PRG A13–A18 の順。VRC7 の20、21、22、23、25、26番との対応を確認する。 |
+| 13–15、17–21 | CPU D0–D7 の順。 |
+
+ソケットを使う場合は、ROM を挿した高さでケースが閉じるかも確認する。[AT27C040 の読み出し条件と端子表](https://www.microchip.com/content/dam/mchp/documents/OTH/ProductDocuments/DataSheets/doc0189.pdf) · [VRC7 の端子表](https://www.nesdev.org/wiki/VRC7_pinout)
+
+T48 の対応表には `AT27C040 @DIP32` がある。Xgpro で同じ項目を選び、ガイドが示す向きで交換 ROM を ZIF ソケットに挿す。ブランクチェックの後、512 KiBの生 PRG をオフセット0から書き込む。取り付け前に全域を読み戻し、[照合スクリプト](../README.md#352402-基板向けの出力)で一致と SHA-256 を確認する。[T48 の対応表](https://docs.rs-online.com/f666/0900766b814b5d4b.pdf)
+
+書き換え用に SST39SF040 を選ぶ場合は専用の端子変換が必要。PDIP 版では A18 が1番、/WE が31番にある。U1 が上表の配線なら U1 の31番を Flash の A18 に回し、Flash の /WE は VCC に固定する。U1 の1番は Flash の1番から切り離す。[SST39SF040 データシート 図2-1](https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/SST39SF010A-SST39SF020A-SST39SF040-Data-Sheet-DS20005022.pdf)
+
 ## 起動と音
 
 1. 電源を入れ、音源画面が出て、FM が6声を順に鳴らしてから伴奏に移ることを確認する。`BANK OR RAM ERROR` が出た場合は表示を記録する。
