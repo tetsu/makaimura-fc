@@ -567,6 +567,32 @@ Remove-Item Env:REVG_TYPE06_SECTION
 
 `type06_boss` の `delay` と `activate` は待機値と攻撃状態に入った時点、`hit` は命中直後の耐久値を示す。`remove` は消滅時の敵枠と更新前のボス残数を示し、`remaining` は更新後の値を示す。区間ごとにコールドブートから2回実行し、`done` までの計測行が一致した。
 
+### ボスの起動範囲と待機の再開
+
+`$BDA1–$BDB3` はボス座標からカメラ座標を引いた16ビットの値を符号なしで比較する。区間4の亜種0は、もう一方の軸の差を0に固定すると、次の境界値でフレーム1060に主状態0（待機）から1（攻撃）へ進んだ。範囲外の値ではフレーム1064の試行終了まで待機した。
+
+| 比較軸 | 初回の判定で起動 | 範囲外で待機 |
+| --- | --- | --- |
+| ボス X − カメラ X | 0、256 | −1、257 |
+| ボス Y − カメラ Y | 0、240 | −1、241 |
+
+区間5の亜種1では、フレーム1076に待機値が6から5に減った。次の減算予定のフレーム1140だけ X の差を257にすると、1141に範囲内へ戻した時点でも待機値は5だった。次に減ったのはフレーム1204で、以降は64フレームごとに減った。起動はフレーム1460で、先の試行の1396より64フレーム遅れた。
+
+MAME 0.289 の既定 DIP で、上の試行と同じ開始ページ・X オフセットを使用した。対象ボスの起動判定が読むカメラ座標を指定の差分に差し替え、射撃せずに状態と待機値を記録した。区間5の試行では、フレーム1140の X を除き、両軸の差分を0に固定した。9条件をコールドブートから各2回実行し、計測行は条件ごとに一致した。
+
+```powershell
+$env:REVG_TYPE06_AXIS = 'x' # Y は 'y'、区間5の待機試行は 'delay'
+$env:REVG_TYPE06_OFFSET = '256' # 'delay' の場合は参照しない
+& "$env:USERPROFILE/tools/mame/mame0289/mame.exe" makaimurg -rompath reference `
+  -noreadconfig -video none -sound none -nothrottle -skip_gameinfo `
+  -autoboot_delay 0 -autoboot_script tools/mame/measure-revg-type06-activation.lua `
+  -cfg_directory build/type06-activation-cfg -nvram_directory build/type06-activation-nvram `
+  -seconds_to_run 28
+Remove-Item Env:REVG_TYPE06_AXIS, Env:REVG_TYPE06_OFFSET
+```
+
+`type06_activation` の `check` は区間4で設定した座標差、`blocked` と `in_range` は区間5の座標差と待機値、`tick` は減算後の待機値を示す。`done` は終了時の主状態と、観測した減算回数を示す。
+
 ### 区間4のボスの画面外処理
 
 区間4の種別 `$06` は、攻撃状態の更新末尾 `$BDF4` から画面外判定 `$8DC5` へ進む。ボス座標からカメラ座標を引き、X は128を加えて512、Y は64を加えて384と16ビット符号なし比較する。範囲の端は含まれる。
