@@ -55,11 +55,11 @@ VRC7a（Mapper 85 / Submapper 2、PRG 512 KiB / CHR-RAM 8 KiB / WRAM 8 KiB）向
   - 縦ページ 0（`row 0..15`, world Y `0..255`）: マップ先頭 16 列（256 B）
   - 縦ページ 1（`row 16..29`, world Y `256..479`）: マップ後半 16 列（256 B）
 
-### 3.2 `arcade_stage_desc`（`$8080..$80BA`, 59 バイト）
+### 3.2 `arcade_stage_desc`（`$8080..$80BA` と任意の拡張）
 
 | オフセット | シンボル | サイズ | 内容 |
 | --- | --- | ---: | --- |
-| `$8080` | `sd_flags` | 1 B | bit0: 縦登攀ステージ (`1`), bit1: ボス鍵クリア (`1`), bit2: 開始縦カメラページ (`0`/`1`) |
+| `$8080` | `sd_flags` | 1 B | bit0: 縦登攀ステージ、bit1: ボス鍵クリア、bit2: 開始縦カメラページ、bit3: 敵出現テーブルを使用 |
 | `$8081` | `sd_start_y_lo/hi` | 2 B | プレイヤー開始足元 Y（16bit） |
 | `$8083` | `sd_cp_y_lo/hi` | 2 B | チェックポイント Y（縦ステージは `player_y <= cp_y` で到達） |
 | `$8085` | `sd_cp_cam_y_page` | 1 B | チェックポイント復帰時の縦カメラページ (`0`/`1`) |
@@ -94,6 +94,7 @@ VRC7a（Mapper 85 / Submapper 2、PRG 512 KiB / CHR-RAM 8 KiB / WRAM 8 KiB）向
 | `$80B8` | `sd_boss_hp` | 1 B | ボス本体 HP |
 | `$80B9` | `sd_boss_shield` | 1 B | ボス下段装甲 HP |
 | `$80BA` | `sd_boss_fire_per` | 1 B | ボス発射間隔（フレーム） |
+| `$80BB` | `sd_sched_table_ptr` | 2 B | 敵出現テーブルへの同一バンク内ポインタ（bit3 有効時） |
 
 ### 3.3 JSON からステージデータを生成する
 
@@ -125,7 +126,7 @@ python tools/convert-stage-map.py stage.json build/stage.inc --prefix test_stage
 - `palette_pairs` は16 px幅の2列ごとに0〜3を指定し、省略時はすべて0。生成した列パレット表は `stage_header` の列パレットポインタに接続できる。現行の2軸描画は独自の行パレット処理を使う。
 - `items` と `platforms` は省略できる。座標はマップ左上からのピクセル単位。アイテムは `armor`、`dagger`、`torch`、`lance`、`shield` を最大3個、足場は `obstacle`、`horizontal`、`vertical` を最大4個指定できる。移動足場の `span` は初期位置から右または上への移動距離で、固定障害物は省略または0とする。
 - `enemies` は省略できる。`fixed` と `pot` は各1体で、`pot.drop` は `items` と同じ名前でドロップを指定する。敵の X は1以上、Y は足元座標とし、どちらもマップ内に収める。
-- `enemies.scheduler` は1グループを指定する。たとえば横48列のマップなら `{"axis":"horizontal","page":2,"zombie":{"x":752,"y":176},"turret":{"x":712,"y":176}}` でカメラ X が512 pxに入ったときに起動する。`zombie` は必須、`turret` は省略できる。`axis` は記述子の縦ステージフラグに合わせる。`horizontal` の `page` はカメラ X を256 pxで割った値、`vertical` の `page` は `pan_y_page`（240 px単位）。生成時はマップ寸法で検証し、組み込み時はカメラ上限で到達できるページを指定する。ゾンビの出現は初期化後に別ページから進入した時点で始まる。開始・復帰時から対象ページにいる場合は、一度別ページに移動して戻ると始まる。
+- 単一グループ形式では、`enemies.scheduler` に `axis`、`page`、`zombie` と任意の `turret` を指定する。たとえば横48列のマップなら `{"axis":"horizontal","page":2,"zombie":{"x":752,"y":176},"turret":{"x":712,"y":176}}` でカメラ X が512 pxに入ったときに起動する。`axis` は記述子の縦ステージフラグに合わせる。`horizontal` の `page` はカメラ X を256 pxで割った値、`vertical` の `page` は `pan_y_page`（240 px単位）。生成時はマップ寸法で検証し、組み込み時はカメラ上限で到達できるページを指定する。ゾンビの出現は初期化後に別ページから進入した時点で始まる。開始・復帰時から対象ページにいる場合は、一度別ページに移動して戻ると始まる。
 
 ステージバンクを `$8100` まで埋めてから生成したファイルをインクルードする。先に宣言する `stage_header` から `test_stage_width`、`test_stage_height`、`test_stage_map`、`test_stage_palettes` を参照する。`$8080` の記述子に次のフィールドを接続する。開始・復帰位置、カメラ上限、ボスは既存のヘッダと記述子に設定する。
 
@@ -142,6 +143,24 @@ python tools/convert-stage-map.py stage.json build/stage.inc --prefix test_stage
     .word test_stage_turret_x, test_stage_turret_y
     .word test_stage_zombie_x, test_stage_zombie_y
 ```
+
+#### ページごとの敵出現グループ
+
+`enemies.scheduler` の直下に `axis` と `groups` を指定すると、カメラページごとに異なる配置を定義できる。各グループに重複しない `page` と `zombie` を指定し、必要なページに `turret` を追加する。次は横32列以上のマップに指定する例。
+
+```json
+{
+  "axis": "horizontal",
+  "groups": [
+    {"page": 0, "zombie": {"x": 240, "y": 176}},
+    {"page": 1, "zombie": {"x": 500, "y": 176}, "turret": {"x": 440, "y": 176}}
+  ]
+}
+```
+
+組み込むときは `sd_flags` に `sd_flag_sched_table` を加え、記述子末尾の `$80BB` に `.word test_stage_sched_table` を置く。生成されたラベルはマップと同じステージバンクに置かれる。この形式では、生成された従来の出現用フィールドは無効値になる。
+
+テーブルはページ0〜2の順に、各9 Bの `page, turret_x, turret_y, zombie_x, zombie_y` を格納する。座標は16ビットのリトルエンディアンで、未設定のページの先頭バイトは `$FF`。グループ形式では開始・復帰時のページも出現対象になり、未設定のページでは新規出現が止まる。ゾンビの出現待ちと同時出現上限はマップ全体で共有する。砲台の出現状態はページ別で、画面外回収後は再出現でき、撃破後はステージの再初期化まで撃破状態を維持する。
 
 ---
 

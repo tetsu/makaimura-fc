@@ -78,6 +78,9 @@ ap_extend_first = 20            ; 2,000 pts
 ap_extend_step  = 50            ; +5,000 pts
 ap_max_lives    = 9
 
+.segment "ZEROPAGE"
+ap_sched_ptr: .res 2
+
 .segment "WRAM"
 ; Existing WRAM layout $6000-$60AB preserved verbatim for regression tests.
 ap_wram_reserved: .res 16       ; $6000-$600F: clear of boot WRAM probe
@@ -140,7 +143,7 @@ en_type: .res ap_max_enemies    ; $6079
 en_x_lo: .res ap_max_enemies    ; $607D
 en_x_hi: .res ap_max_enemies    ; $6081
 en_y: .res ap_max_enemies       ; $6085
-en_dir: .res ap_max_enemies     ; $6089
+en_sched_page: .res ap_max_enemies ; $6089 (turret owner page, $ff for legacy)
 en_timer: .res ap_max_enemies   ; $608D
 en_hp: .res ap_max_enemies      ; $6091
 
@@ -184,6 +187,7 @@ ap_tmp3: .res 1                 ; $60CD
 ap_loop: .res 1                 ; $60CE: 0 = Loop 1, 1 = Loop 2
 ap_bounce_back: .res 1          ; $60CF: 1 when Stage 6 bounced back to Stage 5
 ap_oam_phase: .res 1
+sched_turrets: .res sd_sched_pages
 
 .segment "BANK3"
     .byte bank_tag_base + 3
@@ -388,13 +392,31 @@ ap_init_stage:
 @keep_rank_on_retry:
     lda #ap_rank_step_frames
     sta ap_rank_timer
+    lda sd_flags
+    and #sd_flag_sched_table
+    beq @init_legacy_sched_page
+    lda sd_sched_table_ptr
+    sta ap_sched_ptr
+    lda sd_sched_table_ptr+1
+    sta ap_sched_ptr+1
+    lda #$ff                       ; Allow the starting page to activate on the first tick.
+    bne @store_sched_page
+@init_legacy_sched_page:
+    lda #<sd_base
+    sta ap_sched_ptr
+    lda #>sd_base
+    sta ap_sched_ptr+1
     jsr ap_current_sched_page
+@store_sched_page:
     sta sched_page
     lda #0
     sta sched_group
     sta sched_wait
     sta sched_zombies_live
     sta ap_turret_spawned
+    .repeat sd_sched_pages, page
+        sta sched_turrets + page
+    .endrepeat
     ldx #ap_max_enemies - 1
 :
     sta en_type,x
@@ -2899,19 +2921,42 @@ ap_current_sched_page:
 
 ; --- Data-driven scroll-linked enemy scheduler & fixed turret spawner ---
 ap_update_scheduler:
-    lda sd_sched_page
-    cmp #$ff
-    beq @sched_early_exit
     lda ap_boss_state
     beq @sched_run
-@sched_early_exit:
     rts
 @sched_run:
+    ; Both formats share the record layout. Their index ranges do not overlap.
+    ldy #sd_sched_page - sd_base
+    lda sd_flags
+    and #sd_flag_sched_table
+    beq @legacy_record
     jsr ap_current_sched_page
+    tax
+    cpx #sd_sched_pages
+    bcs @no_record
+    ldy ap_sched_record_offsets,x
+    lda (ap_sched_ptr),y
+    cmp #$ff
+    beq @no_record
+    txa
+    jmp @select_record
+@no_record:
+    stx sched_page
+    lda #0
+    sta sched_group
+    rts
+@legacy_record:
+    lda sd_sched_page
+    cmp #$ff
+    bne :+
+    rts
+:
+    jsr ap_current_sched_page
+@select_record:
     cmp sched_page
     beq @check_group_spawns
     sta sched_page
-    cmp sd_sched_page
+    cmp (ap_sched_ptr),y
     beq @enter_sched_page
     lda #0
     sta sched_group
@@ -2926,32 +2971,60 @@ ap_update_scheduler:
     sta sched_wait
 
 @check_group_spawns:
-    jsr ap_current_sched_page
-    cmp sd_sched_page
+    lda sched_page
+    cmp (ap_sched_ptr),y
     bne @check_zombie_sched
-    lda sd_turret_x
-    ora sd_turret_x+1
-    beq @check_zombie_sched
+    sty ap_tmp0                    ; Record start; enemy allocation preserves Y.
+    iny
+    lda (ap_sched_ptr),y
+    iny
+    ora (ap_sched_ptr),y
+    bne @check_turret_owner
+    ldy ap_tmp0
+    jmp @check_zombie_sched
+@check_turret_owner:
+    ldy ap_tmp0
+    cpy #sd_sched_page - sd_base
+    beq @check_legacy_turret
+    ldx sched_page
+    lda sched_turrets,x
+    jmp @check_turret_flag
+@check_legacy_turret:
     lda ap_turret_spawned
+@check_turret_flag:
     bne @check_zombie_sched
     jsr ap_alloc_enemy_slot
     bcc @check_zombie_sched
     lda #en_turret
     sta en_type,x
-    lda sd_turret_x
+    iny
+    lda (ap_sched_ptr),y
     sta en_x_lo,x
-    lda sd_turret_x+1
+    iny
+    lda (ap_sched_ptr),y
     sta en_x_hi,x
-    lda sd_turret_y
+    iny
+    lda (ap_sched_ptr),y
     sta en_y,x
-    lda sd_turret_y+1
+    iny
+    lda (ap_sched_ptr),y
     sta en_y_hi,x
-    lda #0
-    sta en_dir,x
+    ldy ap_tmp0
     lda #ap_turret_cooldown
     sta en_timer,x
     lda #2
     sta en_hp,x
+    cpy #sd_sched_page - sd_base
+    beq @mark_legacy_turret
+    lda sched_page
+    sta en_sched_page,x
+    tax
+    lda #1
+    sta sched_turrets,x
+    jmp @check_zombie_sched
+@mark_legacy_turret:
+    lda #$ff
+    sta en_sched_page,x
     lda #1
     sta ap_turret_spawned
 
@@ -2971,16 +3044,22 @@ ap_update_scheduler:
     bcc @sched_done
     lda #en_zombie
     sta en_type,x
-    lda sd_zombie_x
+    tya
+    clc
+    adc #5
+    tay
+    lda (ap_sched_ptr),y
     sta en_x_lo,x
-    lda sd_zombie_x+1
+    iny
+    lda (ap_sched_ptr),y
     sta en_x_hi,x
-    lda sd_zombie_y
+    iny
+    lda (ap_sched_ptr),y
     sta en_y,x
-    lda sd_zombie_y+1
+    iny
+    lda (ap_sched_ptr),y
     sta en_y_hi,x
     lda #0
-    sta en_dir,x
     sta en_timer,x
     lda #1
     sta en_hp,x
@@ -2990,6 +3069,11 @@ ap_update_scheduler:
     sta sched_wait
 @sched_done:
     rts
+
+ap_sched_record_offsets:
+    .repeat sd_sched_pages, page
+        .byte page * sd_sched_stride
+    .endrepeat
 
 ap_alloc_enemy_slot:
     ldx #0
@@ -3077,6 +3161,12 @@ ap_update_enemies:
 @check_reclaim_turret:
     cmp #en_turret
     bne @clear_en_slot
+    ldy en_sched_page,x
+    bmi @reclaim_legacy_turret
+    lda #0
+    sta sched_turrets,y
+    beq @clear_en_slot
+@reclaim_legacy_turret:
     lda #0
     sta ap_turret_spawned
 @clear_en_slot:

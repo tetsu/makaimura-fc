@@ -8,6 +8,7 @@ arcade_stage_bank = 12
 sd_flag_vertical    = $01
 sd_flag_has_boss    = $02
 sd_flag_start_page1 = $04
+sd_flag_sched_table = $08
 
 ; Fixed descriptor addresses in the $8000 stage window (59 bytes: $8080..$80BA)
 sd_base          = $8080
@@ -49,6 +50,11 @@ sd_boss_y        = sd_base + 54
 sd_boss_hp       = sd_base + 56
 sd_boss_shield   = sd_base + 57
 sd_boss_fire_per = sd_base + 58
+; Optional pointer to 9-byte records (page, turret X/Y, zombie X/Y).
+sd_sched_table_ptr = sd_base + 59
+sd_sched_stride  = 9
+sd_sched_pages   = 3
+.assert (sd_sched_pages - 1) * sd_sched_stride < sd_sched_page - sd_base, error, "Scheduler record offsets must distinguish table and legacy records"
 
 ; Stage 1 constants (kept for clarity and regression compatibility)
 arcade_enemy_x = 312
