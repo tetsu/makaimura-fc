@@ -593,6 +593,32 @@ Remove-Item Env:REVG_TYPE06_AXIS, Env:REVG_TYPE06_OFFSET
 
 `type06_activation` の `check` は区間4で設定した座標差、`blocked` と `in_range` は区間5の座標差と待機値、`tick` は減算後の待機値を示す。`done` は終了時の主状態と、観測した減算回数を示す。
 
+### 区間4のボスの発射と空き枠
+
+発射タイマー `+$12` は `$BF10–$BF12` で5に設定される。`$BEB4–$BEC2` は発射を許す状態でタイマーを減らし、0で `$C0FF` を呼ぶ。`$C0FF–$C101` が敵弾プールの空き数 `$A7` を読み、空きがあれば `$8C91` で枠を確保する。`$C106–$C11E` はプレイヤーへの方向を求め、ボスと同じ位置に種別 `$0B` の弾を作る。
+
+空きが0の場合も、呼び出し元の `$BEC5–$BECB` はタイマーを再設定する。再設定値は `$68F9` の戻り値の下位2ビットで `$BF25` の表から選ぶ。候補は65、60、50、45。最初の発射だけ空き0を返した試行では、次の更新での再試行は発生せず、その後の2回の発射試行も通常時と同じフレームだった。
+
+| 発射試行 | フレーム | 再設定値 | 通常時 | 初回だけ空き0 |
+| --- | ---: | ---: | --- | --- |
+| 1 | 1211 | 60 | 発射 | 弾なし |
+| 2 | 1337 | 50 | 発射 | 発射 |
+| 3 | 1404 | 65 | 発射 | 発射 |
+
+MAME 0.289 の既定 DIP で、区間4を指定して開始ページを `$0DC` に差し替え、1P開始後は無入力で計測した。両条件でフレーム1060に起動し、1206に発射タイマーが5に設定された。空き0の条件では最初の発射試行の `$A7` の読み出し1回だけを変更し、プール自体は変更していない。2条件を各2回コールドブートから実行し、計測行は条件ごとに一致した。
+
+```powershell
+$env:REVG_TYPE06_PROJECTILE = 'normal' # 初回だけ空き0は 'pool'
+& "$env:USERPROFILE/tools/mame/mame0289/mame.exe" makaimurg -rompath reference `
+  -noreadconfig -video none -sound none -nothrottle -skip_gameinfo `
+  -autoboot_delay 0 -autoboot_script tools/mame/measure-revg-type06-projectile.lua `
+  -cfg_directory build/type06-projectile-cfg -nvram_directory build/type06-projectile-nvram `
+  -seconds_to_run 42
+Remove-Item Env:REVG_TYPE06_PROJECTILE
+```
+
+`type06_projectile` の `attempt` は試行番号、実際の空き枠、判定に使った空き枠を示す。`shot` は生成順、枠、座標、方向番号を示し、`reload` は再設定値、`done` は試行数と生成数を示す。
+
 ### 区間4のボスの画面外処理
 
 区間4の種別 `$06` は、攻撃状態の更新末尾 `$BDF4` から画面外判定 `$8DC5` へ進む。ボス座標からカメラ座標を引き、X は128を加えて512、Y は64を加えて384と16ビット符号なし比較する。範囲の端は含まれる。
