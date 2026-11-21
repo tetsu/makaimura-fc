@@ -701,6 +701,31 @@ Remove-Item Env:REVG_TYPE06_PROJECTILE_BOUNDS
 
 `display` を指定すると移動前の表示判定、`cleanup` を指定すると移動後の回収判定を調べる。`type06_projectile_bounds` の `display` 行は最初の移動時の表示フラグ、`mark` は回収予定の状態と空き枠数、`return` は回収後の空き枠数を示す。`done` は観測中の移動回数・枠の使用フラグ・空き枠数を出力する。
 
+### 区間4のボス弾の被弾判定
+
+敵弾との被弾判定 `$F48C` は `$21` の bit 0 が1の更新に呼ばれる。プレイヤーの無敵タイマー `$AD` が0で、`$0500` の bit 0 が1の場合に敵弾を走査する。`$F4AD–$F4B1` は枠の使用フラグと表示フラグの AND が0なら座標比較を省く。ボス弾の種別 `$0B` は通常時に `$F556`、`$051F` が非ゼロのときに `$F5D6` の境界を使う。
+
+| 姿勢用の表 | 弾 X − プレイヤー X | 弾 Y − プレイヤー Y |
+| --- | ---: | ---: |
+| 通常 `$F556` | −6〜6 | −8〜8 |
+| しゃがみ `$F5D6` | −6〜6 | −8〜2 |
+
+いずれも整数座標の差で、両端を含む。比較順は Y、X。命中したフレーム1212には鎧状態が1から2になり、弾の使用フラグと処理状態はいずれも2になった。弾は次の更新で `$FE26` により状態3になり、その翌フレーム1214に空きリストへ戻った。同じフレームに状態3になる画面外処理に比べ、枠の解放は1フレーム遅い。
+
+MAME 0.289 の既定 DIP で区間4の開始ページを `$0DC` に設定し、1P開始後は無入力とした。最初の弾が判定に入るフレームで、その弾の比較用座標だけを差し替えた。しゃがみ条件は `$F49C` の姿勢フラグ読み出しを1とした。各軸の両端とその1ピクセル外側を、もう一方の差を0にして測った。さらに表示フラグを判定時だけ0とした条件では、座標比較も鎧状態の変化も起きなかった。計17条件を各2回コールドブートから実行し、各条件のログは一致した。
+
+```powershell
+$env:REVG_TYPE06_HIT = 'crouch,0,2' # stand|crouch|hidden,dx,dy
+& "$env:USERPROFILE/tools/mame/mame0289/mame.exe" makaimurg -rompath reference `
+  -noreadconfig -video none -sound none -nothrottle -skip_gameinfo `
+  -autoboot_delay 0 -autoboot_script tools/mame/measure-revg-type06-projectile-hit.lua `
+  -cfg_directory build/type06-hit-cfg -nvram_directory build/type06-hit-nvram `
+  -seconds_to_run 42
+Remove-Item Env:REVG_TYPE06_HIT
+```
+
+`type06_projectile_hit` の `gate` は元の表示フラグと鎧状態、`armor` は鎧状態の変化、`hit_state` は弾の使用フラグと処理状態、`return` は回収後の空き枠数を示す。`done` は被弾の有無、参照表、座標比較を行った軸の数を出力する。
+
 ### 区間4のボスの画面外処理
 
 区間4の種別 `$06` は、攻撃状態の更新末尾 `$BDF4` から画面外判定 `$8DC5` へ進む。ボス座標からカメラ座標を引き、X は128を加えて512、Y は64を加えて384と16ビット符号なし比較する。範囲の端は含まれる。
