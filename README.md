@@ -35,7 +35,7 @@ Windows PowerShell から `./build.ps1` を実行すると、`build/vrc7a-test.n
 
 試作 ROM は PRG-ROM 32 KiB、WRAM 8 KiB、CHR-RAM 8 KiB。起動後に FM 6声を順に鳴らし、その後は FM と APU で3つの和音を繰り返す。音源画面では 1P の左で FM 単独、右で APU 単独、下で同時発音、上で消音に切り替わる。消音から左・右・下で再開すると、最初の和音から鳴る。操作試作では消音中も射撃音が鳴る。画面に `BANK OR RAM ERROR` が出た場合は、起動時の PRG バンクまたは WRAM の検査で失敗している。
 
-Mesen 2.1.1 で32 KiB版と512 KiB版の固定画面、音源の切り替え、消音中の再発音の有無、消音からの復帰、リセット後の6声の順次発音を検証した。再検証には 1P に NES コントローラーを割り当てて `Mesen.exe --testRunner --timeout=20 tools/mesen/vrc7a-smoke.lua build/vrc7a-test.nes` を実行する。Mesen のミキサー出力の録音でも、同じ区間に FM の和音と APU のパルス音が出ることを確認した。
+Mesen 2.1.1 で32 KiB版と512 KiB版の固定画面、音源の切り替え、消音中の再発音の有無、消音からの復帰、リセット後の6声の順次発音を検証した。再検証には 1P に NES コントローラーを割り当てて `Mesen.exe --testRunner --timeout=20 tools/mesen/vrc7a-smoke.lua build/vrc7a-test.nes` を実行する。512 KiB版の FM 単独・APU 単独・同時発音・消音を録音し、実機との比較に使う基準値を記録した。[Mesen 測定値](docs/vrc7a-hardware-test.md#512-kib版の-mesen-測定値)
 
 ### 352402 基板向けの出力
 
