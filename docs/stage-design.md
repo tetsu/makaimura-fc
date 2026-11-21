@@ -164,6 +164,22 @@ python tools/convert-stage-map.py stage.json build/stage.inc --prefix test_stage
 
 ---
 
+### 3.4 PNG の NES パレットを生成する
+
+自作の背景やスプライトには、Python と Pillow で動く `tools/fit-nes-palettes.py` を使う。使用する色見本は RGB 3バイト × 64色（色番号順、計192バイト）のバイナリを渡す。
+
+```powershell
+python tools/fit-nes-palettes.py bg.png build/bg-indexed.png build/bg-palette.json --mode bg --rgb-table nes.pal --backdrop 0x0f
+python tools/fit-nes-palettes.py obj.png build/obj-indexed.png build/obj-palette.json --mode obj --rgb-table nes.pal
+```
+
+- BG は不透明な16×16 px区画ごとに1組を使う。各組のスロット0は `--backdrop` で共通に指定し、追加の3色を推定する。
+- OBJ は文字やキャラクターのシートを8×16 px単位で区切る。アルファ0をスロット0に割り当て、アルファ255の画素をスロット1〜3に減色する。半透明は入力エラーになる。
+- 各区画の色候補から、画素数で重み付けした RGB の誤差が小さくなるよう4組まで選ぶ。ディザリングは行わない。入力と色見本が同じなら結果も同じになる。
+- JSON の `palettes` は NES の色番号を4組×4色、`palette_ids` は左上から行順で区画ごとの番号（0〜3）を格納する。PNG の画素インデックスの下位2ビットが CHR 用の色番号になる。OBJ の透明画素は全組で PNG インデックス0を使う。
+
+BG と OBJ は別々に実行する。実際のステージで使うには、CHR とメタスプライトへのパック、および描画側のパレット割り当てへの接続が必要になる。現行のマップコンバータが受け取る `palette_pairs` は列単位のため、BG の `palette_ids` をそのまま渡すことはできない。
+
 ## 4. 最終リソース使用量（512 KiB 版 / 32 KiB 診断版）
 
 `ld65` リンクマップ（`build/vrc7a-test-512k.map` / `build/vrc7a-test.map`）およびビルド時 CHR-RAM 集計の実測値。

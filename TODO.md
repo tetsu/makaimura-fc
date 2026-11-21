@@ -35,6 +35,7 @@
   - [ ] 全 SE を APU（矩形波2ch / 三角波 / ノイズ）＋必要時の FM 割り込みデータへ自動変換し、`src/sound-driver.inc` から鳴らせるようにする
 - [ ] **B-2. スプライト・BG コンバータ (`tools/convert-arcade-gfx.py` 拡張)**
   - [x] 4bpp → NES 2bpp 変換と `BANK10` (`src/arcade-gfx-data.inc`) 出力の原型を作成
+  - [x] 自作 PNG を NES の BG・OBJ 各4組に自動減色し、インデックス付き PNG と区画ごとのパレット割り当てを出力する。[パレット変換の使い方](docs/stage-design.md#34-png-の-nes-パレットを生成する)
   - [ ] キャラ・背景ごとの NES パレット（BG 4組 / OBJ 4組）自動最適化と減色ルールを確立する
   - [ ] ステージ／エリア単位の CHR-RAM パック（BG 4 KiB + OBJ 4 KiB 以内）とメタスプライト定義テーブル（8×16 スプライト配置・走査線8枚制限対策の優先度）を自動生成し、PRG 空きバンク（`BANK10`〜`BANK50` 帯）へ自動配置する
 - [ ] **B-3. マップ・配置データコンバータ**
