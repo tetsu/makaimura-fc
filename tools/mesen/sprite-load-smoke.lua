@@ -86,7 +86,7 @@ emu.addEventCallback(function()
         else
             local previous = baseline[shotFrames]
             if not previous then fail(42, "unexpected shot duration"); return end
-            for i = 20, 48, 4 do
+            for i = 32, 60, 4 do
                 if spriteByte(i) ~= 159 then fail(43, "missing test sprite on scanline"); return end
             end
             -- The test pieces occupy only X=8..127; compare every gameplay pixel.
@@ -105,7 +105,7 @@ emu.addEventCallback(function()
         if stressed then
             if not rotated then fail(48, "test sprites did not rotate"); return end
             if seenBeforeShot ~= 0xff then fail(52, "a test sprite never appeared"); return end
-            for i = 20, 48, 4 do
+            for i = 32, 60, 4 do
                 if spriteByte(i) ~= 0xf8 then fail(49, "toggle left a test sprite visible"); return end
             end
             emu.stop(0)

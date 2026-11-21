@@ -157,7 +157,7 @@ emu.addEventCallback(function()
             return
         end
         if frame >= 172 then
-            for offset = 20, 48, 4 do
+            for offset = 32, 60, 4 do
                 if emu.read(0x0200 + offset, emu.memType.nesMemory) ~= playerY then
                     fail(102, "stress markers left the player's scanline")
                     return

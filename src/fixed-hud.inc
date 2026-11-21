@@ -52,8 +52,7 @@ draw_hud:
 
 hud_irq:
     pha
-    lda #0
-    sta $f010           ; Acknowledge and disable until the next NMI.
+    sta $f010           ; Any value acknowledges. Save two cycles before the split.
     bit $2002           ; First write of the $2006/$2005 sequence.
     lda split_address_high
     sta $2006

@@ -1,9 +1,17 @@
 ; The encounter uses the same scrolling terrain and an independent sprite table.
 enemy_x = 272
 enemy_feet = 176
+ranged_x = 742
+ranged_feet = 160
+ranged_range = 34
+ranged_windup = 30
+ranged_cooldown = 48
+bolt_y = ranged_feet - 9
 player_height = 16
 jump_fall = 18
-crowd_start = 5 * 4
+ranged_slot = 5 * 4
+bolt_slot = 7 * 4
+crowd_start = 8 * 4
 crowd_count = 8
 crowd_end = crowd_start + crowd_count * 4
 
@@ -18,6 +26,10 @@ shot_x: .res 2
 shot_y: .res 1
 shot_left: .res 1
 shot_life: .res 1
+ranged_active: .res 1
+ranged_timer: .res 1
+bolt_x: .res 1         ; This encounter and the bolt's entire path are on page 2.
+bolt_active: .res 1
 old_x: .res 2
 ground: .res 1
 draw_x: .res 2
@@ -69,12 +81,20 @@ setup_game:
     sta player_hit
     sta player_left
     sta shot_life
+    sta ranged_active
+    sta ranged_timer
+    sta bolt_active
     sta crowd_enabled
     sta crowd_first
     lda #$ff
     sta jump_step
     lda #1
     sta enemy_active
+    ldx scene
+    cpx #4
+    bne :+
+    sta ranged_active
+:
     jsr draw_sprites
     jsr upload_sprites
     jmp enable_terrain
@@ -95,6 +115,7 @@ update_game:
     jsr move_vertically
     jsr update_shot
     jsr check_enemy_contact
+    jsr update_ranged
 game_camera:
     sec
     lda player_x
@@ -301,6 +322,8 @@ shot_position:
     cmp shot_y
     bcc remove_shot
     beq remove_shot
+    jsr check_ranged_shot
+    bcs remove_shot
     lda enemy_active
     beq age_shot
     lda shot_x+1
@@ -327,6 +350,31 @@ age_shot:
 shot_done:
     rts
 
+; Carry set if the player's shot destroyed the kiln.
+check_ranged_shot:
+    lda ranged_active
+    beq ranged_shot_missed
+    lda shot_x+1
+    cmp #>ranged_x
+    bne ranged_shot_missed
+    lda shot_x
+    cmp #<(ranged_x-8)
+    bcc ranged_shot_missed
+    cmp #<(ranged_x+8)
+    bcs ranged_shot_missed
+    lda shot_y
+    cmp #ranged_feet-player_height
+    bcc ranged_shot_missed
+    cmp #ranged_feet
+    bcs ranged_shot_missed
+    lda #0
+    sta ranged_active
+    sec
+    rts
+ranged_shot_missed:
+    clc
+    rts
+
 check_enemy_contact:
     lda enemy_active
     beq contact_done
@@ -348,10 +396,76 @@ check_enemy_contact:
 contact_done:
     rts
 
+update_ranged:
+    ; Continue the launched bolt even if the shooter is destroyed.
+    lda bolt_active
+    beq aim_bolt
+    lda bolt_x
+    sec
+    sbc #2
+    bcc reclaim_bolt    ; Leave page 2 without wrapping to the right.
+    sta bolt_x
+    ; Check the left edge against the cliff before testing the player.
+    sbc #2
+    bcc reclaim_bolt
+    ldx #>ranged_x
+    jsr floor_height
+    cmp #bolt_y+3
+    bcc reclaim_bolt    ; The bolt's bottom pixel entered solid terrain.
+    lda player_x+1
+    cmp #>ranged_x
+    bne aim_bolt
+    lda player_x
+    sec
+    sbc bolt_x
+    clc
+    adc #8
+    cmp #17
+    bcs aim_bolt
+    lda player_feet
+    cmp #bolt_y
+    bcc aim_bolt
+    cmp #bolt_y+player_height+3
+    bcs aim_bolt
+    lda #1
+    sta player_hit
+reclaim_bolt:
+    lda #0
+    sta bolt_active
+aim_bolt:
+    lda ranged_active
+    beq ranged_done
+    lda ranged_timer
+    beq begin_aim
+    dec ranged_timer
+    lda ranged_timer
+    cmp #ranged_cooldown
+    bne ranged_done
+    lda #<(ranged_x-10)
+    sta bolt_x
+    lda #1
+    sta bolt_active
+    rts
+begin_aim:
+    lda bolt_active
+    bne ranged_done
+    lda player_x+1
+    cmp #>ranged_x
+    bne ranged_done
+    lda player_x
+    cmp #<(ranged_x-ranged_range)
+    bcc ranged_done
+    cmp #<(ranged_x-8)
+    bcs ranged_done
+    lda #ranged_cooldown+ranged_windup
+    sta ranged_timer
+ranged_done:
+    rts
+
 draw_sprites:
-    ; Hide the five used entries before drawing visible pieces.
+    ; Hide the gameplay entries before drawing visible pieces.
     lda #$f8
-    ldx #16
+    ldx #bolt_slot
 :
     sta sprites,x
     dex
@@ -400,7 +514,7 @@ player_in_front:
     jsr draw_pair
 draw_shot:
     lda shot_life
-    beq sprites_done
+    beq draw_ranged
     lda #16
     sta draw_slot
     lda #3
@@ -413,6 +527,42 @@ draw_shot:
     jsr set_sprite_y
     lda shot_x
     ldx shot_x+1
+    jsr set_sprite_x
+    jsr emit_sprite
+draw_ranged:
+    lda ranged_active
+    beq draw_bolt
+    lda #ranged_slot
+    sta draw_slot
+    lda #ranged_feet-player_height-1
+    jsr set_sprite_y
+    lda #3
+    ldx ranged_timer
+    cpx #ranged_cooldown+1
+    bcc :+
+    lda #2              ; The lit face is visible throughout the windup.
+:
+    sta draw_palette
+    lda #11
+    sta draw_tile
+    lda #<ranged_x
+    ldx #>ranged_x
+    jsr draw_pair
+draw_bolt:
+    lda bolt_active
+    beq sprites_done
+    lda #bolt_slot
+    sta draw_slot
+    lda #2
+    sta draw_palette
+    lda #15
+    sta draw_tile
+    lda #bolt_y-3
+    jsr set_sprite_y
+    lda bolt_x
+    sec
+    sbc #2
+    ldx #>ranged_x
     jsr set_sprite_x
     jsr emit_sprite
 sprites_done:
@@ -434,8 +584,7 @@ hide_crowd:
     rts
 
 draw_crowd:
-    ; These pieces share the player's scanlines but follow the five gameplay
-    ; entries in OAM. Rotate their order so a dropped piece has another turn.
+    ; Gameplay sprites precede the rotating stress markers in OAM.
     ldx #crowd_start
     ldy crowd_first
 :
@@ -592,6 +741,20 @@ sprite_patterns:
     .byte $f8, $f8, $38, $f0, $00, $00, $00, $00
     .byte $00, $70, $70, $00, $00, $00, $00, $00
     .byte $00, $f0, $f0, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00
+    ; Kiln shooter: clay shell, inset face and stone foot.
+    .byte $00, $03, $0f, $1f, $3f, $7f, $7f, $ff
+    .byte $00, $00, $03, $0c, $10, $23, $23, $43
+    .byte $ff, $ff, $7f, $7f, $3f, $1f, $3f, $7f
+    .byte $43, $20, $1f, $10, $0f, $0f, $00, $7f
+    .byte $00, $c0, $f0, $f8, $fc, $fe, $fe, $ff
+    .byte $00, $00, $c0, $30, $08, $c4, $c4, $c2
+    .byte $ff, $ff, $fe, $fe, $fc, $f8, $fc, $fe
+    .byte $c2, $04, $f8, $08, $f0, $f0, $00, $fe
+    ; Four-by-four spark, drawn around its world center.
+    .byte $00, $60, $f0, $f0, $60, $00, $00, $00
+    .byte $00, $00, $60, $60, $00, $00, $00, $00
     .byte $00, $00, $00, $00, $00, $00, $00, $00
     .byte $00, $00, $00, $00, $00, $00, $00, $00
 CHR_SPRITE_BYTES = * - sprite_patterns
