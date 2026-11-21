@@ -22,6 +22,15 @@ arcade_turret_x = 712
 arcade_turret_feet = 176
 arcade_zombie_spawn_x = 752
 arcade_zombie_feet = 176
+arcade_boss_trigger_x = 720
+arcade_boss_arena_left = 520
+arcade_boss_start_x = 736
+arcade_boss_min_x = 684
+arcade_boss_max_x = 744
+arcade_boss_feet = 176
+arcade_boss_hp_init = 4
+arcade_boss_shield_init = 2
+arcade_boss_fire_period = 48
 
 .macro arcade_flat_col
     cliff_col_2d 11

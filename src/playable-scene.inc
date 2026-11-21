@@ -58,12 +58,9 @@ start_arcade_stage:
     jmp show_pan_game
 
 next_campaign_stage:
-    lda arcade_mode
-    bne @finish_campaign_now
     lda campaign_stage
     cmp #campaign_stage_count
     bcc :+
-@finish_campaign_now:
     jsr blank_display
     jmp show_sound_screen
 :

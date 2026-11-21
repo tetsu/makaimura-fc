@@ -36,6 +36,11 @@ item_armor = 1
 item_dagger = 2
 item_torch = 3
 item_lance = 4
+item_key = 5
+
+boss_idle = 0
+boss_active = 1
+boss_defeated = 2
 
 ap_invuln_frames = 120
 ap_shoot_lock_frames = 15
@@ -122,6 +127,19 @@ eb_y: .res ap_max_ebolts        ; $609B
 eb_vx: .res ap_max_ebolts       ; $609D (signed px/frame)
 eb_timer: .res ap_max_ebolts    ; $609F
 
+; Task 3-5: Boss encounter, arena lock, key/exit unlock ($60A1+)
+ap_boss_state: .res 1           ; $60A1: 0=idle, 1=active, 2=defeated
+ap_boss_lock: .res 1            ; $60A2: 1=camera & arena left edge locked
+ap_boss_hp: .res 1              ; $60A3: core/head HP
+ap_boss_shield_hp: .res 1       ; $60A4: lower armor HP
+ap_boss_x_lo: .res 1            ; $60A5: 16-bit world X
+ap_boss_x_hi: .res 1            ; $60A6
+ap_boss_y: .res 1               ; $60A7: feet Y
+ap_boss_dir: .res 1             ; $60A8: 0=left, 1=right
+ap_boss_timer: .res 1           ; $60A9: fire cadence timer
+ap_boss_flash: .res 1           ; $60AA: hit flash countdown
+ap_key_collected: .res 1        ; $60AB: 1=key collected (unlocks stage 1 exit)
+
 .segment "BANK3"
     .byte bank_tag_base + 3
 
@@ -144,10 +162,16 @@ ap_init_stage:
     sta ranged_active
     sta bolt_active
     sta enemy_active
-    lda #1
     sta ap_enemy_active
     sta ap_pot_enemy_active
     sta ap_armor_item_active
+    sta ap_boss_state
+    sta ap_boss_lock
+    sta ap_boss_hp
+    sta ap_boss_shield_hp
+    sta ap_boss_timer
+    sta ap_boss_flash
+    sta ap_key_collected
     inc campaign_hud_dirty
 
     ; Clear shot pool
@@ -158,13 +182,35 @@ ap_init_stage:
     dex
     bpl :-
 
-    ; Clear item pool, then place armor recovery (slot 0) and dagger (slot 1)
+    ; Clear item pool and dynamic platforms
     ldx #ap_max_items - 1
     lda #0
 :
     sta item_type,x
     dex
     bpl :-
+
+    ldx #ap_max_plats - 1
+    lda #0
+:
+    sta plat_type,x
+    sta plat_dx,x
+    sta plat_dy,x
+    sta plat_timer,x
+    sta plat_phase,x
+    dex
+    bpl :-
+
+    ; Stage 1 (Bank 12) populates fixed test enemies, items, and dynamic platforms.
+    lda campaign_stage
+    cmp #1
+    bne @init_scheduler_state
+
+    lda #1
+    sta ap_enemy_active
+    sta ap_pot_enemy_active
+    sta ap_armor_item_active
+
     lda #item_armor
     sta item_type+0
     lda #<arcade_armor_item_x
@@ -182,22 +228,6 @@ ap_init_stage:
     sta item_x_hi+1
     lda #arcade_dagger_item_feet
     sta item_y+1
-
-    ; Initialize dynamic platforms:
-    ; Slot 0: Tombstone obstacle/platform at col 26 (X=416, Y=160)
-    ; Slot 1: Horizontal moving platform across X=512 page boundary (X=500..544, Y=160)
-    ; Slot 2: Vertical moving platform at col 36 (X=576, Y=176..136)
-    ; Slot 3: Free
-    ldx #ap_max_plats - 1
-    lda #0
-:
-    sta plat_type,x
-    sta plat_dx,x
-    sta plat_dy,x
-    sta plat_timer,x
-    sta plat_phase,x
-    dex
-    bpl :-
 
     lda #plat_tombstone
     sta plat_type+0
@@ -229,6 +259,8 @@ ap_init_stage:
     sta plat_y+2
     lda #arcade_vplat_span
     sta plat_span+2
+
+@init_scheduler_state:
 
     ; Initialize difficulty rank, scroll-linked scheduler, enemy pool, and enemy bolts.
     lda checkpoint_reached
@@ -302,6 +334,7 @@ ap_update_frame:
     jsr ap_update_rank
     jsr ap_update_scheduler
     jsr ap_update_enemies
+    jsr ap_update_boss
     jsr ap_update_ebolts
     jsr ap_update_shots
     jsr ap_check_items
@@ -328,10 +361,26 @@ ap_update_frame:
 
 @check_goal:
     jsr check_course_progress
+    php
+    lda campaign_stage
+    cmp #1
+    bne @non_boss_goal
+    plp
+    ; Stage 1 exit is locked until the boss is defeated and the key is collected.
+    lda ap_key_collected
+    beq @camera_and_submit
+    jmp show_course_clear
+@non_boss_goal:
+    plp
     bcc @camera_and_submit
     jmp show_course_clear
 
 @camera_and_submit:
+    lda ap_boss_lock
+    beq @unlock_camera
+    jsr draw_sprites
+    jmp submit_frame
+@unlock_camera:
     jsr follow_player
     jmp submit_frame
 
@@ -784,6 +833,18 @@ ap_move_left_1px:
     sta old_x
     lda player_x+1
     sta old_x+1
+    lda ap_boss_lock
+    beq @check_stage_left
+    lda player_x+1
+    cmp #>arcade_boss_arena_left
+    bcc @left_blocked
+    bne @do_dec_x
+    lda player_x
+    cmp #<arcade_boss_arena_left
+    beq @left_blocked
+    bcc @left_blocked
+    bcs @do_dec_x
+@check_stage_left:
     lda player_x+1
     bne @do_dec_x
     lda player_x
@@ -1375,8 +1436,7 @@ ap_shot_check_enemies:
     iny
     cpy #ap_max_enemies
     bne @pool_shot_loop
-    clc
-    rts
+    jmp ap_shot_check_boss
 
 ; --- Item / weapon drop pickup (16-bit safe) ---
 ap_check_items:
@@ -1410,6 +1470,12 @@ ap_check_items:
     bcs @next_item
     ; Apply pickup effect
     lda item_type,x
+    cmp #item_key
+    bne @check_armor_pickup
+    lda #1
+    sta ap_key_collected
+    bne @consume_item
+@check_armor_pickup:
     cmp #item_armor
     bne @check_weapon_drop
     lda #ap_armor_full
@@ -1458,10 +1524,12 @@ ap_check_enemies_contact:
     lda #arcade_enemy_feet
     sta ap_probe_y
     jsr ap_test_contact_at_probe
-    bcs @do_player_damage
+    bcc :+
+    jmp @do_player_damage
+:
 @check_pot_contact:
     lda ap_pot_enemy_active
-    beq @contact_none
+    beq @check_pool_contact
     lda #<arcade_pot_enemy_x
     sta ap_probe_x
     lda #>arcade_pot_enemy_x
@@ -1469,7 +1537,10 @@ ap_check_enemies_contact:
     lda #arcade_pot_enemy_feet
     sta ap_probe_y
     jsr ap_test_contact_at_probe
-    bcs @do_player_damage
+    bcc :+
+    jmp @do_player_damage
+:
+@check_pool_contact:
     ; Check contact with generic enemy pool (zombies & turrets).
     ldy #0
 @pool_contact_loop:
@@ -1489,7 +1560,41 @@ ap_check_enemies_contact:
     iny
     cpy #ap_max_enemies
     bne @pool_contact_loop
-    rts
+    ; Check contact with active boss body/head (24x32 px).
+    lda ap_boss_state
+    cmp #boss_active
+    bne @contact_none
+    sec
+    lda player_x
+    sbc ap_boss_x_lo
+    sta ap_tmp0
+    lda player_x+1
+    sbc ap_boss_x_hi
+    sta ap_tmp1
+    clc
+    lda ap_tmp0
+    adc #14
+    sta ap_tmp0
+    lda ap_tmp1
+    adc #0
+    bne @contact_none
+    lda ap_tmp0
+    cmp #29
+    bcs @contact_none
+    lda ap_boss_y
+    sec
+    sbc #31
+    cmp player_feet
+    beq @boss_c_bot
+    bcs @contact_none
+@boss_c_bot:
+    lda ap_boss_y
+    clc
+    adc #player_height
+    cmp player_feet
+    bcc @contact_none
+    beq @contact_none
+    bcs @do_player_damage
 @do_player_damage:
     lda ap_armor
     cmp #ap_armor_full
@@ -1764,6 +1869,13 @@ ap_draw_sprites:
     cpy #ap_max_enemies
     bne @draw_pool_en_loop
 
+    ; Slots 11-15 reused for 24x32 multi-part boss during boss battle (<=8 sprites/scanline)
+    lda ap_boss_state
+    cmp #boss_active
+    bne @draw_plats
+    jsr ap_draw_boss
+
+@draw_plats:
     ; Slots 19-24: Dynamic platforms (2 tiles wide each)
     lda #19 * 4
     sta draw_slot
@@ -1803,6 +1915,11 @@ ap_draw_sprites:
     beq @next_item_draw
     sty ap_loop_idx
     lda #3
+    ldx item_type,y
+    cpx #item_key
+    bne :+
+    lda #2                      ; Key highlights in bright gold/red palette
+:
     sta draw_palette
     lda #15
     sta draw_tile
@@ -1850,6 +1967,14 @@ ap_update_rank:
 
 ; --- Scroll-linked enemy scheduler & fixed turret spawner ---
 ap_update_scheduler:
+    lda campaign_stage
+    cmp #1
+    bne @sched_early_exit
+    lda ap_boss_state
+    beq @sched_run
+@sched_early_exit:
+    rts
+@sched_run:
     lda camera_high
     cmp sched_page
     beq @check_group_spawns
@@ -2177,3 +2302,276 @@ ap_apply_bolt_damage:
     lda #1
     sta player_hit
     rts
+
+; --- Task 3-5: Multi-part boss encounter, arena lock, key drop ---
+ap_update_boss:
+    lda campaign_stage
+    cmp #1
+    bne @boss_done
+    lda ap_boss_state
+    cmp #boss_active
+    beq @boss_step
+    cmp #boss_idle
+    bne @boss_done
+    ; Trigger boss encounter when player reaches X >= arcade_boss_trigger_x (720).
+    lda player_x+1
+    cmp #>arcade_boss_trigger_x
+    bcc @boss_done
+    bne @start_boss
+    lda player_x
+    cmp #<arcade_boss_trigger_x
+    bcc @boss_done
+@start_boss:
+    lda #boss_active
+    sta ap_boss_state
+    lda #1
+    sta ap_boss_lock
+    lda #arcade_boss_hp_init
+    sta ap_boss_hp
+    lda #arcade_boss_shield_init
+    sta ap_boss_shield_hp
+    lda #<arcade_boss_start_x
+    sta ap_boss_x_lo
+    lda #>arcade_boss_start_x
+    sta ap_boss_x_hi
+    lda #arcade_boss_feet
+    sta ap_boss_y
+    lda #0
+    sta ap_boss_dir
+    sta ap_boss_flash
+    sta sched_group
+    sta sched_zombies_live
+    lda #arcade_boss_fire_period
+    sta ap_boss_timer
+    ; Clear active regular enemies, bolts, platforms, and stray items to keep
+    ; scanline sprite load strictly <= 8 during the 24x32 multi-part boss fight.
+    ldx #ap_max_enemies - 1
+    lda #0
+:
+    sta en_type,x
+    dex
+    bpl :-
+    ldx #ap_max_ebolts - 1
+:
+    sta eb_active,x
+    dex
+    bpl :-
+    ldx #ap_max_plats - 1
+:
+    sta plat_type,x
+    dex
+    bpl :-
+    ldx #ap_max_items - 1
+:
+    sta item_type,x
+    dex
+    bpl :-
+@boss_done:
+    rts
+
+@boss_step:
+    lda ap_boss_flash
+    beq :+
+    dec ap_boss_flash
+:
+    ; Pace horizontally between arcade_boss_min_x (684) and arcade_boss_max_x (744) at 0.5 px/f.
+    lda ap_boss_timer
+    and #1
+    bne @boss_fire_check
+    lda ap_boss_dir
+    bne @boss_move_right
+    lda ap_boss_x_lo
+    bne :+
+    dec ap_boss_x_hi
+:
+    dec ap_boss_x_lo
+    lda ap_boss_x_hi
+    cmp #>arcade_boss_min_x
+    bne @boss_fire_check
+    lda ap_boss_x_lo
+    cmp #<arcade_boss_min_x
+    bne @boss_fire_check
+    lda #1
+    sta ap_boss_dir
+    bne @boss_fire_check
+@boss_move_right:
+    inc ap_boss_x_lo
+    bne :+
+    inc ap_boss_x_hi
+:
+    lda ap_boss_x_hi
+    cmp #>arcade_boss_max_x
+    bne @boss_fire_check
+    lda ap_boss_x_lo
+    cmp #<arcade_boss_max_x
+    bne @boss_fire_check
+    lda #0
+    sta ap_boss_dir
+
+@boss_fire_check:
+    dec ap_boss_timer
+    bne @boss_done
+    lda #arcade_boss_fire_period
+    sta ap_boss_timer
+    jmp ap_boss_fire_bolt
+
+ap_boss_fire_bolt:
+    ldy #0
+@bfb_find:
+    lda eb_active,y
+    beq @bfb_alloc
+    iny
+    cpy #ap_max_ebolts
+    bne @bfb_find
+    rts
+@bfb_alloc:
+    lda #1
+    sta eb_active,y
+    lda ap_boss_x_lo
+    sec
+    sbc #12
+    sta eb_x_lo,y
+    lda ap_boss_x_hi
+    sbc #0
+    sta eb_x_hi,y
+    ; Alternate low (boss_y - 9) and high (boss_y - 22) shots by patrol direction.
+    lda ap_boss_y
+    sec
+    ldx ap_boss_dir
+    bne @bfb_high
+    sbc #9
+    jmp @bfb_set_y
+@bfb_high:
+    sbc #22
+@bfb_set_y:
+    sta eb_y,y
+    lda #$fe                    ; -2 px/frame left
+    sta eb_vx,y
+    lda #120
+    sta eb_timer,y
+    rts
+
+; Carry set if shot slot ap_loop_idx hits active boss.
+; Upper hits (y < boss_y - 16) or hits after lower armor breaks damage ap_boss_hp;
+; lower hits while ap_boss_shield_hp > 0 chip the armor first.
+ap_shot_check_boss:
+    lda ap_boss_state
+    cmp #boss_active
+    beq :+
+    clc
+    rts
+:
+    ldx ap_loop_idx
+    sec
+    lda ps_x_lo,x
+    sbc ap_boss_x_lo
+    sta ap_tmp0
+    lda ps_x_hi,x
+    sbc ap_boss_x_hi
+    sta ap_tmp1
+    clc
+    lda ap_tmp0
+    adc #14
+    sta ap_tmp0
+    lda ap_tmp1
+    adc #0
+    bne @boss_shot_miss
+    lda ap_tmp0
+    cmp #29
+    bcs @boss_shot_miss
+    lda ap_boss_y
+    sec
+    sbc #32
+    cmp ps_y,x
+    beq @boss_shot_y_ok
+    bcs @boss_shot_miss
+@boss_shot_y_ok:
+    lda ap_boss_y
+    cmp ps_y,x
+    bcc @boss_shot_miss
+    beq @boss_shot_miss
+    ; Hit confirmed!
+    lda #8
+    sta ap_boss_flash
+    lda ap_boss_shield_hp
+    beq @boss_core_hit
+    lda ap_boss_y
+    sec
+    sbc #16
+    cmp ps_y,x
+    bcs @boss_core_hit          ; Shot hit upper head region directly
+    dec ap_boss_shield_hp
+    sec
+    rts
+@boss_core_hit:
+    dec ap_boss_hp
+    bne @boss_hit_done
+    ; Boss defeated: drop Key item into slot 3 and clear enemy bolts.
+    lda #boss_defeated
+    sta ap_boss_state
+    ldy #ap_max_ebolts - 1
+    lda #0
+:
+    sta eb_active,y
+    dey
+    bpl :-
+    lda #item_key
+    sta item_type+3
+    lda ap_boss_x_lo
+    sta item_x_lo+3
+    lda ap_boss_x_hi
+    sta item_x_hi+3
+    lda ap_boss_y
+    sta item_y+3
+@boss_hit_done:
+    sec
+    rts
+@boss_shot_miss:
+    clc
+    rts
+
+; Draw 16x32 multi-part boss in OAM slots 11-14:
+; - Upper head: 2 sprites (16x16) at Y = boss_y - 33
+; - Lower body: 2 sprites (16x16) at Y = boss_y - 17
+; Max scanline sprites even with 3 daggers + enemy bolt + player:
+; head 2 + shots 3 + bolt 1 = 6; body 2 + player 2 + shots 3 + bolt 1 = 8 (<= 8).
+ap_draw_boss:
+    lda #11 * 4
+    sta draw_slot
+    ; Head palette: flash=2, normal=1
+    lda #1
+    ldx ap_boss_flash
+    beq :+
+    lda #2
+:
+    sta draw_palette
+    lda #5
+    sta draw_tile
+    lda ap_boss_y
+    sec
+    sbc #33
+    jsr set_sprite_y
+    lda ap_boss_x_lo
+    ldx ap_boss_x_hi
+    jsr draw_pair
+
+    ; Body palette: flash=2, shielded=3, unshielded=0
+    lda #0
+    ldx ap_boss_shield_hp
+    beq :+
+    lda #3
+:
+    ldx ap_boss_flash
+    beq :+
+    lda #2
+:
+    sta draw_palette
+    lda #11
+    sta draw_tile
+    lda ap_boss_y
+    sec
+    sbc #17
+    jsr set_sprite_y
+    lda ap_boss_x_lo
+    ldx ap_boss_x_hi
+    jmp draw_pair
