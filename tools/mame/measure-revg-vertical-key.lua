@@ -9,8 +9,8 @@ local pickup_cases = {
     { name = "jump", x = 0, y = 0, state = 2 },
     { name = "left", x = -9, y = 0, state = 1 },
     { name = "right", x = 9, y = 0, state = 1 },
-    { name = "above", x = 0, y = -9, state = 1 },
-    { name = "below", x = 0, y = 9, state = 1 },
+    { name = "minus-y", x = 0, y = -9, state = 1 },
+    { name = "plus-y", x = 0, y = 9, state = 1 },
     { name = "edge", x = section == 4 and -8 or 8, y = section == 4 and -8 or 8, state = 1 },
 }
 local frame, approach_checks, pickup_checks = 0, 0, 0
