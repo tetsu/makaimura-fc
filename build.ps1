@@ -2,7 +2,7 @@ param(
     [string]$Cc65Bin = '',
     [switch]$Hardware,
     [string]$AreaManifest = '',
-    [string]$AreaTrial = ''
+    [string[]]$AreaTrial = @()
 )
 $ErrorActionPreference = 'Stop'
 if ($AreaManifest -and !$Hardware) {
@@ -40,8 +40,8 @@ if ($AreaManifest) {
     $manifestPath = (Resolve-Path -LiteralPath $AreaManifest).Path
     $areaTool = Join-Path $PSScriptRoot 'tools/place-nes-areas.py'
     $areaOptions = @()
-    if ($AreaTrial) {
-        $areaOptions = @('--trial', (Resolve-Path -LiteralPath $AreaTrial).Path)
+    foreach ($trialPath in $AreaTrial) {
+        $areaOptions += @('--trial', (Resolve-Path -LiteralPath $trialPath).Path)
     }
     $areaArgs = @($manifestPath, $configPath, $areaDir) + $areaOptions
     & python $areaTool @areaArgs
@@ -65,7 +65,7 @@ try {
     & $linker @linkOptions -C $configPath -Ln $labels -o $linkedRom $object
     if ($LASTEXITCODE -ne 0) { throw "ld65 exited with code $LASTEXITCODE" }
     if ($AreaTrial) {
-        & python $areaTool --check-trial-rom $linkedRom
+        & python $areaTool --check-trial-rom $linkedRom --trial-count $AreaTrial.Count
         if ($LASTEXITCODE -ne 0) { throw "Area trial validation failed with code $LASTEXITCODE" }
         Move-Item -LiteralPath $linkedRom -Destination $rom -Force
     }

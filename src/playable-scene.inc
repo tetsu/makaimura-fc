@@ -180,6 +180,14 @@ start_course:
     lda #nes_area_trial_bank
     bne @map_course
 :
+.if nes_area_trial_count = 2
+    lda pad
+    and #$01            ; Right+B selects the second manifest trial.
+    beq :+
+    lda #nes_area_trial_bank + 1
+    bne @map_course
+:
+.endif
     lda pad
 .endif
     and #$04            ; Hold Down with B to map the alternate course.
@@ -314,13 +322,12 @@ setup_game:
     sta player_feet
 setup_game_sprites:
 .ifdef NES_AREA_TRIAL
-.if nes_area_trial_player
-    lda prg_bank0
-    cmp #nes_area_trial_bank
+    cmp_trial_bank
     bne :+
+    lda trial_player_pose_addresses+1
+    beq :+
     jsr load_trial_player_banked
 :
-.endif
 .endif
 .if PRG_ROM_UNITS = 32
     lda arcade_mode
@@ -335,10 +342,10 @@ setup_game_sprites:
 load_course_enemies:
     ldx #encounter_bytes-1
 .ifdef NES_AREA_TRIAL
-.if nes_area_trial_enemies
-    lda prg_bank0
-    cmp #nes_area_trial_bank
+    cmp_trial_bank
     bne @defaults
+    lda trial_has_enemies
+    beq @defaults
 @trial:
     lda trial_enemy_positions,x
     sta enemy_x,x
@@ -347,7 +354,6 @@ load_course_enemies:
     lda #0
     sta bolt_min_page
     rts
-.endif
 .endif
 @defaults:
     lda default_encounters,x
@@ -930,14 +936,13 @@ draw_sprites:
     lda #0
     sta draw_slot
 .ifdef NES_AREA_TRIAL
-.if nes_area_trial_player
-    lda prg_bank0
-    cmp #nes_area_trial_bank
+    cmp_trial_bank
     bne :+
-    jsr draw_trial_player
+    lda trial_player_pose_addresses+1
+    beq :+
+    jsr draw_trial_player_banked
     jmp draw_enemy
 :
-.endif
 .endif
     lda player_hit
     asl a

@@ -178,8 +178,7 @@ draw_pan:
     sta pan_col_length
     jsr load_terrain_palette
 .ifdef NES_AREA_TRIAL
-    lda prg_bank0
-    cmp #nes_area_trial_bank
+    cmp_trial_bank
     bne :+
     jsr load_trial_background_banked
 :
@@ -387,8 +386,7 @@ prepare_pan_row:
     ora #$c0
     sta pan_attr_addr
 .ifdef NES_AREA_TRIAL
-    lda prg_bank0
-    cmp #nes_area_trial_bank
+    cmp_trial_bank
     bne :+
     lda #$55          ; All trial terrain uses palette 1. HUD resets its own row.
     bne pan_store_attr
@@ -524,8 +522,7 @@ pan_goal_flag:
     cmp z:checkpoint_tile_x
     bne :+
 .ifdef NES_AREA_TRIAL
-    lda prg_bank0
-    cmp #nes_area_trial_bank
+    cmp_trial_bank
     bne @legacy_checkpoint
     lda stage_cp_feet
     lsr a
@@ -548,8 +545,7 @@ pan_goal_flag:
     rts
 :
 .ifdef NES_AREA_TRIAL
-    lda prg_bank0
-    cmp #nes_area_trial_bank
+    cmp_trial_bank
     beq pan_trial_tile
     lda pan_data_x
 .endif

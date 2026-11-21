@@ -37,7 +37,6 @@ area_parts_left: .res 1
 .ifdef NES_AREA_TRIAL
 trial_metatiles: .res 7 * 4
 trial_offsets: .res 7 * 2
-.if nes_area_trial_player
 trial_pose_size = 1 + 2 * 4
 trial_idle = 0
 trial_walk_a = trial_pose_size
@@ -47,8 +46,7 @@ trial_player_addresses: .res 4 * 2
 trial_player_poses: .res 4 * trial_pose_size
 trial_player_last_x: .res 1
 trial_player_steps: .res 1
-.endif
-emit_area_trial
+emit_area_trials
 .endif
 
 .segment "BANK51"
@@ -224,6 +222,8 @@ upload_area_chr:
 ; Called with the course bank mapped and rendering off. Keep the HUD and
 ; goal/checkpoint patterns from the normal background table.
 load_trial_background:
+    lda prg_bank0
+    pha
     ldx #13
 :
     lda trial_region_offsets,x
@@ -277,13 +277,14 @@ load_trial_background:
         lda (area_data),y
         sta $2007
     .endrepeat
-    lda #nes_area_trial_bank
+    pla
     jmp select_bank0
 
-.if nes_area_trial_player
 ; BG loading has already cached both area descriptors. Preserve the
 ; encounter's patterns and palettes, and cache the four player poses.
 load_trial_player:
+    lda prg_bank0
+    pha
     lda player_x
     sta trial_player_last_x
     lda #0
@@ -345,10 +346,9 @@ load_trial_player:
         lda (area_data),y
         sta $2007
     .endrepeat
-    lda #nes_area_trial_bank
+    pla
     jmp select_bank0
 
-.segment "BANK52"
 ; Draw from RAM with the course map still mapped. Poses are anchored at
 ; (player_x, player_feet). Left-facing poses reflect around player_x.
 draw_trial_player:
@@ -439,8 +439,6 @@ draw_trial_player:
     bne @part
     rts
 
-.segment "BANK51"
-.endif
 .endif
 
 ; Draw one nametable. Large sheets are cropped, small sheets repeat.
@@ -698,5 +696,9 @@ area_view_menu_length = * - area_view_menu
 .ifdef NES_AREA_TRIAL
 area_trial_menu:
     .byte $0c, $06, $07, $13, $17, $03, $00, $02, $11, $06, $02, $00, $13, $11, $0a, $02, $0c ; LEFT+B AREA TRIAL
+.if nes_area_trial_count = 2
+    .res 15, 0
+    .byte $11, $0a, $08, $09, $13, $17, $03, $00, $02, $11, $06, $02, $00, $13, $11, $0a, $02, $0c ; RIGHT+B AREA TRIAL
+.endif
 area_trial_menu_length = * - area_trial_menu
 .endif

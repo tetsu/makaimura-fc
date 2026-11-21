@@ -1,9 +1,9 @@
--- Exercise the generated step course using only controller input and video output.
+-- Switch courses through the menu and exercise the stepped route.
 local frame = 0
 local step = "boot"
 local nextInput = {}
 local wallFrames = 0
-local retryAt
+local retryAt, returnAt
 local scrollX, previousScrollX
 local seamColumns
 local hudPixels = {}
@@ -12,6 +12,7 @@ local idleTile, jumpTile = 0x21, 0x27
 local upperY = 127 -- Floor Y=144, 16 px sprite, OAM Y minus one.
 local lowerY = 143 -- The camera settles with the lower floor at scanline 160.
 local clear = {0x04, 0x0f, 0x14, 0x11, 0x12, 0x06, 0, 0x04, 0x0c, 0x06, 0x02, 0x11}
+local menu = {0x15, 0x11, 0x04, 0x01, 0x02, 0, 0x13, 0x06, 0x12, 0x13, 0, 0x0d, 0x06, 0x0e, 0x14}
 
 local function oam(slot, field)
     return emu.read(0x200 + slot * 4 + field, emu.memType.nesMemory)
@@ -38,7 +39,20 @@ local function check(condition, message)
     error(detail)
 end
 
-local function checkArea()
+local function checkFlatArea()
+    check(oam(0, 0) == lowerY and oam(0, 1) == 0x11 and oam(0, 3) == 12,
+        "Left+B did not select the flat trial")
+    check(ppuMatches(0x224c, {0x40, 0x40}) and ppuMatches(0x22cc, {0x44, 0x44}),
+        "flat trial did not restore its terrain")
+    check(ppuMatches(0x0440, {0xff, 0xff, 0, 0}) and ppuMatches(0x044a, {0xff, 0xff}),
+        "missing first area's ledge CHR")
+    check(ppuMatches(0x1100, {0, 0, 0xff, 0xff}) and ppuMatches(0x110c, {0x0e, 0x0e}),
+        "missing first area's player CHR")
+    check(ppuMatches(0x3f05, {0x01, 0x1c, 0x30}), "wrong first-area background palette")
+    check(ppuMatches(0x3f11, {0x16, 0x28, 0x30}), "wrong first-area player palette")
+end
+
+local function checkStepsArea()
     -- Sample both bitplanes of the ledge and the idle sprite in CHR-RAM.
     check(ppuMatches(0x0640, {0xff, 0xff, 0, 0}) and ppuMatches(0x064a, {0xff, 0xff}),
         "missing second area's ledge CHR")
@@ -121,19 +135,25 @@ end, emu.eventType.inputPolled)
 emu.addEventCallback(function()
     frame = frame + 1
     nextInput = {}
-    check(frame < 1600, "timed out")
+    check(frame < 1800, "timed out")
     local y, tile, attributes, x = oam(0, 0), oam(0, 1), oam(0, 2), oam(0, 3)
 
     if step == "boot" then
         nextInput.select = frame == 125
         nextInput.left, nextInput.b = frame == 170, frame == 170
         if frame == 210 then
+            checkFlatArea()
+            nextInput.select = true
+        elseif frame == 250 then
+            check(ppuMatches(0x2108, menu), "SELECT did not return to the menu from the flat trial")
+            nextInput.right, nextInput.b = true, true
+        elseif frame == 290 then
             check(y == lowerY and x == 12 and tile == idleTile and (attributes & 3) == 0,
                 string.format("missing trial start at X=16 (OAM x=%d, y=%d, tile=%02x)", x, y, tile))
             -- World X=96, Y=144 is the first ledge tile in the initial nametable.
             check(ppuMatches(0x224c, {0x64, 0x64}), "terrain did not use the second area's tile IDs")
             check(ppuMatches(0x23e3, {0x55}), "terrain attributes did not select palette 1")
-            checkArea()
+            checkStepsArea()
             local pixels = emu.getScreenBuffer()
             local hudVisible = false
             for i = 1, 32 * 256 do
@@ -191,7 +211,7 @@ emu.addEventCallback(function()
         if frame == retryAt + 32 then
             check(y == upperY and tile == idleTile and (attributes & 3) == 0 and enemyGap() == 92,
                 "START did not restore the upper checkpoint at X=288")
-            checkArea()
+            checkStepsArea()
             step = "approach enemy after retry"
         end
     elseif step == "approach enemy after retry" then
@@ -217,11 +237,21 @@ emu.addEventCallback(function()
         scrollX = nil
     elseif step == "reach goal" then
         if ppuMatches(0x218a, clear) then
-            print("Stepped area trial cleared after a checkpoint retry and a horizontal seam round trip")
-            emu.stop(0)
+            nextInput.select = true
+            returnAt = frame + 40
+            step = "reopen flat trial"
         else
             check((attributes & 3) ~= 2, "player was hit on the second descent")
             nextInput.right = true
+        end
+    elseif step == "reopen flat trial" then
+        if frame == returnAt then
+            check(ppuMatches(0x2108, menu), "SELECT did not return to the menu from the stepped trial")
+            nextInput.left, nextInput.b = true, true
+        elseif frame == returnAt + 40 then
+            checkFlatArea()
+            print("Switched flat -> steps -> flat; cleared the stepped trial after retry and two-way scrolling")
+            emu.stop(0)
         end
     end
 end, emu.eventType.endFrame)

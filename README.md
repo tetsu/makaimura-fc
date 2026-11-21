@@ -27,7 +27,7 @@
 
 352402 基板の検証資料は、機材が揃った後の追加検証に使う。[実機試験資料](docs/vrc7a-hardware-test.md)
 
-エリアマニフェスト付きの512 KiB版では、BG・OBJ の CHR、パレット、ポーズをテストメニューから確認できる。自作の試験コースは、地形、敵配置、プレイヤーの OBJ ポーズを同じ JSON で指定できる。Mesen の自動試験では、平坦コースで敵との戦闘からゴールまで、段差コースでジャンプ、落下、上段のチェックポイントからの復帰を確認できる。段差コースではマニフェストの2番目のエリアを指定し、開始時と復帰時にそのエリアの BG・OBJ とパレットを確認する。次はスクロール中に画面へ入る地形のタイルと属性を検証する。[開発タスク](TODO.md)
+エリアマニフェスト付きの512 KiB版では、BG・OBJ の CHR、パレット、ポーズをテストメニューから確認できる。地形、敵配置、プレイヤーの OBJ ポーズを JSON で指定した2つの自作コースを1本のROMにまとめ、切り替えと再挑戦を Mesen で検証できる。次はクリア画面から2番目のコースへ進み、開始位置・敵配置・チェックポイントの状態が初期化されることを確認する。[開発タスク](TODO.md)
 
 [実装と検証のチェックリスト](TODO.md#次の開発マイルストーン)
 
@@ -133,13 +133,14 @@ BGMは1から順に開始、ステージ1・2、ボス、クリア、ゲーム�
 ./tools/test-mesen.ps1 -AreaTrial
 ```
 
-入力は `build/area-trial-fixture/` に生成される。平坦コース (`stage.json`) と段差コース (`steps.json`) は、共通の `areas.json` で別々のエリアを選ぶ。段差コースでは、2番目のエリアの CHR とパレットが開始時と復帰時に読み込まれ、背景とプレイヤーにそのエリアのタイルが使われることも確認する。手動で段差コースを遊ぶ場合は、次のようにビルドする。
+入力は `build/area-trial-fixture/` に生成される。平坦コース (`stage.json`) と段差コース (`steps.json`) は、共通の `areas.json` で別々のエリアを選ぶ。自動試験では同じROMで平坦→段差→平坦と選び直し、地形、BG・OBJ の CHR、パレット、プレイヤーのタイルを確認する。段差コースではチェックポイント復帰時の CHR とパレットも確認する。入力の生成後に両コースを手動でビルドする場合は、次を実行する。
 
 ```powershell
-./build.ps1 -Hardware -AreaManifest build/area-trial-fixture/areas.json -AreaTrial build/area-trial-fixture/steps.json
+$fixture = 'build/area-trial-fixture'
+./build.ps1 -Hardware -AreaManifest "$fixture/areas.json" -AreaTrial @("$fixture/stage.json", "$fixture/steps.json")
 ```
 
-`build/vrc7a-test-512k-areas-trial.nes` を Mesen で開く。タイトルで **SELECT** を押し、テストメニューの **左＋B** で試験コースを始める。左右で移動、**A** でジャンプ、**B** で射撃、被弾後は **START** で再挑戦する。**SELECT** でテストメニューに戻る。試験コース JSON の `player_poses` でプレイヤーの画像、`enemies` で固定敵と射撃敵の位置を指定できる。[試験コース JSON の条件](docs/stage-design.md#38-エリア-bg-を試験コースに組み込む)
+`build/vrc7a-test-512k-areas-trial.nes` を Mesen で開く。タイトルで **SELECT** を押し、テストメニューの **左＋B** で1番目（平坦）、**右＋B** で2番目（段差）を始める。コースJSONを1つだけ渡すと **左＋B** で選べる。左右で移動、**A** でジャンプ、**B** で射撃、被弾後は **START** で再挑戦する。**SELECT** でテストメニューに戻る。試験コース JSON の `player_poses` でプレイヤーの画像、`enemies` で固定敵と射撃敵の位置を指定できる。[試験コース JSON の条件](docs/stage-design.md#38-エリア-bg-を試験コースに組み込む)
 
 ### コース音声の録音と測定
 

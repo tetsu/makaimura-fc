@@ -13,6 +13,7 @@ FIRST_BANK = 19
 LAST_BANK = 50
 VIEWER_BANK = 51
 TRIAL_BANK = 52
+MAX_TRIALS = 2
 FIXED_BANK = 63
 BANK_SIZE = 0x2000
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -43,7 +44,7 @@ def read_areas(manifest_path):
     return areas
 
 
-def make_trial(path, areas):
+def make_trial(path, areas, bank):
     stage_map = import_module("convert-stage-map")
     trial = json.loads(path.read_text(encoding="utf-8-sig"))
     fields = {"area", "tiles", "regions", "start_x", "checkpoint_x", "goal_x"}
@@ -73,16 +74,11 @@ def make_trial(path, areas):
     if not isinstance(regions, dict) or regions.keys() != stage_map.TILES.keys():
         raise ValueError(f"trial.regions must define {', '.join(stage_map.TILES)}")
     bg = f"area_{name}_bg"
-    use_player = "player_poses" in trial
-    use_enemies = "enemies" in trial
     lines = [
-        f"nes_area_trial_player = {int(use_player)}",
-        f"nes_area_trial_enemies = {int(use_enemies)}",
-        ".macro emit_area_trial",
-        f'.segment "BANK{TRIAL_BANK}"',
-        f"nes_area_trial_bank = {TRIAL_BANK}",
+        f'.segment "BANK{bank}"',
+        f".scope trial_bank_{bank}",
         "trial_bank_start:",
-        f"    .byte bank_tag_base + {TRIAL_BANK}",
+        f"    .byte bank_tag_base + {bank}",
         f"    stage_header {width}, {height}, {camera_max}, 1, {start}, {checkpoint}, "
         f"{checkpoint_feet}, {camera_x}, {camera_y}, {goal}, {floors[goal // 16]}, trial_map, trial_palettes",
         "trial_area_index:",
@@ -105,12 +101,12 @@ def make_trial(path, areas):
         f'    .assert * - trial_bank_start = ${TRIAL_POSE_TABLE_OFFSET:02x}, error, '
         '"Unexpected trial pose table offset"',
     ])
-    if use_player:
+    lines.append("trial_player_pose_addresses:")
+    if "player_poses" in trial:
         poses = trial["player_poses"]
         if not isinstance(poses, dict) or poses.keys() != set(TRIAL_POSES):
             raise ValueError(f"trial.player_poses must define {', '.join(TRIAL_POSES)}")
         obj = f"area_{name}_obj"
-        lines.append("trial_player_pose_addresses:")
         for state in TRIAL_POSES:
             pose = poses[state]
             if not isinstance(pose, str) or not IDENTIFIER.fullmatch(pose):
@@ -119,11 +115,15 @@ def make_trial(path, areas):
         lines.append(f'    .assert {obj}::obj_chr_vram >= chr_sprite_address + CHR_SPRITE_BYTES, '
                      'error, "Trial OBJ overlaps gameplay sprite patterns"')
     else:
-        lines.append("    .word 0           ; No trial player poses")
-    if use_enemies:
+        lines.append("    .res 8, 0         ; No trial player poses")
+    lines.extend([
+        "trial_has_enemies:",
+        f"    .byte {int('enemies' in trial)}",
+        "trial_enemy_positions:",
+    ])
+    if "enemies" in trial:
         enemies = trial["enemies"]
         stage_map.check_fields(enemies, {"fixed", "ranged"}, "trial.enemies")
-        lines.append("trial_enemy_positions:")
         for kind, min_x in (("fixed", 8), ("ranged", 12)):
             x, y = 0, 0
             if kind in enemies:
@@ -134,15 +134,17 @@ def make_trial(path, areas):
                     raise ValueError(f"{field}.y must equal the floor at x={x} (Y={floors[x // 16]})")
             lines.append(f"    .word {x}")
             lines.append(f"    .byte {y}")
+    else:
+        lines.append("    .res 6, 0")
     lines.extend([
         '    .res $100 - (* - trial_bank_start), $ff',
         stage_map.convert(stage, "trial").rstrip(),
-        ".endmacro",
+        ".endscope",
     ])
     return lines
 
 
-def check_trial_rom(path):
+def check_trial_rom(path, trial_count):
     # The offsets follow the common 18-byte stage header and one area index.
     rom = path.read_bytes()
 
@@ -152,7 +154,15 @@ def check_trial_rom(path):
     def word(offset):
         return int.from_bytes(rom[offset : offset + 2], "little")
 
-    trial = bank_offset(TRIAL_BANK) + 0x13
+    for bank in range(TRIAL_BANK, TRIAL_BANK + trial_count):
+        try:
+            check_trial_bank(rom, bank, bank_offset, word)
+        except (ValueError, IndexError) as error:
+            raise ValueError(f"trial {bank - TRIAL_BANK + 1}: {error}") from error
+
+
+def check_trial_bank(rom, bank, bank_offset, word):
+    trial = bank_offset(bank) + 0x13
     bg_descriptor = bank_offset(DIRECTORY_BANK) + 2 + rom[trial] * 36
     bg_bank = bank_offset(rom[bg_descriptor])
     regions = bg_bank + word(bg_descriptor + 13) - 0x8000
@@ -166,7 +176,7 @@ def check_trial_rom(path):
     if rom[palette] != 0x0F:
         raise ValueError("trial BG needs backdrop $0F shared with the HUD and sprites")
 
-    pose_table = bank_offset(TRIAL_BANK) + TRIAL_POSE_TABLE_OFFSET
+    pose_table = bank_offset(bank) + TRIAL_POSE_TABLE_OFFSET
     if word(pose_table):
         obj_descriptor = bg_descriptor + 18
         obj_bank = bank_offset(rom[obj_descriptor])
@@ -191,7 +201,7 @@ def check_trial_player(rom, word, pose_table, obj_bank):
         raise ValueError("trial player poses must all use the same OBJ palette")
 
 
-def make_include(areas, trial):
+def make_include(areas, trials):
     banks = []
     lines = ["; Generated by place-nes-areas.py."]
     for name, paths in areas.items():
@@ -216,7 +226,7 @@ def make_include(areas, trial):
             "    .res $1fff, $ff",
             ".endrepeat",
         ])
-    tail_start = TRIAL_BANK + 1 if trial else VIEWER_BANK + 1
+    tail_start = VIEWER_BANK + 1 + len(trials)
     lines.extend([
         '.segment "AREA_TAIL"',
         f".repeat {FIXED_BANK - tail_start}, index",
@@ -240,10 +250,25 @@ def make_include(areas, trial):
             lines.extend([f"    .word {scope}::obj_poses", f"    .byte {scope}::obj_pose_count"])
         else:
             lines.extend(["    .word 0", "    .byte 0"])
-    return "\n".join([*lines, *trial, ""])
+    if trials:
+        lines.extend([
+            f"nes_area_trial_bank = {TRIAL_BANK}",
+            f"nes_area_trial_count = {len(trials)}",
+            ".macro emit_area_trials",
+        ])
+        for course in trials:
+            lines.extend(course)
+        # The runtime addresses must match in every switchable course bank.
+        for label in ("trial_area_index", "trial_region_offsets", "trial_player_pose_addresses",
+                      "trial_has_enemies", "trial_enemy_positions"):
+            lines.append(f"{label} = trial_bank_{TRIAL_BANK}::{label}")
+            for bank in range(TRIAL_BANK + 1, TRIAL_BANK + len(trials)):
+                lines.append(f'    .assert {label} = trial_bank_{bank}::{label}, lderror, "Trial layout mismatch"')
+        lines.append(".endmacro")
+    return "\n".join([*lines, ""])
 
 
-def make_config(base_config, bank_count, trial):
+def make_config(base_config, bank_count, trial_count):
     tail = FIRST_BANK + bank_count
     memory = [
         f"    PRG{bank}: start = $8000, size = $2000, type = ro, fill = yes, fillval = $FF;"
@@ -256,10 +281,10 @@ def make_config(base_config, bank_count, trial):
         segments.append("    AREA_PAD: load = AREA_PAD, type = ro;")
     memory.append(f"    PRG{VIEWER_BANK}: start = $A000, size = $2000, type = ro, fill = yes, fillval = $FF;")
     segments.append(f"    BANK{VIEWER_BANK}: load = PRG{VIEWER_BANK}, type = ro;")
-    if trial:
-        memory.append(f"    PRG{TRIAL_BANK}: start = $8000, size = $2000, type = ro, fill = yes, fillval = $FF;")
-        segments.append(f"    BANK{TRIAL_BANK}: load = PRG{TRIAL_BANK}, type = ro;")
-    tail_banks = FIXED_BANK - VIEWER_BANK - 1 - bool(trial)
+    for bank in range(TRIAL_BANK, TRIAL_BANK + trial_count):
+        memory.append(f"    PRG{bank}: start = $8000, size = $2000, type = ro, fill = yes, fillval = $FF;")
+        segments.append(f"    BANK{bank}: load = PRG{bank}, type = ro;")
+    tail_banks = FIXED_BANK - VIEWER_BANK - 1 - trial_count
     memory.append(f"    AREA_TAIL: start = $0000, size = ${tail_banks * BANK_SIZE:x},"
                   " type = ro, fill = yes, fillval = $FF;")
     segments.append("    AREA_TAIL: load = AREA_TAIL, type = ro;")
@@ -283,12 +308,14 @@ def main():
     parser.add_argument("manifest", nargs="?", type=Path, help="JSON area names with bg and obj include paths")
     parser.add_argument("base_config", nargs="?", type=Path, help="512 KiB linker configuration")
     parser.add_argument("output_dir", nargs="?", type=Path, help="directory for nes-areas.inc and nes-areas.cfg")
-    parser.add_argument("--trial", type=Path, help="JSON trial course")
+    parser.add_argument("--trial", type=Path, action="append", default=[], help="JSON trial course (up to two)")
     parser.add_argument("--check-trial-rom", type=Path, help="validate selected BG and OBJ art in a linked trial ROM")
+    parser.add_argument("--trial-count", type=int, choices=range(1, MAX_TRIALS + 1), default=1,
+                        help="number of courses to validate in the linked trial ROM")
     args = parser.parse_args()
     try:
         if args.check_trial_rom:
-            check_trial_rom(args.check_trial_rom)
+            check_trial_rom(args.check_trial_rom, args.trial_count)
             return
         if not all((args.manifest, args.base_config, args.output_dir)):
             parser.error("manifest, base_config and output_dir are required when placing areas")
@@ -296,14 +323,15 @@ def main():
         output_inc = args.output_dir / "nes-areas.inc"
         output_cfg = args.output_dir / "nes-areas.cfg"
         inputs = {args.manifest.resolve(), args.base_config.resolve()}
-        if args.trial:
-            inputs.add(args.trial.resolve())
+        if len(args.trial) > MAX_TRIALS:
+            raise ValueError(f"at most {MAX_TRIALS} trial courses are supported")
+        inputs.update(path.resolve() for path in args.trial)
         inputs.update(path for paths in areas.values() for path in paths)
         if any(output.resolve() in inputs for output in (output_inc, output_cfg)):
             raise ValueError("output files must be different from the inputs")
-        trial = make_trial(args.trial, areas) if args.trial else []
-        include = make_include(areas, trial)
-        config = make_config(args.base_config.read_text(encoding="utf-8"), 2 * len(areas), trial)
+        trials = [make_trial(path, areas, bank) for bank, path in enumerate(args.trial, TRIAL_BANK)]
+        include = make_include(areas, trials)
+        config = make_config(args.base_config.read_text(encoding="utf-8"), 2 * len(areas), len(trials))
         args.output_dir.mkdir(parents=True, exist_ok=True)
         output_inc.write_text(include, encoding="utf-8", newline="\n")
         output_cfg.write_text(config, encoding="utf-8", newline="\n")

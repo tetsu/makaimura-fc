@@ -74,6 +74,20 @@ arcade_mode: .res 1    ; Non-zero when using the arcade stage data and visuals.
 snd_ptr: .res 2        ; Bank 8 sound driver stream pointer.
 .endif
 
+.ifdef NES_AREA_TRIAL
+; The two optional course banks are consecutive and start at an even bank.
+.if nes_area_trial_count = 2
+    .assert (nes_area_trial_bank & 1) = 0, error, "Trial bank pair must be aligned"
+.endif
+.macro cmp_trial_bank
+    lda prg_bank0
+.if nes_area_trial_count = 2
+    and #$fe
+.endif
+    cmp #nes_area_trial_bank
+.endmacro
+.endif
+
 .include "fixed-hud.inc"
 .include "chr-layout.inc"
 .include "scenery.inc"
@@ -691,7 +705,6 @@ load_trial_background_banked:
     jsr load_trial_background
     pla
     jmp select_bank1
-.if nes_area_trial_player
 load_trial_player_banked:
     lda prg_bank1
     pha
@@ -700,7 +713,14 @@ load_trial_player_banked:
     jsr load_trial_player
     pla
     jmp select_bank1
-.endif
+draw_trial_player_banked:
+    lda prg_bank1
+    pha
+    lda #nes_area_viewer_bank
+    jsr select_bank1
+    jsr draw_trial_player
+    pla
+    jmp select_bank1
 .endif
 call_bank3_init:
     lda #3
