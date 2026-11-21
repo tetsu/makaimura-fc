@@ -29,6 +29,14 @@
 
 [実装と検証のチェックリスト](TODO.md#次の開発マイルストーン)
 
+## Mesen 用の試験パッケージ
+
+```powershell
+./tools/package-vrc7a-trial.ps1 -Mesen
+```
+
+両版の診断 ROM を再ビルドし、`build/vrc7a-mesen-trial.zip` に操作手順、ROM の SHA-256、Mesen 回帰試験をまとめる。展開先では手元の Mesen 2.1.1 を指定して、cc65 やソースツリーなしで試験を再実行できる。[展開後の操作と試験手順](docs/vrc7a-mesen-trial.md)
+
 ## Mesen の回帰試験
 
 Mesen 2.1.1 で NES の地域を NTSC にし、1P に NES コントローラーを割り当てる。地域の自動設定でも、この試験 ROM のヘッダーに従って NTSC になる。スプライト制限を有効にし、NTSC のオーバースキャンを上下左右とも 0 にして 256×240 の画面を使う。設定を保存してから、PowerShell で次を実行する。

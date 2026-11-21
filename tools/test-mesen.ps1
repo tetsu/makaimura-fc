@@ -3,7 +3,8 @@ param(
     [string]$MesenPath = '',
     [string]$Cc65Bin = '',
     [ValidateRange(1, 3600)]
-    [int]$TimeoutSeconds = 50
+    [int]$TimeoutSeconds = 50,
+    [switch]$UseBuiltRoms
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,10 +23,18 @@ if (!$suites.Count) {
     throw "No Mesen smoke tests found in $suiteDir."
 }
 
-$buildScript = Join-Path $root 'build.ps1'
-$rom32 = & $buildScript -Cc65Bin $Cc65Bin
-# The hardware build outputs the NES image before the raw PRG image.
-$rom512 = @(& $buildScript -Hardware -Cc65Bin $Cc65Bin)[0]
+$rom32 = Join-Path $root 'build/vrc7a-test.nes'
+$rom512 = Join-Path $root 'build/vrc7a-test-512k.nes'
+if (!$UseBuiltRoms) {
+    $buildScript = Join-Path $root 'build.ps1'
+    & $buildScript -Cc65Bin $Cc65Bin | Out-Null
+    & $buildScript -Hardware -Cc65Bin $Cc65Bin | Out-Null
+}
+foreach ($rom in @($rom32, $rom512)) {
+    if (!(Test-Path -LiteralPath $rom -PathType Leaf)) {
+        throw "ROM image not found: $rom"
+    }
+}
 $logDir = Join-Path $root 'build/mesen-smoke'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
