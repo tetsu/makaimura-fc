@@ -97,7 +97,7 @@ VRC7a（Mapper 85 / Submapper 2、PRG 512 KiB / CHR-RAM 8 KiB / WRAM 8 KiB）向
 
 ### 3.3 JSON からステージデータを生成する
 
-`tools/convert-stage-map.py` は、手元で作成した地形と初期配置を ca65 のインクルードに変換する。
+`tools/convert-stage-map.py` は、手元で作成した地形、初期配置、敵の出現設定を ca65 のインクルードに変換する。
 
 ```powershell
 python tools/convert-stage-map.py stage.json build/stage.inc --prefix test_stage
@@ -113,15 +113,35 @@ python tools/convert-stage-map.py stage.json build/stage.inc --prefix test_stage
   ],
   "palette_pairs": [0, 0, 1, 1, 2, 2, 3, 3],
   "items": [{"type": "armor", "x": 80, "y": 16}],
-  "platforms": [{"type": "horizontal", "x": 112, "y": 8, "span": 32}]
+  "platforms": [{"type": "horizontal", "x": 112, "y": 8, "span": 32}],
+  "enemies": {
+    "fixed": {"x": 160, "y": 16},
+    "pot": {"x": 208, "y": 16, "drop": "dagger"}
+  }
 }
 ```
 
 - `tiles` は画面上から下へ並べた行で、幅は16・32・48列、高さは1〜32行。セルには `sky`、`gravel`、`ledge`、`rock`、`oneway`、`ladder`、`hazard` を指定する。実行時に既存のメタタイル表が描画と衝突属性を決める。各ページを列優先で出力し、最後のページの不足分は岩で埋める。
 - `palette_pairs` は16 px幅の2列ごとに0〜3を指定し、省略時はすべて0。生成した列パレット表は `stage_header` の列パレットポインタに接続できる。現行の2軸描画は独自の行パレット処理を使う。
 - `items` と `platforms` は省略できる。座標はマップ左上からのピクセル単位。アイテムは `armor`、`dagger`、`torch`、`lance`、`shield` を最大3個、足場は `obstacle`、`horizontal`、`vertical` を最大4個指定できる。移動足場の `span` は初期位置から右または上への移動距離で、固定障害物は省略または0とする。
+- `enemies` は省略できる。`fixed` と `pot` は各1体で、`pot.drop` は `items` と同じ名前でドロップを指定する。敵の X は1以上、Y は足元座標とし、どちらもマップ内に収める。
+- `enemies.scheduler` は1グループを指定する。たとえば横48列のマップなら `{"axis":"horizontal","page":2,"zombie":{"x":752,"y":176},"turret":{"x":712,"y":176}}` でカメラ X が512 pxに入ったときに起動する。`zombie` は必須、`turret` は省略できる。`axis` は記述子の縦ステージフラグに合わせる。`horizontal` の `page` はカメラ X を256 pxで割った値、`vertical` の `page` は `pan_y_page`（240 px単位）。生成時はマップ寸法で検証し、組み込み時はカメラ上限で到達できるページを指定する。ゾンビの出現は初期化後に別ページから進入した時点で始まる。開始・復帰時から対象ページにいる場合は、一度別ページに移動して戻ると始まる。
 
-ステージバンクを `$8100` まで埋めてから生成したファイルをインクルードする。先に宣言する `stage_header` から `test_stage_width`、`test_stage_height`、`test_stage_map`、`test_stage_palettes` を参照し、`$8080` の記述子から `test_stage_item_count` と `test_stage_items`、`test_stage_plat_count` と `test_stage_plats` を参照する。開始・復帰位置、カメラ上限、敵、ボスは既存の記述子に設定する。
+ステージバンクを `$8100` まで埋めてから生成したファイルをインクルードする。先に宣言する `stage_header` から `test_stage_width`、`test_stage_height`、`test_stage_map`、`test_stage_palettes` を参照する。`$8080` の記述子に次のフィールドを接続する。開始・復帰位置、カメラ上限、ボスは既存のヘッダと記述子に設定する。
+
+```asm
+    ; $8092..$80A9
+    .word test_stage_enemy1_x, test_stage_enemy1_y
+    .word test_stage_pot_x, test_stage_pot_y
+    .byte test_stage_pot_drop
+    .byte test_stage_item_count
+    .word test_stage_items
+    .byte test_stage_plat_count
+    .word test_stage_plats
+    .byte test_stage_sched_page
+    .word test_stage_turret_x, test_stage_turret_y
+    .word test_stage_zombie_x, test_stage_zombie_y
+```
 
 ---
 
