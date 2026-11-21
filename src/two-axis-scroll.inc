@@ -42,6 +42,7 @@ show_pan:
     sta pan_y_page
     ldy #0
     jsr draw_pan
+enable_pan_preview:
     jsr enable_screen
     lda #$08            ; BG on, left eight pixels masked.
     sta $2001
@@ -50,6 +51,55 @@ show_pan:
     lda #$80
     sta pan_ctrl
     jmp apply_pan
+
+.if PRG_ROM_UNITS = 32
+; A = stage data bank. Open at the top left with the gameplay background assets.
+show_stage_view:
+    pha
+    jsr blank_display
+    pla
+    jsr select_bank0
+    lda #stage_view_scene
+    sta scene
+    lda #1
+    sta arcade_mode
+    lda #0
+    sta pan_y_page
+    tay
+    jsr draw_pan
+    jsr call_bank3_load_stage_visuals
+    jmp enable_pan_preview
+
+update_stage_view:
+    lda pressed
+    bmi @next_stage     ; A
+    and #$40
+    bne @prev_stage    ; B
+    lda stage_height_rows
+    cmp #16
+    bcc @horizontal_only
+    jmp advance_pan
+@horizontal_only:
+    lda pad
+    and #3             ; A single-screen-high map has no vertical extent to pan.
+    jmp advance_pan_with_directions
+@next_stage:
+    ldx prg_bank0
+    inx
+    cpx #arcade_stage_bank + arcade_stage_count
+    bne @open_stage
+    ldx #arcade_stage_bank
+    jmp @open_stage
+@prev_stage:
+    ldx prg_bank0
+    dex
+    cpx #arcade_stage_bank - 1
+    bne @open_stage
+    ldx #arcade_stage_bank + arcade_stage_count - 1
+@open_stage:
+    txa
+    jmp show_stage_view
+.endif
 
 ; A = horizontal page, Y = tile-aligned vertical scroll within page zero.
 ; Populate the HUD table and any rows of the lower table already visible.
@@ -138,6 +188,7 @@ pan_initial_rows:
 
 advance_pan:
     lda pad
+advance_pan_with_directions:
     sta pan_directions
     jsr prepare_pan
     jmp submit_frame

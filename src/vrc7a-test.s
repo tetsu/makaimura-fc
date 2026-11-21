@@ -66,7 +66,7 @@ campaign_lives: .res 1
 campaign_subsecond: .res 1
 campaign_clock: .res 3 ; Decimal digits stored as tile IDs for VBlank.
 campaign_hud_dirty: .res 1
-arcade_mode: .res 1    ; Non-zero in Bank 3 arcade player mode.
+arcade_mode: .res 1    ; Non-zero when using the arcade stage data and visuals.
 snd_ptr: .res 2        ; Bank 8 sound driver stream pointer.
 .endif
 
@@ -90,10 +90,15 @@ snd_ptr: .res 2        ; Bank 8 sound driver stream pointer.
 .include "arcade-stage6.inc"
 .include "arcade-stage7.inc"
 .include "arcade-player.inc"
+.include "sound-test.inc"
+.include "sprite-view.inc"
 .endif
 
 .if PRG_ROM_UNITS = 32
 title_scene = 7
+stage_view_scene = 8
+sound_test_scene = 9
+sprite_view_scene = 10
 .endif
 
 .segment "CODE"
@@ -234,6 +239,25 @@ main:
     jsr toggle_scene
     jmp audio_tick
 same_scene:
+.if PRG_ROM_UNITS = 32
+    lda scene
+    cmp #sprite_view_scene
+    bne :+
+    jsr update_sprite_view
+    jmp main
+:
+    cmp #sound_test_scene
+    bne :+
+    jsr update_sound_test
+    jsr call_bank8_audio_tick
+    jmp main
+:
+    cmp #stage_view_scene
+    bne :+
+    jsr update_stage_view
+    jmp main
+:
+.endif
     lda pressed
     and #$10            ; Start: enter or restart the playable scene.
     beq dispatch_scene
@@ -301,7 +325,9 @@ start_pressed:
     jmp audio_tick
 dispatch_scene:
     lda scene
-    beq sound_screen
+    bne :+
+    jmp sound_screen
+:
     cmp #3
     beq pan_screen
     cmp #2
@@ -350,6 +376,18 @@ commit_pan_game:
     jsr upload_pan
     jmp commit_render
 commit_horizontal:
+.if PRG_ROM_UNITS = 32
+    cmp #stage_view_scene
+    beq commit_pan_preview
+    cmp #sound_test_scene
+    bne :+
+    jmp commit_sound_test
+:
+    cmp #sprite_view_scene
+    bne :+
+    jmp commit_sprite_view
+:
+.endif
     lda column_pending
     beq commit_render
     lda #$84
@@ -373,6 +411,30 @@ sound_screen:
     lda pressed
     and #$80           ; A opens the two-axis camera from the audio screen.
     beq :+
+.if PRG_ROM_UNITS = 32
+    lda pad
+    and #$08           ; Up+A previews the stage banks.
+    beq @check_sound_test
+    jsr silence_music
+    lda #arcade_stage_bank
+    jsr show_stage_view
+    jmp main
+@check_sound_test:
+    lda pad
+    and #$04           ; Down+A opens the Bank 8 sound test.
+    beq @check_sprite_view
+    jsr show_sound_test
+    jmp main
+@check_sprite_view:
+    lda pad
+    and #$01           ; Right+A opens the sprite viewer.
+    beq @legacy_pan
+    lda #3
+    jsr select_bank1
+    jsr show_sprite_view
+    jmp main
+@legacy_pan:
+.endif
     jsr show_pan
     jmp audio_tick
 :
@@ -602,6 +664,11 @@ call_bank3_draw_sprites:
     jsr select_bank1
     jmp ap_draw_sprites
 
+call_bank3_load_stage_visuals:
+    lda #3
+    jsr select_bank1
+    jmp ap_load_stage_visuals
+
 call_bank8_audio_init:
     lda #8
     jsr select_bank2
@@ -664,7 +731,7 @@ read_pad:
     bne :-
     rts
 
-draw_screen:
+load_menu_patterns:
     lda #>chr_background_address
     sta $2006
     lda #<chr_background_address
@@ -675,7 +742,10 @@ draw_screen:
     sta chr_source+1
     ldx #>CHR_BACKGROUND_BYTES
     lda #<CHR_BACKGROUND_BYTES
-    jsr upload_chr_patterns
+    jmp upload_chr_patterns
+
+draw_screen:
+    jsr load_menu_patterns
     jsr clear_screen
     ldy #0
 next_line:
@@ -706,6 +776,39 @@ next_line:
     sta $2007
     inx
     cpx #campaign_menu_length
+    bne :-
+    lda #$22
+    sta $2006
+    lda #$88
+    sta $2006
+    ldx #0
+:
+    lda stage_view_menu,x
+    sta $2007
+    inx
+    cpx #stage_view_menu_length
+    bne :-
+    lda #$22
+    sta $2006
+    lda #$a8
+    sta $2006
+    ldx #0
+:
+    lda sound_test_menu,x
+    sta $2007
+    inx
+    cpx #sound_test_menu_length
+    bne :-
+    lda #$22
+    sta $2006
+    lda #$c8
+    sta $2006
+    ldx #0
+:
+    lda sprite_view_menu,x
+    sta $2007
+    inx
+    cpx #sprite_view_menu_length
     bne :-
 .endif
     rts
@@ -916,6 +1019,10 @@ arcade_next_prompt: .byte $12, $13, $02, $11, $13, $00, $04, $0f, $0e, $13 ; STA
 final_prompt: .byte $12, $13, $02, $11, $13, $00, $0d, $06, $0e, $14 ; START MENU
 campaign_menu: .byte $14, $10, $18, $12, $13, $02, $11, $13, $00, $04, $02, $0d, $10, $02, $0a, $08, $0e ; UP+START CAMPAIGN
 campaign_menu_length = * - campaign_menu
+stage_view_menu: .byte $14, $10, $18, $02, 0, $12, $13, $02, $08, $06, 0, $15, $0a, $06, $16 ; UP+A STAGE VIEW
+stage_view_menu_length = * - stage_view_menu
+sound_test_menu: .byte $05, $0f, $16, $0e, $17, $02, $00, $12, $0f, $14, $0e, $05, $00, $13, $06, $12, $13 ; DOWN+A SOUND TEST
+sound_test_menu_length = * - sound_test_menu
 title_palette:
     .byte $0f, $30, $16, $28
     .byte $0f, $28, $16, $30

@@ -2374,41 +2374,11 @@ ap_set_oam_group:
     sta draw_slot
     rts
 
-ap_draw_sprites:
-    lda #$f8
-    ldx #0
-:
-    sta sprites,x
-    inx
-    inx
-    inx
-    inx
-    cpx #ap_oam_end * 4
-    bne :-
-
-    ; Advance by 7, coprime with 20 groups, to spread turns across frames.
-    lda ap_oam_phase
-    clc
-    adc #7
-    cmp #ap_oam_groups
-    bcc :+
-    sbc #ap_oam_groups
-:
-    sta ap_oam_phase
-
-    ; Slots 0-1 (bottom) and 2-3 (top): keep both halves ahead of other actors.
+; A is zero for idle, or 1/9 for the first/second walking pose.
+ap_draw_player:
+    sta ap_tmp1
     lda #0
     sta draw_slot
-    lda ap_state
-    cmp #ap_state_dead
-    beq @draw_player_now
-    cmp #ap_state_knockback
-    beq @draw_player_now
-    lda ap_invuln
-    and #4
-    beq @draw_player_now
-    jmp @draw_enemies
-@draw_player_now:
     ; Select palette: 0=armored silver, 1=naked flesh/red, 2=dead flash
     lda #2
     ldx ap_armor
@@ -2453,10 +2423,8 @@ ap_draw_sprites:
     sta ap_tmp3
     jmp @emit_arthur
 @arm_ground:
-    lda pad
-    and #$03
+    lda ap_tmp1
     beq @arm_stand
-    lda player_x
     and #$08
     bne @arm_walk2
     lda #$15
@@ -2495,10 +2463,8 @@ ap_draw_sprites:
     sta ap_tmp3
     bne @emit_arthur
 @nk_ground:
-    lda pad
-    and #$03
+    lda ap_tmp1
     beq @nk_stand
-    lda player_x
     and #$08
     beq @nk_stand
     lda #$41
@@ -2533,7 +2499,7 @@ ap_draw_sprites:
 
     ; Draw top 16x16 in OAM slots 2-3 (feet - 33) if standing/jumping/ladder
     lda ap_tmp2
-    beq @draw_enemies
+    beq @player_done
     lda #2 * 4
     sta draw_slot
     lda draw_palette
@@ -2548,6 +2514,52 @@ ap_draw_sprites:
     lda player_left
     jsr ap_draw_pair_dir
 
+@player_done:
+    rts
+
+ap_draw_sprites:
+    lda #$f8
+    ldx #0
+:
+    sta sprites,x
+    inx
+    inx
+    inx
+    inx
+    cpx #ap_oam_end * 4
+    bne :-
+
+    ; Advance by 7, coprime with 20 groups, to spread turns across frames.
+    lda ap_oam_phase
+    clc
+    adc #7
+    cmp #ap_oam_groups
+    bcc :+
+    sbc #ap_oam_groups
+:
+    sta ap_oam_phase
+
+    ; Slots 0-1 (bottom) and 2-3 (top): keep both halves ahead of other actors.
+    lda #0
+    sta draw_slot
+    lda ap_state
+    cmp #ap_state_dead
+    beq @draw_player_now
+    cmp #ap_state_knockback
+    beq @draw_player_now
+    lda ap_invuln
+    and #4
+    beq @draw_player_now
+    jmp @draw_enemies
+@draw_player_now:
+    lda pad
+    and #$03
+    beq :+
+    lda player_x
+    and #$08
+    ora #1
+:
+    jsr ap_draw_player
 @draw_enemies:
     ; Fixed enemy 1 (Zombie)
     lda ap_enemy_active

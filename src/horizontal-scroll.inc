@@ -25,6 +25,12 @@ toggle_scene:
 .if PRG_ROM_UNITS = 32
     cmp #title_scene
     beq show_sound_screen
+    cmp #stage_view_scene
+    beq show_sound_screen
+    cmp #sound_test_scene
+    beq show_sound_screen
+    cmp #sprite_view_scene
+    beq show_sound_screen
     ldx arcade_mode
     bne show_title_screen_entry
     cmp #0

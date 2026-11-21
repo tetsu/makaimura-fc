@@ -18,6 +18,7 @@ snd_se_none       = 0
 snd_se_shot       = 1
 snd_se_damage     = 2
 snd_se_key        = 3
+snd_se_max        = snd_se_key
 
 snd_fm_channels   = 6
 snd_music_bank    = 9
