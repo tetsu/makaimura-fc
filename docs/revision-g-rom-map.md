@@ -567,6 +567,32 @@ Remove-Item Env:REVG_TYPE06_SECTION
 
 `type06_boss` の `delay` と `activate` は待機値と攻撃状態に入った時点、`hit` は命中直後の耐久値を示す。`remove` は消滅時の敵枠と更新前のボス残数を示し、`remaining` は更新後の値を示す。区間ごとにコールドブートから2回実行し、`done` までの計測行が一致した。
 
+### 区間4のボスの画面外処理
+
+区間4の種別 `$06` は、攻撃状態の更新末尾 `$BDF4` から画面外判定 `$8DC5` へ進む。ボス座標からカメラ座標を引き、X は128を加えて512、Y は64を加えて384と16ビット符号なし比較する。範囲の端は含まれる。
+
+| 比較軸 | 枠が残った境界値 | 枠を解放した境界外の値 |
+| --- | --- | --- |
+| ボス X − カメラ X | −128、384 | −129、385 |
+| ボス Y − カメラ Y | −64、320 | −65、321 |
+
+境界外では、最初の攻撃状態の更新（フレーム1061）で `$8DDF–$8DE4` が主状態3を設定した。次の更新で `$C23D–$C253` が耐久値4のまま敵枠を返し、`$E78C` でボス残数を1から0、`$E79B` で進行状態を1から2に更新した。境界値ではフレーム1065の試行終了まで、ボス残数・進行状態ともに1だった。
+
+MAME 0.289 の既定 DIP で、上の試行と同じ区間4の開始ページを使い、射撃は行わなかった。起動後に対象ボスの画面外判定が読むカメラ座標だけを差し替え、試験対象の軸は表の差分、もう一方は差分0に固定した。通常のカメラ移動でこの状態に到達できるかは未確認。8条件を各2回コールドブートから実行し、計測行は条件ごとに一致した。
+
+```powershell
+$env:REVG_TYPE06_AXIS = 'x'
+$env:REVG_TYPE06_OFFSET = '385'
+& "$env:USERPROFILE/tools/mame/mame0289/mame.exe" makaimurg -rompath reference `
+  -noreadconfig -video none -sound none -nothrottle -skip_gameinfo `
+  -autoboot_delay 0 -autoboot_script tools/mame/measure-revg-type06-cleanup.lua `
+  -cfg_directory build/type06-cleanup-cfg -nvram_directory build/type06-cleanup-nvram `
+  -seconds_to_run 22
+Remove-Item Env:REVG_TYPE06_AXIS, Env:REVG_TYPE06_OFFSET
+```
+
+`type06_cleanup` の `check`、`offscreen`、`remove` の末尾に耐久値を記録する。`remove` はその後ろに更新前のボス残数も出力する。`remaining` と `progress` はそれぞれの更新後の値、`done` は試行終了時の両方の値を示す。
+
 ## 複数部位ボスの被弾と消滅
 
 種別 `$0C` は部位を双方向リストで管理する。各スロットの `+$1C` が頭側、`+$1E` が尾側を指す。`$D577–$D585` が `+$1B` に部位番号を設定し、頭が8、胴が7〜1、尾が0になる。
