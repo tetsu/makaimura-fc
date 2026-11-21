@@ -178,7 +178,27 @@ python tools/fit-nes-palettes.py obj.png build/obj-indexed.png build/obj-palette
 - 各区画の色候補から、画素数で重み付けした RGB の誤差が小さくなるよう4組まで選ぶ。ディザリングは行わない。入力と色見本が同じなら結果も同じになる。
 - JSON の `palettes` は NES の色番号を4組×4色、`palette_ids` は左上から行順で区画ごとの番号（0〜3）を格納する。PNG の画素インデックスの下位2ビットが CHR 用の色番号になる。OBJ の透明画素は全組で PNG インデックス0を使う。
 
-BG と OBJ は別々に実行する。実際のステージで使うには、CHR とメタスプライトへのパック、および描画側のパレット割り当てへの接続が必要になる。現行のマップコンバータが受け取る `palette_pairs` は列単位のため、BG の `palette_ids` をそのまま渡すことはできない。
+BG と OBJ は別々に実行する。現行のマップコンバータが受け取る `palette_pairs` は列単位のため、BG の `palette_ids` をそのまま渡すことはできない。
+
+### 3.5 CHR パターン表を生成する
+
+変換済みの PNG とパレット JSON を `tools/pack-nes-chr.py` に渡す。1枚の画像を1つのパターン表向けにパックし、ca65 のインクルードを出力する。
+
+```powershell
+python tools/pack-nes-chr.py build/bg-indexed.png build/bg-palette.json build/bg-chr.inc --prefix area_bg --first-tile 0x40
+python tools/pack-nes-chr.py build/obj-indexed.png build/obj-palette.json build/obj-chr.inc --prefix area_obj
+```
+
+| シンボルの接尾辞 | 内容 |
+| --- | --- |
+| `_chr_vram`、`_chr_size`、`_chr` | 転送先の PPU アドレス、転送バイト数、2bpp パターン列 |
+| `_palette` | 4組×4色のパレット。PPU に書くときは OBJ の各組のスロット0を飛ばすか、OBJ の後に BG を書く |
+| `_region_columns`、`_region_rows` | 区画表の列数と行数 |
+| `_regions` | 左上から行順。BG は左上・右上・左下・右下のタイル番号とパレット番号の5バイト。OBJ は奇数の OAM タイル番号と属性下位2ビットのパレット番号の2バイト。全透明 OBJ 区画は `$00,$FF` で、OAM へ転送しない |
+
+BG は `$0000`、8×16 OBJ は `$1000` のパターン表を使う。`--first-tile` は表内の最初の空き番号（OBJ は偶数、既定値は0）で、既存の文字やスプライトのタイルを前方に予約できる。BG は同じ8×8タイル、OBJ は同じ8×16ペアを共用する。パレット番号は区画別に保持される。出力が予約領域を含めて各表の4 KiBを越える場合は変換エラーとなる。
+
+既存ステージへの組み込みでは、空き PRG バンクへの配置、CHR 転送、BG の属性テーブルへの反映、OBJ 区画をキャラクターのポーズと OAM の表示順へ結び付ける作業が残る。
 
 ## 4. 最終リソース使用量（512 KiB 版 / 32 KiB 診断版）
 
