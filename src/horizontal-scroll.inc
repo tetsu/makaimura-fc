@@ -43,6 +43,7 @@ blank_display:
 
 show_sound_screen:
     lda #0
+    sta $8000           ; Previews and horizontal play use the original terrain.
     sta scene
     jsr draw_screen
 enable_static_screen:

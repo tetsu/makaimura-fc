@@ -68,6 +68,13 @@ draw_pan:
     clc
     adc #pan_page_rows
     sta pan_tile_y
+    lda course_checkpoint_x
+    lsr a
+    lsr a
+    lsr a
+    clc
+    adc #(checkpoint_page * 32) - 1
+    sta z:checkpoint_tile_x
     lda #$81
     sta $e000           ; Horizontal mirroring: upper/lower nametables.
     lda #0
@@ -390,7 +397,7 @@ pan_goal_flag:
     lda #(goal_pattern-glyphs)/16
     rts
 :
-    cmp #(checkpoint_x / 8) - 1
+    cmp z:checkpoint_tile_x
     bne :+
     ldy pan_data_y
     cpy #23

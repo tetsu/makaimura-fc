@@ -7,9 +7,6 @@ ranged_range = 34
 ranged_windup = 30
 ranged_cooldown = 48
 bolt_y = ranged_feet - 9
-checkpoint_x = 704
-checkpoint_feet = 176
-checkpoint_scroll_y = checkpoint_feet - 160
 goal_x = terrain_width * 16 - 8
 goal_feet = 176
 clear_scene = 5
@@ -46,6 +43,7 @@ draw_slot: .res 1
 crowd_enabled: .res 1
 crowd_first: .res 1
 checkpoint_reached: .res 1
+checkpoint_tile_x: .res 1
 
 .segment "OAM"
 sprites: .res 256
@@ -53,6 +51,11 @@ sprites: .res 256
 .segment "CODE"
 start_course:
     jsr blank_display
+    lda pad
+    and #$04            ; Hold Down with B to map the alternate course.
+    lsr a
+    lsr a
+    sta $8000
     jmp show_pan_game
 
 show_game:
@@ -84,7 +87,10 @@ draw_pan_game:
     lda checkpoint_reached
     beq :+
     ldx #pan_x_limit_high
-    ldy #checkpoint_scroll_y
+    lda course_checkpoint_feet
+    sec
+    sbc #160
+    tay
 :
     txa
     sta camera_high
@@ -102,8 +108,10 @@ setup_game:
     sta sprites,x
     inx
     bne :-
-    lda #176
+    lda course_start_x
     sta player_x
+    ldx #0
+    jsr floor_height
     sta player_feet
     lda #0
     sta player_x+1
@@ -125,11 +133,11 @@ setup_game:
     sta ranged_active
     lda checkpoint_reached
     beq setup_game_sprites
-    lda #<checkpoint_x
+    lda course_checkpoint_x
     sta player_x
-    lda #>checkpoint_x
+    lda #checkpoint_page
     sta player_x+1
-    lda #checkpoint_feet
+    lda course_checkpoint_feet
     sta player_feet
 setup_game_sprites:
     jsr draw_sprites
@@ -196,10 +204,10 @@ check_course_progress:
     lda player_hit
     bne :+
     lda player_x+1
-    cmp #>checkpoint_x
+    cmp #checkpoint_page
     bne :+
     lda player_x
-    cmp #<checkpoint_x
+    cmp course_checkpoint_x
     bcc :+
     lda #1
     sta checkpoint_reached

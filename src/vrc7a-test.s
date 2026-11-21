@@ -546,7 +546,7 @@ line4: .byte $05, $0f, $16, $0e, $00, $03, $0f, $13, $09, $ff
 line5: .byte $12, $06, $0c, $06, $04, $13, $00, $13, $06, $11, $11, $02, $0a, $0e, $ff ; SELECT TERRAIN
 line6: .byte $12, $13, $02, $11, $13, $00, $10, $0c, $02, $17, $ff ; START PLAY
 line7: .byte $02, $00, $19, $05, $00, $04, $02, $0d, $06, $11, $02, $ff ; A 2D CAMERA
-line8: .byte $03, $00, $04, $0f, $14, $11, $12, $06, $ff ; B COURSE
+line8: .byte $03, $00, $04, $0f, $14, $11, $12, $06, $00, $00, $05, $0f, $16, $0e, $00, $03, $00, $02, $0c, $13, $ff ; B COURSE  DOWN B ALT
 error_text: .byte $03, $02, $0e, $0b, $00, $0f, $11, $00, $11, $02, $0d, $00, $06, $11, $11, $0f, $11
 error_length = * - error_text
 pulse_period:
