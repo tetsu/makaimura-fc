@@ -259,6 +259,15 @@ setup_game:
     lda stage_cp_feet
     sta player_feet
 setup_game_sprites:
+.ifdef NES_AREA_TRIAL
+.if nes_area_trial_player
+    lda prg_bank0
+    cmp #nes_area_trial_bank
+    bne :+
+    jsr load_trial_player_banked
+:
+.endif
+.endif
 .if PRG_ROM_UNITS = 32
     lda arcade_mode
     beq :+
@@ -840,6 +849,16 @@ draw_sprites:
     bpl :-
     lda #0
     sta draw_slot
+.ifdef NES_AREA_TRIAL
+.if nes_area_trial_player
+    lda prg_bank0
+    cmp #nes_area_trial_bank
+    bne :+
+    jsr draw_trial_player
+    jmp draw_enemy
+:
+.endif
+.endif
     lda player_hit
     asl a
     sta draw_palette
@@ -864,6 +883,7 @@ player_in_front:
     lda player_x
     ldx player_x+1
     jsr draw_pair
+draw_enemy:
     lda enemy_active
     beq draw_shot
     lda #8

@@ -37,6 +37,17 @@ area_parts_left: .res 1
 .ifdef NES_AREA_TRIAL
 trial_metatiles: .res 7 * 4
 trial_offsets: .res 7 * 2
+.if nes_area_trial_player
+trial_pose_size = 1 + 2 * 4
+trial_idle = 0
+trial_walk_a = trial_pose_size
+trial_walk_b = 2 * trial_pose_size
+trial_jump = 3 * trial_pose_size
+trial_player_addresses: .res 4 * 2
+trial_player_poses: .res 4 * trial_pose_size
+trial_player_last_x: .res 1
+trial_player_steps: .res 1
+.endif
 emit_area_trial
 .endif
 
@@ -268,6 +279,168 @@ load_trial_background:
     .endrepeat
     lda #nes_area_trial_bank
     jmp select_bank0
+
+.if nes_area_trial_player
+; BG loading has already cached both area descriptors. Preserve the
+; encounter's patterns and palettes, and cache the four player poses.
+load_trial_player:
+    lda player_x
+    sta trial_player_last_x
+    lda #0
+    sta trial_player_steps
+    ldx #7
+:
+    lda trial_player_pose_addresses,x
+    sta trial_player_addresses,x
+    dex
+    bpl :-
+    ldx #area_record_size
+    jsr upload_area_chr
+    ldx #0
+    ldy #0
+@pose:
+    lda trial_player_addresses,y
+    sta area_row
+    iny
+    lda trial_player_addresses,y
+    sta area_row+1
+    iny
+    sty area_parts_left
+    ldy #0
+    lda (area_row),y       ; One or two parts, verified by the build.
+    asl a
+    asl a
+    tay
+    stx area_x
+    ; Advance to the last byte of this record before copying backwards.
+    tya
+    clc
+    adc area_x
+    tax
+@copy:
+    lda (area_row),y
+    sta trial_player_poses,x
+    dex
+    dey
+    bpl @copy
+    txa
+    clc
+    adc #trial_pose_size+1
+    tax
+    ldy area_parts_left
+    cpy #8
+    bne @pose
+
+    lda trial_player_poses+4
+    and #3
+    asl a
+    asl a
+    tay
+    lda #$3f
+    sta $2006
+    lda #$11              ; Player palette 0 colors 1–3.
+    sta $2006
+    .repeat 3
+        iny
+        lda (area_data),y
+        sta $2007
+    .endrepeat
+    lda #nes_area_trial_bank
+    jmp select_bank0
+
+.segment "BANK52"
+; Draw from RAM with the course map still mapped. Poses are anchored at
+; (player_x, player_feet). Left-facing poses reflect around player_x.
+draw_trial_player:
+    ldy #trial_idle
+    lda player_hit
+    bne @rest
+    lda jump_step
+    bmi @ground
+    ldy #trial_jump
+    bne @rest
+@ground:
+    lda player_x
+    cmp trial_player_last_x
+    beq @rest
+    inc trial_player_steps
+    ldy #trial_walk_a
+    lda trial_player_steps
+    and #8
+    beq @draw
+    ldy #trial_walk_b
+    bne @draw
+@rest:
+    lda #0
+    sta trial_player_steps
+@draw:
+    lda player_x
+    sta trial_player_last_x
+    lda trial_player_poses,y
+    sta area_parts_left
+    iny
+@part:
+    lda player_x
+    ldx player_x+1
+    jsr set_sprite_x
+    lda trial_player_poses,y
+    ldx player_left
+    beq :+
+    eor #$ff
+    sec
+    sbc #7                ; Mirrored left edge is -dx-8.
+:
+    ldx #0
+    cmp #$80
+    bcc :+
+    dex
+:
+    clc
+    adc draw_x
+    sta draw_x
+    txa
+    adc draw_x+1
+    sta draw_x+1
+    iny
+    sec
+    lda player_feet
+    sbc pan_y
+    bcc @skip
+    beq @skip
+    ; OAM stores screen Y minus one. Carry is set after subtracting pan_y.
+    sbc #1
+    clc
+    adc trial_player_poses,y
+    bcc @skip
+    sta draw_y
+    lda trial_player_poses+1,y
+    sta draw_tile
+    lda trial_player_poses+2,y
+    and #$c0              ; Preserve flips, select player palette 0.
+    ldx player_left
+    beq :+
+    eor #$40
+:
+    ldx player_hit
+    beq :+
+    ora #2                ; Keep the trial course's hit tint.
+:
+    sta draw_palette
+    jsr emit_sprite
+    jmp @next
+@skip:
+    ldx draw_slot
+    jsr next_sprite
+@next:
+    iny
+    iny
+    iny
+    dec area_parts_left
+    bne @part
+    rts
+
+.segment "BANK51"
+.endif
 .endif
 
 ; Draw one nametable. Large sheets are cropped, small sheets repeat.

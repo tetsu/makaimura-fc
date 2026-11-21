@@ -16,6 +16,8 @@ TRIAL_BANK = 52
 FIXED_BANK = 63
 BANK_SIZE = 0x2000
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+TRIAL_POSES = ("idle", "walk_a", "walk_b", "jump")
+TRIAL_POSE_TABLE_OFFSET = 0x22
 
 
 def read_areas(manifest_path):
@@ -45,8 +47,8 @@ def make_trial(path, areas):
     stage_map = import_module("convert-stage-map")
     trial = json.loads(path.read_text(encoding="utf-8-sig"))
     fields = {"area", "tiles", "regions", "start_x", "checkpoint_x", "goal_x"}
-    if not isinstance(trial, dict) or trial.keys() != fields:
-        raise ValueError(f"trial must define {', '.join(sorted(fields))}")
+    if not isinstance(trial, dict) or not fields <= trial.keys() <= fields | {"player_poses"}:
+        raise ValueError(f"trial must define {', '.join(sorted(fields))} and may define player_poses")
     name = trial["area"]
     if not isinstance(name, str) or name not in areas:
         raise ValueError("trial.area must name an area from the manifest")
@@ -71,7 +73,9 @@ def make_trial(path, areas):
     if not isinstance(regions, dict) or regions.keys() != stage_map.TILES.keys():
         raise ValueError(f"trial.regions must define {', '.join(stage_map.TILES)}")
     bg = f"area_{name}_bg"
+    use_player = "player_poses" in trial
     lines = [
+        f"nes_area_trial_player = {int(use_player)}",
         ".macro emit_area_trial",
         f'.segment "BANK{TRIAL_BANK}"',
         f"nes_area_trial_bank = {TRIAL_BANK}",
@@ -96,6 +100,25 @@ def make_trial(path, areas):
     lines.extend([
         '    .assert trial_area_index = $8013, lderror, "Unexpected trial header size"',
         f'    .assert {bg}::bg_chr_vram >= CHR_BACKGROUND_BYTES, error, "Trial BG overlaps HUD or marker tiles"',
+        f'    .assert * - trial_bank_start = ${TRIAL_POSE_TABLE_OFFSET:02x}, error, '
+        '"Unexpected trial pose table offset"',
+    ])
+    if use_player:
+        poses = trial["player_poses"]
+        if not isinstance(poses, dict) or poses.keys() != set(TRIAL_POSES):
+            raise ValueError(f"trial.player_poses must define {', '.join(TRIAL_POSES)}")
+        obj = f"area_{name}_obj"
+        lines.append("trial_player_pose_addresses:")
+        for state in TRIAL_POSES:
+            pose = poses[state]
+            if not isinstance(pose, str) or not IDENTIFIER.fullmatch(pose):
+                raise ValueError(f"trial.player_poses.{state} must be a packed OBJ pose name")
+            lines.append(f"    .addr {obj}::obj_pose_{pose}")
+        lines.append(f'    .assert {obj}::obj_chr_vram >= chr_sprite_address + CHR_SPRITE_BYTES, '
+                     'error, "Trial OBJ overlaps gameplay sprite patterns"')
+    else:
+        lines.append("    .word 0           ; No trial player poses")
+    lines.extend([
         '    .res $100 - (* - trial_bank_start), $ff',
         stage_map.convert(stage, "trial").rstrip(),
         ".endmacro",
@@ -126,6 +149,30 @@ def check_trial_rom(path):
     palette = bg_bank + word(bg_descriptor + 7) - 0x8000 + 4 * palette_id
     if rom[palette] != 0x0F:
         raise ValueError("trial BG needs backdrop $0F shared with the HUD and sprites")
+
+    pose_table = bank_offset(TRIAL_BANK) + TRIAL_POSE_TABLE_OFFSET
+    if word(pose_table):
+        obj_descriptor = bg_descriptor + 18
+        obj_bank = bank_offset(rom[obj_descriptor])
+        check_trial_player(rom, word, pose_table, obj_bank)
+
+
+def check_trial_player(rom, word, pose_table, obj_bank):
+    palettes = set()
+    for i, state in enumerate(TRIAL_POSES):
+        offset = obj_bank + word(pose_table + 2 * i) - 0x8000
+        count = rom[offset]
+        if not 1 <= count <= 2:
+            raise ValueError(f"trial player pose {state} must have one or two visible parts")
+        for part in range(count):
+            start = offset + 1 + 4 * part
+            dx, dy = (int.from_bytes(rom[p : p + 1], "little", signed=True)
+                      for p in (start, start + 1))
+            if not (-16 <= dx <= 8 and -32 <= dy <= -1):
+                raise ValueError(f"trial player pose {state} needs dx=-16..8 and dy=-32..-1")
+            palettes.add(rom[start + 3] & 3)
+    if len(palettes) != 1:
+        raise ValueError("trial player poses must all use the same OBJ palette")
 
 
 def make_include(areas, trial):
@@ -221,7 +268,7 @@ def main():
     parser.add_argument("base_config", nargs="?", type=Path, help="512 KiB linker configuration")
     parser.add_argument("output_dir", nargs="?", type=Path, help="directory for nes-areas.inc and nes-areas.cfg")
     parser.add_argument("--trial", type=Path, help="JSON trial course")
-    parser.add_argument("--check-trial-rom", type=Path, help="validate selected BG regions in a linked trial ROM")
+    parser.add_argument("--check-trial-rom", type=Path, help="validate selected BG and OBJ art in a linked trial ROM")
     args = parser.parse_args()
     try:
         if args.check_trial_rom:

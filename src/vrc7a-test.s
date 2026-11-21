@@ -691,6 +691,16 @@ load_trial_background_banked:
     jsr load_trial_background
     pla
     jmp select_bank1
+.if nes_area_trial_player
+load_trial_player_banked:
+    lda prg_bank1
+    pha
+    lda #nes_area_viewer_bank
+    jsr select_bank1
+    jsr load_trial_player
+    pla
+    jmp select_bank1
+.endif
 .endif
 call_bank3_init:
     lda #3

@@ -27,7 +27,7 @@
 
 352402 基板の検証資料は、機材が揃った後の追加検証に使う。[実機試験資料](docs/vrc7a-hardware-test.md)
 
-エリアマニフェスト付きの512 KiB版では、BG・OBJ の CHR、パレット、ポーズをテストメニューから確認できる。自作の試験コースにエリア BG を接続し、Mesen でスクロール、固定 HUD、チェックポイント復帰を確認した。次は試験コースのプレイヤーを OBJ ポーズ表に接続する。[開発タスク](TODO.md)
+エリアマニフェスト付きの512 KiB版では、BG・OBJ の CHR、パレット、ポーズをテストメニューから確認できる。自作の試験コースにエリア BG とプレイヤーの OBJ ポーズ表を接続し、Mesen でスクロール、歩行・ジャンプ、固定 HUD、チェックポイント復帰を確認した。次は試験コースの敵配置を地形と同じ JSON で指定できるようにする。[開発タスク](TODO.md)
 
 [実装と検証のチェックリスト](TODO.md#次の開発マイルストーン)
 
@@ -131,7 +131,7 @@ BGMは1から順に開始、ステージ1・2、ボス、クリア、ゲーム�
 ./build.ps1 -Hardware -AreaManifest build/areas.json -AreaTrial build/trial-stage.json
 ```
 
-`build/vrc7a-test-512k-areas-trial.nes` を Mesen で開く。タイトルで **SELECT** を押し、テストメニューの **左＋B** で試験コースを始める。左右で移動、**A** でジャンプ、**B** で射撃、被弾後は **START** で再挑戦する。**SELECT** でテストメニューに戻る。[試験コース JSON と BG の条件](docs/stage-design.md#38-エリア-bg-を試験コースに組み込む)
+`build/vrc7a-test-512k-areas-trial.nes` を Mesen で開く。タイトルで **SELECT** を押し、テストメニューの **左＋B** で試験コースを始める。左右で移動、**A** でジャンプ、**B** で射撃、被弾後は **START** で再挑戦する。**SELECT** でテストメニューに戻る。試験コース JSON に `player_poses` を追加すると、エリアの OBJ シートでプレイヤーを描画できる。[試験コース JSON の条件](docs/stage-design.md#38-エリア-bg-を試験コースに組み込む)
 
 ### コース音声の録音と測定
 
