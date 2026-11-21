@@ -7,6 +7,9 @@ ranged_range = 34
 ranged_windup = 30
 ranged_cooldown = 48
 bolt_y = ranged_feet - 9
+checkpoint_x = 704
+checkpoint_feet = 176
+checkpoint_scroll_y = checkpoint_feet - 160
 player_height = 16
 jump_fall = 18
 ranged_slot = 5 * 4
@@ -39,6 +42,7 @@ draw_palette: .res 1
 draw_slot: .res 1
 crowd_enabled: .res 1
 crowd_first: .res 1
+checkpoint_reached: .res 1
 
 .segment "OAM"
 sprites: .res 256
@@ -50,18 +54,34 @@ show_game:
     cmp #3
     beq show_pan_game
     cmp #4
-    beq show_pan_game
+    beq retry_pan_game
     lda #2
     sta scene
     jsr draw_terrain
     jmp setup_game
+retry_pan_game:
+    lda player_hit
+    beq show_pan_game
+    lda checkpoint_reached
+    bne draw_pan_game
 show_pan_game:
+    lda #0
+    sta checkpoint_reached
+draw_pan_game:
     lda #4
     sta scene
+    ldx #0
+    ldy #0
+    lda checkpoint_reached
+    beq :+
+    ldx #pan_x_limit_high
+    ldy #checkpoint_scroll_y
+:
+    txa
+    sta camera_high
     jsr draw_pan
     lda #0
     sta camera_low
-    sta camera_high
     lda #$a0
     sta pan_ctrl
 setup_game:
@@ -92,9 +112,17 @@ setup_game:
     sta enemy_active
     ldx scene
     cpx #4
-    bne :+
+    bne setup_game_sprites
     sta ranged_active
-:
+    lda checkpoint_reached
+    beq setup_game_sprites
+    lda #<checkpoint_x
+    sta player_x
+    lda #>checkpoint_x
+    sta player_x+1
+    lda #checkpoint_feet
+    sta player_feet
+setup_game_sprites:
     jsr draw_sprites
     jsr upload_sprites
     jmp enable_terrain
@@ -116,6 +144,7 @@ update_game:
     jsr update_shot
     jsr check_enemy_contact
     jsr update_ranged
+    jsr check_checkpoint
 game_camera:
     sec
     lda player_x
@@ -142,6 +171,23 @@ camera_ready:
     beq follow_both_axes
     jsr step_camera
     jmp draw_sprites
+
+check_checkpoint:
+    lda scene
+    cmp #4
+    bne :+
+    lda player_hit
+    bne :+
+    lda player_x+1
+    cmp #>checkpoint_x
+    bne :+
+    lda player_x
+    cmp #<checkpoint_x
+    bcc :+
+    lda #1
+    sta checkpoint_reached
+:
+    rts
 
 follow_both_axes:
     ; Follow the player's feet toward scanline 160 by at most one pixel.

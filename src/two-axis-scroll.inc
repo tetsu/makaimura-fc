@@ -38,6 +38,8 @@ show_pan:
     jsr blank_display
     lda #3
     sta scene
+    lda #0
+    ldy #0
     jsr draw_pan
     jsr enable_screen
     lda #$08            ; BG on, left eight pixels masked.
@@ -48,15 +50,29 @@ show_pan:
     sta pan_ctrl
     jmp apply_pan
 
+; A = horizontal page, Y = tile-aligned vertical scroll within page zero.
+; Populate the HUD table and any rows of the lower table already visible.
 draw_pan:
+    sta pan_x+1
+    sty pan_y
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    sta pan_tile_x
+    tya
+    lsr a
+    lsr a
+    lsr a
+    clc
+    adc #pan_page_rows
+    sta pan_tile_y
     lda #$81
     sta $e000           ; Horizontal mirroring: upper/lower nametables.
     lda #0
     sta pan_x
-    sta pan_x+1
-    sta pan_y
     sta pan_y_page
-    sta pan_tile_x
     sta pan_need_row
     sta pan_ctrl
     ldx #0
@@ -76,7 +92,7 @@ pan_initial_rows:
     jsr upload_pan_row
     inc pan_need_row
     lda pan_need_row
-    cmp #pan_page_rows
+    cmp pan_tile_y
     bne pan_initial_rows
     rts
 
@@ -361,6 +377,14 @@ prepare_pan_column:
 ; X is the buffer index; Y is scratch.
 pan_tile:
     lda pan_data_x
+    cmp #(checkpoint_x / 8) - 1
+    bne :+
+    ldy pan_data_y
+    cpy #23
+    bne :+
+    lda #(checkpoint_pattern-glyphs)/16
+    rts
+:
     lsr a
     tay
     lda pan_data_y

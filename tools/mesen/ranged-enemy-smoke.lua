@@ -1,7 +1,7 @@
 -- Mesen 2.1.1, NES controller on port 1, 256x240 NTSC framebuffer.
 local frame = 0
 local trialLength = 730
-local trials = {"hit", "jump", "shoot"}
+local trials = {"jump", "shoot", "hit"}
 local cueFrame, launchFrame, reclaimedFrame, firstX, firstY, lastX
 local cuePixel, litFace, sparkVisible, secondLaunch
 

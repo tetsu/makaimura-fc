@@ -556,6 +556,9 @@ scenery_patterns:
     .byte $14, $08, $f7, $00, $08, $14, $14, $08, $08, $1c, $1c, $ff, $1c, $08, $08, $1c
     .byte $08, $14, $36, $2a, $2a, $6b, $c1, $ff, $1c, $08, $08, $1c, $1c, $1c, $3e, $00
     .byte $00, $24, $00, $14, $4a, $28, $42, $ff, $00, $00, $08, $08, $1c, $1c, $3c, $00
+checkpoint_pattern:
+    ; Diamond and post on the ledge before the kiln.
+    .byte $18, $24, $42, $42, $24, $18, $18, $3c, $00, $18, $3c, $3c, $18, $00, $00, $00
 CHR_TEXT_BYTES = terrain_tiles - glyphs
 CHR_TERRAIN_BYTES = * - terrain_tiles
 CHR_BACKGROUND_BYTES = CHR_TEXT_BYTES + CHR_TERRAIN_BYTES
