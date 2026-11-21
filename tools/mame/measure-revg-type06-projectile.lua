@@ -4,9 +4,20 @@ local cpu = machine.devices[":maincpu"]
 local mem = cpu.spaces.program
 local trial = os.getenv("REVG_TYPE06_PROJECTILE") or "normal"
 assert(trial == "normal" or trial == "pool", "Expected REVG_TYPE06_PROJECTILE=normal or pool")
+local aim_trial = os.getenv("REVG_TYPE06_AIM")
+local dx, dy
+if aim_trial then
+    local x, y = aim_trial:match("^(-?%d+),(-?%d+)$")
+    dx, dy = tonumber(x), tonumber(y)
+    assert(dx and dy and dx >= -32768 and dx <= 32767 and dy >= -32768 and dy <= 32767,
+        "Expected REVG_TYPE06_AIM=dx,dy with signed 16-bit offsets")
+    assert(trial == "normal", "Aim measurements require REVG_TYPE06_PROJECTILE=normal")
+    trial = "aim"
+end
 local entry = 0x6cee + 4 * 4
 local frame, attempts, shots, reloads = 0, 0, 0, 0
 local selected, boss, activated, attempt_frame, effective_pool, failure
+local target_x, target_y, aim_reads, quotient, remainder
 
 local function field(port, mask)
     for _, item in pairs(machine.ioport.ports[port].fields) do
@@ -36,6 +47,11 @@ revg_type06_projectile_taps = {
         effective_pool = blocked and 0 or value
         if value == 0 then failure = "Projectile pool was already exhausted" end
         log("attempt", "%d,%d,%d", attempts, value, effective_pool)
+        if aim_trial then
+            target_x = (word(boss - 0x0a) + dx) & 0xffff
+            target_y = (word(boss - 7) + dy) & 0xffff
+            aim_reads = 0
+        end
         if blocked then return 0 end
     end),
     enemy = mem:install_write_tap(0x0880, 0x0fff, "boss attack states", function(address, value)
@@ -70,15 +86,44 @@ revg_type06_projectile_taps = {
             failure = "Unexpected projectile creation"
         end
         shots = shots + 1
-        log("shot", "%d,%04x,%d,%d,%d", shots, slot, x, y, mem:read_u8(slot - 2))
+        local direction = mem:read_u8(slot - 2)
+        log("shot", "%d,%04x,%d,%d,%d", shots, slot, x, y, direction)
+        if aim_trial then
+            if aim_reads ~= 4 or not quotient or direction > 15 then
+                failure = "Unexpected aim measurement"
+                return
+            end
+            log("aim", "%d,%d,%d,%d,%d,%d,%d,%d", dx, dy, mem:read_u8(0xe1),
+                mem:read_u8(0xe3), mem:read_u8(0xe5), quotient, remainder, direction)
+        end
     end),
 }
 
+if aim_trial then
+    revg_type06_projectile_taps.aim = mem:install_read_tap(0xa0, 0xa3, "boss aim target", function(address)
+        if attempts ~= 1 or frame ~= attempt_frame or cpu.state.X.value ~= boss then return end
+        local pc = cpu.state.PC.value
+        if address < 0xa2 and pc == 0x8e49 then
+            aim_reads = aim_reads + 1
+            return address == 0xa0 and (target_x >> 8) or (target_x & 0xff)
+        elseif address >= 0xa2 and pc == 0x8e4d then
+            aim_reads = aim_reads + 1
+            return address == 0xa2 and (target_y >> 8) or (target_y & 0xff)
+        end
+    end)
+    revg_type06_projectile_taps.division = mem:install_write_tap(0xe6, 0xe6, "boss aim division", function(_, value)
+        if attempts == 1 and frame == attempt_frame and cpu.state.X.value == boss and cpu.state.PC.value == 0x8e7e then
+            quotient, remainder = cpu.state.A.value, value
+        end
+    end)
+end
+
+local attempt_limit = aim_trial and 1 or 3
 revg_type06_projectile_frame = emu.add_machine_frame_notifier(function()
-    if failure or attempts >= 3 or frame >= 2300 then
+    if failure or attempts >= attempt_limit or frame >= 2300 then
         machine:exit()
         assert(not failure, failure)
-        assert(attempts == 3 and reloads == attempts and shots == (trial == "pool" and 2 or 3),
+        assert(attempts == attempt_limit and reloads == attempts and shots == (trial == "pool" and 2 or attempt_limit),
             "Unexpected projectile or reload count")
         log("done", "%d,%d", attempts, shots)
         return
