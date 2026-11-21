@@ -78,7 +78,7 @@ ap_kb_step: .res 1              ; $6017
 ap_enemy_active: .res 1         ; $6018
 ap_armor_item_active: .res 1    ; $6019 (mirrored with item slot 0 for tests)
 
-ap_weapon: .res 1               ; $601A (0=Lance, 1=Dagger, 2=Torch)
+ap_weapon: .res 1               ; $601A (0=Lance, 1=Dagger, 2=Torch, 3=Shield)
 ap_riding_plat: .res 1          ; $601B ($ff = none, 0..3 = platform slot)
 ap_pot_enemy_active: .res 1     ; $601C
 ap_probe_x: .res 2              ; $601D
@@ -466,17 +466,25 @@ ap_load_stage_visuals:
     iny
     cpy #64
     bne :-
-    ; Optional OBJ enemy/boss tiles (4 tiles = 64 bytes at $1050, sprite tiles 5..8).
+    ; OBJ enemy/boss tiles (4 tiles = 64 bytes at $1040, 8x16 sprite tiles 5 and 7).
+    ; Restore default sprite_patterns+64 when sd_spr_chr_ptr == 0.
     lda sd_spr_chr_ptr
     ora sd_spr_chr_ptr+1
-    beq @visuals_done
+    bne @custom_spr_chr
+    lda #<(sprite_patterns + 64)
+    sta map_ptr
+    lda #>(sprite_patterns + 64)
+    sta map_ptr+1
+    jmp @upload_spr_chr
+@custom_spr_chr:
     lda sd_spr_chr_ptr
     sta map_ptr
     lda sd_spr_chr_ptr+1
     sta map_ptr+1
+@upload_spr_chr:
     lda #$10
     sta $2006
-    lda #$50
+    lda #$40
     sta $2006
     ldy #0
 :
@@ -537,7 +545,7 @@ ap_add_score:
     bcc :+
     inc ap_score_units+1
 :
-    ; Decimal digit add into ap_score[3] with carry propagation
+    ; Decimal digit add into ap_score[3] with multi-carry propagation
     lda ap_score+3
     clc
     adc ap_tmp3
@@ -545,14 +553,19 @@ ap_add_score:
 @score_carry:
     cmp #10
     bcc @score_store
+    ldy #0
+@score_div10:
     sec
     sbc #10
+    iny
+    cmp #10
+    bcs @score_div10
     sta ap_score,x
     dex
     bmi @score_clamp
-    lda ap_score,x
+    tya
     clc
-    adc #1
+    adc ap_score,x
     jmp @score_carry
 @score_clamp:
     lda #9
@@ -1213,10 +1226,11 @@ ap_move_right_1px:
     bne @check_vert_right_edge
     lda player_x+1
     cmp stage_goal_x_hi
-    bne @do_inc_x
+    bcc @do_inc_x
+    bne @right_blocked
     lda player_x
     cmp stage_goal_x_lo
-    beq @right_blocked
+    bcs @right_blocked
     jmp @do_inc_x
 @check_vert_right_edge:
     lda player_x
@@ -1263,8 +1277,8 @@ ap_move_left_1px:
     lda player_x+1
     bne @do_dec_x
     lda player_x
-    cmp #8
-    beq @left_blocked
+    cmp #9
+    bcc @left_blocked
 @do_dec_x:
     lda player_x
     bne :+
@@ -1531,7 +1545,7 @@ ap_tile_type_at:
     and #tile_type_mask
     rts
 
-; --- Multi-weapon 16-bit shot pool (Lance 2, Dagger 3, Torch 2 + flame) ---
+; --- Multi-weapon 16-bit shot pool (Lance 2, Dagger 3, Torch 2 + flame, Shield 2) ---
 ap_update_shots:
     jsr ap_try_spawn_shot
     ldx #0
@@ -2079,7 +2093,7 @@ ap_check_enemies_contact:
     sta ap_probe_y_hi
     jsr ap_test_contact_at_probe
     bcc :+
-    jmp @do_player_damage
+    jmp ap_apply_player_damage
 :
 @check_pot_contact:
     lda ap_pot_enemy_active
@@ -2094,7 +2108,7 @@ ap_check_enemies_contact:
     sta ap_probe_y_hi
     jsr ap_test_contact_at_probe
     bcc :+
-    jmp @do_player_damage
+    jmp ap_apply_player_damage
 :
 @check_pool_contact:
     ldy #0
@@ -2112,7 +2126,7 @@ ap_check_enemies_contact:
     sta ap_probe_y_hi
     jsr ap_test_contact_at_probe
     ldy ap_loop_idx
-    bcs @do_player_damage
+    bcs ap_apply_player_damage
 @next_pool_contact:
     iny
     cpy #ap_max_enemies
@@ -2158,8 +2172,11 @@ ap_check_enemies_contact:
     bne @contact_none
     lda ap_tmp0
     cmp #47
-    bcs @contact_none
-@do_player_damage:
+    bcc ap_apply_player_damage
+@contact_none:
+    rts
+
+ap_apply_player_damage:
     lda #snd_se_damage
     jsr call_bank8_play_se
     lda ap_armor
@@ -2189,7 +2206,6 @@ ap_check_enemies_contact:
 @fatal_contact:
     lda #1
     sta player_hit
-@contact_none:
     rts
 
 ap_test_contact_at_probe:
@@ -2476,7 +2492,7 @@ ap_draw_sprites:
     jsr ap_draw_boss
 
 @draw_plats:
-    ; Slots 19-24: Dynamic platforms
+    ; Slots 19-26: Dynamic platforms (up to 4 x 2 sprites)
     lda #19 * 4
     sta draw_slot
     ldy #0
@@ -2506,8 +2522,8 @@ ap_draw_sprites:
     cpy #ap_max_plats
     bne @draw_plat_loop
 
-    ; Slots 25-28: Items / weapon drops / key
-    lda #25 * 4
+    ; Slots 27-30: Items / weapon drops / key (up to 4 sprites)
+    lda #27 * 4
     sta draw_slot
     ldy #0
 @draw_item_loop:
@@ -2710,9 +2726,33 @@ ap_update_enemies:
     cmp #2
     bcs @reclaim_enemy
     cmp #1
-    bne @en_onscreen
+    bne @check_en_y_bounds
     lda ap_tmp0
     cmp #64
+    bcs @reclaim_enemy
+
+@check_en_y_bounds:
+    ; Also reclaim enemies scrolled offscreen vertically (-48 .. +287 relative to ap_cam_y).
+    sec
+    lda en_y,x
+    sbc ap_cam_y_lo
+    sta ap_tmp0
+    lda en_y_hi,x
+    sbc ap_cam_y_hi
+    sta ap_tmp1
+    clc
+    lda ap_tmp0
+    adc #48
+    sta ap_tmp0
+    lda ap_tmp1
+    adc #0
+    bmi @reclaim_enemy
+    cmp #2
+    bcs @reclaim_enemy
+    cmp #1
+    bne @en_onscreen
+    lda ap_tmp0
+    cmp #80
     bcs @reclaim_enemy
 
 @en_onscreen:
@@ -2874,7 +2914,7 @@ ap_update_ebolts:
 @eb_hit_player:
     lda #0
     sta eb_active,x
-    jsr ap_apply_bolt_damage
+    jsr ap_apply_player_damage
     ldx ap_loop_idx
     jmp @eb_next
 @eb_reclaim:
@@ -2886,38 +2926,6 @@ ap_update_ebolts:
     beq :+
     jmp @eb_loop
 :
-    rts
-
-ap_apply_bolt_damage:
-    lda #snd_se_damage
-    jsr call_bank8_play_se
-    lda ap_armor
-    cmp #ap_armor_full
-    bne @eb_fatal
-    lda #ap_armor_naked
-    sta ap_armor
-    lda #ap_invuln_frames
-    sta ap_invuln
-    lda #ap_state_knockback
-    sta ap_state
-    lda #$ff
-    sta ap_riding_plat
-    lda #0
-    sta ap_kb_step
-    sta ap_crouch
-    sta ap_shoot_lock
-    lda player_left
-    beq @eb_kb_left
-    lda #1
-    sta ap_kb_dir
-    rts
-@eb_kb_left:
-    lda #2
-    sta ap_kb_dir
-    rts
-@eb_fatal:
-    lda #1
-    sta player_hit
     rts
 
 ; --- Data-driven multi-part boss encounter, arena lock, key drop ---

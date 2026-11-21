@@ -188,6 +188,22 @@ snd_play_se:
     beq @se_done
     lda #snd_se_shot
 @accept_se:
+    sta snd_tmp0
+    ; Clean up any APU channels owned by a previously active SE before starting the new one.
+    lda snd_se_apu_mask
+    and #$02
+    beq @accept_chk_noi
+    lda apu_channels
+    and #$fd
+    jsr set_apu_channels
+@accept_chk_noi:
+    lda snd_se_apu_mask
+    and #$08
+    beq @accept_dispatch
+    lda #$30
+    sta $400c
+@accept_dispatch:
+    lda snd_tmp0
     sta snd_se_id
     cmp #snd_se_shot
     beq @start_se_shot
@@ -430,10 +446,14 @@ snd_update_fm_bgm:
 @fm_check_end:
     cmp #$fe
     bne @fm_play_note
-    ; Non-looping jingle finished: silence all and stop playback.
+    ; Non-looping jingle finished: silence all and stop playback cleanly.
     jsr snd_silence_all
     lda #0
     sta snd_playing
+    sta snd_se_id
+    sta snd_se_timer
+    sta snd_se_fm_mask
+    sta snd_se_apu_mask
     rts
 
 @fm_play_note:
@@ -522,7 +542,7 @@ snd_update_apu_bgm:
     lda (snd_ptr),y
 @p1_check_end:
     cmp #$fe
-    beq @p1_mute
+    beq @p1_end
     sta snd_tmp0
     iny
     lda (snd_ptr),y
@@ -530,7 +550,7 @@ snd_update_apu_bgm:
     iny
     sty snd_apu_pos+0
     ldy snd_tmp0
-    beq @p1_mute
+    beq @p1_rest
     lda #$75                    ; 25% duty, constant vol 5 (balanced under FM)
     sta $4000
     lda #0
@@ -540,11 +560,12 @@ snd_update_apu_bgm:
     lda snd_apu_per_hi,y
     sta $4003
     jmp @apu_tri
-@p1_mute:
-    lda #$30
-    sta $4000
+@p1_end:
     lda #60
     sta snd_apu_wait+0
+@p1_rest:
+    lda #$30
+    sta $4000
 
 @apu_tri:
     ; --- Triangle bass (APU ch 1) ---
@@ -563,7 +584,7 @@ snd_update_apu_bgm:
     lda (snd_ptr),y
 @tri_check_end:
     cmp #$fe
-    beq @tri_mute
+    beq @tri_end
     sta snd_tmp0
     iny
     lda (snd_ptr),y
@@ -571,7 +592,7 @@ snd_update_apu_bgm:
     iny
     sty snd_apu_pos+1
     ldy snd_tmp0
-    beq @tri_mute
+    beq @tri_rest
     lda #$ff
     sta $4008
     lda snd_apu_per_lo,y
@@ -579,11 +600,12 @@ snd_update_apu_bgm:
     lda snd_apu_per_hi,y
     sta $400b
     jmp @apu_noise
-@tri_mute:
-    lda #$00
-    sta $4008
+@tri_end:
     lda #60
     sta snd_apu_wait+1
+@tri_rest:
+    lda #$00
+    sta $4008
 
 @apu_noise:
     ; --- Noise percussion (APU ch 2), skipped while damage SE preempts Noise ---
@@ -602,7 +624,7 @@ snd_update_apu_bgm:
     lda (snd_ptr),y
 @noi_check_end:
     cmp #$fe
-    beq @noi_mute
+    beq @noi_end
     sta snd_tmp0
     iny
     lda (snd_ptr),y
@@ -613,7 +635,7 @@ snd_update_apu_bgm:
     and #$08
     bne @apu_done
     ldy snd_tmp0
-    beq @noi_mute
+    beq @noi_rest
     lda #$34                    ; Short crisp percussion
     sta $400c
     lda snd_noi_period,y
@@ -621,11 +643,12 @@ snd_update_apu_bgm:
     lda #$08
     sta $400f
     rts
-@noi_mute:
-    lda #$30
-    sta $400c
+@noi_end:
     lda #60
     sta snd_apu_wait+2
+@noi_rest:
+    lda #$30
+    sta $400c
 @apu_done:
     rts
 
@@ -673,14 +696,14 @@ snd_fm_pitch_hi:
     .byte $14, $14, $14, $14, $14, $14, $14, $15, $15, $15, $15, $15
     .byte $17, $17, $17, $17, $17, $17
 
-; APU period table (index 1..18, matching D minor scale).
+; APU period table (index 1..18, NTSC 12-TET C4..F5 matching FM pitch table).
 snd_apu_per_lo:
     .byte $00
-    .byte $77, $52, $30, $10, $f2, $d6, $bc, $a3, $8c, $76, $62, $4e
-    .byte $3b, $29, $18, $08, $f9, $eb
+    .byte $ab, $93, $7c, $67, $52, $3f, $2d, $1c, $0c, $fd, $ef, $e1
+    .byte $d5, $c9, $bd, $b3, $a9, $9f
 snd_apu_per_hi:
     .byte $00
-    .byte $01, $01, $01, $01, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $01, $01, $01, $01, $01, $01, $01, $01, $01, $00, $00, $00
     .byte $00, $00, $00, $00, $00, $00
 
 snd_song_fm_offset:

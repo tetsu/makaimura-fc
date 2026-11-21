@@ -153,6 +153,75 @@ local function startVerticalStage(bankTag, stg, pal01, rightLadX, leftLadX, skip
     nextPhase("v_tier0")
 end
 
+local function watch(address, callback)
+    emu.addMemoryCallback(callback, emu.callbackType.write, address, address, emu.memType.nesMemory)
+end
+
+local playing = false
+local displayChanged = false
+local stablePlayFrames = 0
+local dmaThisFrame = 0
+local uploadsThisFrame = 0
+local splitStep = nil
+local overallWorstBudget = 0
+local totalCheckedFrames = 0
+local stageWorstBudget = {}
+local stageMaxUploads = {}
+
+watch(0x2001, function(_, value)
+    playing = (value == 0x18)
+    displayChanged = true
+    stablePlayFrames = 0
+end)
+
+watch(0x2007, function()
+    if not playing or displayChanged then return end
+    local line = emu.getState()["ppu.scanline"]
+    check(line >= 241 and line <= 260, 80, string.format("VRAM upload outside VBlank (scanline=%d)", line))
+    uploadsThisFrame = uploadsThisFrame + 1
+end)
+
+watch(0x4014, function(_, value)
+    if not playing or displayChanged then return end
+    local state = emu.getState()
+    local dots = (state["ppu.scanline"] - 241) * 341 + state["ppu.cycle"]
+    local budget = math.ceil(dots / 3) + 514
+    check(value == 2 and dots >= 0 and budget < 2273, 81,
+        string.format("OAM DMA VBlank budget exceeded (val=$%02X dots=%d budget=%d)", value, dots, budget))
+    if budget > overallWorstBudget then overallWorstBudget = budget end
+    local stg = stageNum()
+    if stg >= 1 and stg <= 7 then
+        if budget > (stageWorstBudget[stg] or 0) then stageWorstBudget[stg] = budget end
+        if uploadsThisFrame > (stageMaxUploads[stg] or 0) then stageMaxUploads[stg] = uploadsThisFrame end
+    end
+    dmaThisFrame = dmaThisFrame + 1
+end)
+
+watch(0xf010, function()
+    if playing and not displayChanged then
+        splitStep = 1
+    end
+end)
+
+watch(0x2006, function()
+    if splitStep == 1 then
+        splitStep = 2
+    elseif splitStep == 4 then
+        local state = emu.getState()
+        check(state["ppu.scanline"] == 31 and state["ppu.cycle"] < 255, 82,
+            string.format("HUD split missed scanline 31 (sl=%d cyc=%d)", state["ppu.scanline"], state["ppu.cycle"]))
+        splitStep = nil
+    end
+end)
+
+watch(0x2005, function()
+    if splitStep == 2 then
+        splitStep = 3
+    elseif splitStep == 3 then
+        splitStep = 4
+    end
+end)
+
 emu.addEventCallback(function()
     emu.setInput(input, 0)
 end, emu.eventType.inputPolled)
@@ -161,6 +230,19 @@ emu.addEventCallback(function()
     frame = frame + 1
     phaseFrame = phaseFrame + 1
     input = {}
+
+    if playing and not displayChanged then
+        stablePlayFrames = stablePlayFrames + 1
+        if stablePlayFrames >= 2 then
+            totalCheckedFrames = totalCheckedFrames + 1
+            check(dmaThisFrame == 1, 83,
+                string.format("1-frame slowdown detected (dmaThisFrame=%d)", dmaThisFrame))
+        end
+    end
+    displayChanged = false
+    dmaThisFrame = 0
+    uploadsThisFrame = 0
+    splitStep = nil
 
     if phase == "boot" then
         if frame == 128 then
@@ -607,6 +689,11 @@ emu.addEventCallback(function()
             -- Returned to Title screen (VRC7A TEST MENU at $2108: V=$15, R=$11, C=$04)
             check(readNt(0x0108) == 0x15 and readNt(0x0109) == 0x11 and readNt(0x010a) == 0x04, 61,
                 "START on True Ending did not return to Title")
+            local summary = string.format("VBLANK_OK checkedFrames=%d overallMax=%d", totalCheckedFrames, overallWorstBudget)
+            for s = 1, 7 do
+                summary = summary .. string.format(" S%d=%d(%dB)", s, stageWorstBudget[s] or 0, stageMaxUploads[s] or 0)
+            end
+            print(summary)
             emu.stop(0)
         end
 

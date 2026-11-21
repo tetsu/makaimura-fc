@@ -243,8 +243,8 @@ emu.addEventCallback(function()
             check(read(AP_PLAYER_Y_HI) == 1, 21, "stage 2 did not start on vertical page 1")
             -- Verify Stage 2 distinct BG palette ($2C at $3F01 vs Stage 1's $2A)
             check(readPpu(0x3f01) == 0x2c, 22, "stage 2 custom BG palette not loaded")
-            -- Verify Stage 2 custom OBJ sprite tile 5 ($1050 == $20)
-            check(readPpu(0x1050) == 0x20, 23, "stage 2 custom OBJ sprite CHR not loaded")
+            -- Verify Stage 2 custom OBJ sprite tile 5 ($1040 == $20, 8x16 tile 5 top half)
+            check(readPpu(0x1040) == 0x20, 23, "stage 2 custom OBJ sprite CHR not loaded")
             nextPhase("s2_tier0_fight_and_climb")
         end
 

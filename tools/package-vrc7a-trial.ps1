@@ -33,6 +33,7 @@ if ($Mesen) {
     $archiveName = 'vrc7a-mesen-trial.zip'
 }
 
+Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $output = Join-Path $root "build/$archiveName"
 $temp = Join-Path (Split-Path -Parent $output) ([Guid]::NewGuid().ToString() + '.zip')

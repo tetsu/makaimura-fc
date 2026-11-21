@@ -721,6 +721,7 @@ clear_prompt: .byte $12, $13, $02, $11, $13, $00, $10, $0c, $02, $17 ; START PLA
 clear_prompt_length = * - clear_prompt
 .if PRG_ROM_UNITS = 32
 next_prompt: .byte $12, $13, $02, $11, $13, $00, $12, $13, $08, $1a ; START STG2
+arcade_next_prompt: .byte $12, $13, $02, $11, $13, $00, $04, $0f, $0e, $13 ; START CONT
 final_prompt: .byte $12, $13, $02, $11, $13, $00, $0d, $06, $0e, $14 ; START MENU
 campaign_menu: .byte $14, $10, $18, $12, $13, $02, $11, $13, $00, $04, $02, $0d, $10, $02, $0a, $08, $0e ; UP+START CAMPAIGN
 campaign_menu_length = * - campaign_menu

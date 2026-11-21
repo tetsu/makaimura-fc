@@ -447,6 +447,10 @@ show_course_clear:
     cmp #game_over_scene
     beq :+
     ldy #next_prompt - clear_prompt
+    lda arcade_mode
+    beq :+
+    ldy #arcade_next_prompt - clear_prompt
+:
     jsr is_final_clear
     bcc :+
     ldy #final_prompt - clear_prompt
