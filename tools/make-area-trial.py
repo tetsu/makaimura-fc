@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a geometric area and course for the Mesen integration test."""
+"""Generate geometric areas and courses for the Mesen integration tests."""
 
 import argparse
 import json
@@ -39,7 +39,7 @@ def pack_sheet(output, mode, image, region_width, colors, first_tile, *options):
     return include.name
 
 
-def make_background(output):
+def make_background(output, colors, first_tile):
     image = Image.new("P", (16 * len(TILES), 16))
     draw = ImageDraw.Draw(image)
     for index in range(1, len(TILES)):
@@ -47,10 +47,10 @@ def make_background(output):
         draw.rectangle((x, 0, x + 15, 15), fill=1)
         draw.line((x, index, x + 15, index), fill=2, width=2)
         draw.rectangle((x + 3, 10, x + 5, 12), fill=3)
-    return pack_sheet(output, "bg", image, 16, [0x0F, 0x01, 0x1C, 0x30], "0x40")
+    return pack_sheet(output, "bg", image, 16, colors, first_tile)
 
 
-def make_player(output):
+def make_player(output, colors, first_tile):
     image = Image.new("P", (32, 16))
     draw = ImageDraw.Draw(image)
     poses = {}
@@ -62,8 +62,7 @@ def make_player(output):
         poses[name] = [{"region": [index, 0], "dx": -4, "dy": -16}]
     manifest = output / "poses.json"
     write_json(manifest, poses)
-    include = pack_sheet(output, "obj", image, 8, [0x0F, 0x16, 0x28, 0x30],
-                         "0x10", "--poses", str(manifest))
+    include = pack_sheet(output, "obj", image, 8, colors, first_tile, "--poses", str(manifest))
     return include, {name: name for name in poses}
 
 
@@ -73,9 +72,18 @@ def main():
     output = parser.parse_args().output
     output.mkdir(parents=True, exist_ok=True)
 
-    bg = make_background(output)
-    obj, poses = make_player(output)
-    write_json(output / "areas.json", {"trial": {"bg": bg, "obj": obj}})
+    bg = make_background(output, [0x0F, 0x01, 0x1C, 0x30], "0x40")
+    obj, poses = make_player(output, [0x0F, 0x16, 0x28, 0x30], "0x10")
+    steps = output / "steps"
+    steps.mkdir(exist_ok=True)
+    # Give the second area its own tile ranges and palette colors so the
+    # test can detect a load from either of the first area's banks.
+    steps_bg = make_background(steps, [0x0F, 0x07, 0x18, 0x37], "0x60")
+    steps_obj, steps_poses = make_player(steps, [0x0F, 0x12, 0x2A, 0x3C], "0x20")
+    write_json(output / "areas.json", {
+        "trial": {"bg": bg, "obj": obj},
+        "steps": {"bg": f"steps/{steps_bg}", "obj": f"steps/{steps_obj}"},
+    })
     # A flat test route isolates encounter timing. Both encounters straddle
     # world-coordinate page boundaries during a shot.
     tiles = [["sky"] * 48 for _ in range(11)] + [["ledge"] * 48] + [["rock"] * 48 for _ in range(3)]
@@ -99,7 +107,8 @@ def main():
         tiles[9][column] = "ledge"
         tiles[10][column] = "rock"
         tiles[11][column] = "rock"
-    stage.update(checkpoint_x=288, enemies={"fixed": {"x": 380, "y": 176}})
+    stage.update(area="steps", player_poses=steps_poses, checkpoint_x=288,
+                 enemies={"fixed": {"x": 380, "y": 176}})
     write_json(output / "steps.json", stage)
 
 
