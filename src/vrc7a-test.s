@@ -12,12 +12,26 @@ PRG_ROM_UNITS = 2
 .endif
 .byte "NES", $1a, PRG_ROM_UNITS, 0, $50, $58, $20, 0, 7, 7, 0, 0, 0, 0
 
+fixed_bank = PRG_ROM_UNITS * 2 - 1
+bank_tag_base = $80
+
+; Every 8 KiB bank begins with its own tag, including banks with no game data.
 .segment "BANK0"
-.byte $a5
+.byte bank_tag_base + 0
 .segment "BANK1"
-.byte $5a
+.byte bank_tag_base + 1
 .segment "BANK2"
-.byte $3c
+.byte bank_tag_base + 2
+.if fixed_bank > 3
+.segment "PADDING"
+.repeat fixed_bank - 3, index
+    .byte bank_tag_base + 3 + index
+    .res $1fff, $ff
+.endrepeat
+.endif
+.segment "FIXED_TAG"
+.byte bank_tag_base + fixed_bank
+
 .segment "ZEROPAGE"
 pad: .res 1
 previous: .res 1
@@ -86,20 +100,25 @@ reset:
     lda #7
     sta $d010
     jsr draw_screen
-    lda $8000
-    cmp #$a5
-    bne memory_error
     lda $a000
-    cmp #$5a
+    cmp #bank_tag_base + 1
     bne memory_error
     lda $c000
-    cmp #$3c
+    cmp #bank_tag_base + 2
     bne memory_error
-    lda #1
-    sta $8000
-    lda $8000
-    cmp #$5a
+    lda $e000
+    cmp #bank_tag_base + fixed_bank
     bne memory_error
+    ldx #0
+check_bank:
+    stx $8000
+    txa
+    ora #bank_tag_base
+    cmp $8000
+    bne memory_error
+    inx
+    cpx #fixed_bank + 1
+    bne check_bank
     lda #0
     sta $8000
     lda $6000            ; Preserve the byte on battery-backed donor boards.
