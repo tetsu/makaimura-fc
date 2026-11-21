@@ -52,7 +52,7 @@ end)
 revg_wall_depth = mem:install_read_tap(0x00e8, 0x00e8, "wall comparison", function(_, value)
     if not test_active() or cpu.state.PC.value ~= test.depth then return end
     local effective = local_x or value
-    local limit = mem:read_u8(test.limit + compared_tile)
+    local limit = mem:read_u8(test.limit + (compared_tile < 0x80 and compared_tile or compared_tile - 0x100))
     print(string.format("compare,%d,%d,%d", frame, effective, limit))
     if effective ~= value then return effective end
 end)

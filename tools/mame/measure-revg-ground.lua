@@ -58,7 +58,8 @@ local compare_side = {[0x8b41] = "left", [0x8b76] = "right"}
 revg_ground_depth = mem:install_read_tap(0x00e9, 0x00e9, "ground depth", function(_, value)
     local side = compare_side[cpu.state.PC.value]
     if not is_player_check() or not side then return end
-    local threshold = mem:read_u8(0x448e + tiles[side])
+    local tile = tiles[side]
+    local threshold = mem:read_u8(0x448e + (tile < 0x80 and tile or tile - 0x100))
     print(string.format("depth,%d,%s,%d,%d", frame, side, value, threshold))
 end)
 
