@@ -5,6 +5,8 @@ local approachEnd = 603
 local retry = alternateStart + 669
 local replay, returnToMenu, finalStart = retry + 118, retry + 150, retry + 176
 local originalPicture, alternatePicture
+local originalEntrance, alternateEntrance
+local replayMatches, finalStartMatches
 local sawBolt, tookHit = false, false
 local cameraX, cameraY, splitStep
 local playing, displayChanged
@@ -180,6 +182,19 @@ end, emu.eventType.inputPolled)
 
 emu.addEventCallback(function()
     frame = frame + 1
+    -- The camera settles by one pixel per frame after a blanked redraw.
+    -- Compare full pictures at the same scroll position on each entry path.
+    if playing and splitCount == 1 and cameraX == 0 and cameraY == 4 then
+        if frame < alternateStart and cleanStart(0x80, 176, 176) then
+            originalEntrance = emu.getScreenBuffer()
+        elseif frame >= alternateStart and frame < retry and cleanStart(0x81, 160, 192) then
+            alternateEntrance = emu.getScreenBuffer()
+        elseif frame >= replay and frame < returnToMenu and cleanStart(0x81, 160, 192) then
+            replayMatches = alternateEntrance and samePicture(alternateEntrance, emu.getScreenBuffer())
+        elseif frame >= finalStart and cleanStart(0x80, 176, 176) then
+            finalStartMatches = originalEntrance and samePicture(originalEntrance, emu.getScreenBuffer())
+        end
+    end
     if alternatePicture and frame <= retry + 100 and playing and not displayChanged then
         local picture = emu.getScreenBuffer()
         checkPlayfield(picture)
@@ -232,13 +247,13 @@ emu.addEventCallback(function()
         local clear = emu.getScreenBuffer()
         if pixel(clear, 83, 98) == clear[1] then fail(172, "alternate course did not reach the clear screen") end
     elseif frame == replay + 16 then
-        if not cleanStart(0x81, 160, 192) or not samePicture(alternatePicture, emu.getScreenBuffer()) then
+        if not cleanStart(0x81, 160, 192) or not replayMatches then
             fail(173, "replaying from the clear screen did not reset the alternate course")
         end
     elseif frame == returnToMenu + 16 then
         if read(0x8000) ~= 0x80 then fail(174, "returning to the menu did not restore bank zero") end
     elseif frame == finalStart + 16 then
-        if not cleanStart(0x80, 176, 176) or not samePicture(originalPicture, emu.getScreenBuffer()) then
+        if not cleanStart(0x80, 176, 176) or not finalStartMatches then
             fail(175, "switching back did not restore the original course")
             return
         end

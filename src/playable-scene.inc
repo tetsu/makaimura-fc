@@ -49,6 +49,26 @@ checkpoint_tile_x: .res 1
 sprites: .res 256
 
 .segment "CODE"
+.if PRG_ROM_UNITS = 32
+campaign_stage_count = 2
+
+next_campaign_stage:
+    lda campaign_stage
+    cmp #campaign_stage_count
+    bcc :+
+    jsr blank_display
+    jmp show_sound_screen
+:
+    inc campaign_stage
+start_campaign_stage:
+    jsr blank_display
+    lda campaign_stage
+    sec
+    sbc #1
+    sta $8000
+    jmp show_pan_game
+.endif
+
 start_course:
     jsr blank_display
     lda pad
@@ -145,6 +165,10 @@ setup_game_sprites:
     jmp enable_terrain
 
 update_game:
+.if PRG_ROM_UNITS = 32
+    lda campaign_stage
+    bne check_player_hit
+.endif
     lda pressed
     and #$08            ; Up toggles the sprite evaluation test.
     beq :+
@@ -154,6 +178,7 @@ update_game:
     bne :+
     jsr hide_crowd
 :
+check_player_hit:
     lda player_hit
     bne game_camera
     jsr move_player
@@ -237,8 +262,21 @@ show_course_clear:
     lda #$8a
     sta $2006
     ldx #0
+.if PRG_ROM_UNITS = 32
+    ldy #0
+    lda campaign_stage
+    cmp #campaign_stage_count
+    bne :+
+    ldy #final_title - clear_title
 :
+.endif
+:
+.if PRG_ROM_UNITS = 32
+    lda clear_title,y
+    iny
+.else
     lda clear_title,x
+.endif
     sta $2007
     inx
     cpx #clear_title_length
@@ -248,8 +286,23 @@ show_course_clear:
     lda #$cb
     sta $2006
     ldx #0
+.if PRG_ROM_UNITS = 32
+    ldy #0
+    lda campaign_stage
+    beq :+
+    ldy #next_prompt - clear_prompt
+    cmp #campaign_stage_count
+    bcc :+
+    ldy #final_prompt - clear_prompt
 :
+.endif
+:
+.if PRG_ROM_UNITS = 32
+    lda clear_prompt,y
+    iny
+.else
     lda clear_prompt,x
+.endif
     sta $2007
     inx
     cpx #clear_prompt_length

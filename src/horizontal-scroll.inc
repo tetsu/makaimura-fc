@@ -45,6 +45,9 @@ show_sound_screen:
     lda #0
     sta $8000           ; Previews and horizontal play use the original terrain.
     sta scene
+.if PRG_ROM_UNITS = 32
+    sta campaign_stage
+.endif
     jsr draw_screen
 enable_static_screen:
     jsr enable_screen

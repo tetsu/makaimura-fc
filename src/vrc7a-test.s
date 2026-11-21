@@ -46,6 +46,9 @@ pan_y: .res 1          ; Current Y within a 240 px nametable.
 apu_channels: .res 1
 shot_sound_pending: .res 1
 shot_sound_frames: .res 1
+.if PRG_ROM_UNITS = 32
+campaign_stage: .res 1 ; Zero in diagnostics, otherwise the 1-based stage number.
+.endif
 
 .include "fixed-hud.inc"
 .include "chr-layout.inc"
@@ -143,6 +146,9 @@ check_bank:
     sta shot_sound_pending
     sta shot_sound_frames
     sta render_pending
+.if PRG_ROM_UNITS = 32
+    sta campaign_stage
+.endif
     jsr enable_static_screen
     jmp main
 
@@ -188,10 +194,34 @@ main:
 same_scene:
     lda pressed
     and #$10            ; Start: enter or restart the playable scene.
-    beq :+
+    beq dispatch_scene
+.if PRG_ROM_UNITS = 32
+    lda campaign_stage
+    beq check_campaign_start
+    lda scene
+    cmp #clear_scene
+    beq advance_campaign
+    lda player_hit
+    beq dispatch_scene
+    jmp start_pressed
+advance_campaign:
+    jsr next_campaign_stage
+    jmp audio_tick
+check_campaign_start:
+    lda scene
+    bne start_pressed
+    lda pad
+    and #$08            ; Hold Up and press Start on the title to start the campaign.
+    beq start_pressed
+    lda #1
+    sta campaign_stage
+    jsr start_campaign_stage
+    jmp audio_tick
+start_pressed:
+.endif
     jsr show_game
     jmp audio_tick
-:
+dispatch_scene:
     lda scene
     beq sound_screen
     cmp #3
@@ -503,6 +533,19 @@ next_line:
     iny
     cpy #static_line_count
     bne next_line
+.if PRG_ROM_UNITS = 32
+    lda #$22
+    sta $2006
+    lda #$68
+    sta $2006
+    ldx #0
+:
+    lda campaign_menu,x
+    sta $2007
+    inx
+    cpx #campaign_menu_length
+    bne :-
+.endif
     rts
 
 clear_screen:
@@ -532,8 +575,17 @@ clear_screen:
 .segment "RODATA"
 clear_title: .byte $04, $0f, $14, $11, $12, $06, $00, $04, $0c, $06, $02, $11 ; COURSE CLEAR
 clear_title_length = * - clear_title
+.if PRG_ROM_UNITS = 32
+final_title: .byte $07, $0a, $0e, $02, $0c, $00, $04, $0c, $06, $02, $11, $00 ; FINAL CLEAR
+.endif
 clear_prompt: .byte $12, $13, $02, $11, $13, $00, $10, $0c, $02, $17 ; START PLAY
 clear_prompt_length = * - clear_prompt
+.if PRG_ROM_UNITS = 32
+next_prompt: .byte $12, $13, $02, $11, $13, $00, $12, $13, $08, $1a ; START STG2
+final_prompt: .byte $12, $13, $02, $11, $13, $00, $0d, $06, $0e, $14 ; START MENU
+campaign_menu: .byte $14, $10, $18, $12, $13, $02, $11, $13, $00, $04, $02, $0d, $10, $02, $0a, $08, $0e ; UP+START CAMPAIGN
+campaign_menu_length = * - campaign_menu
+.endif
 clear_menu: .byte $12, $06, $0c, $06, $04, $13, $00, $0d, $06, $0e, $14 ; SELECT MENU
 clear_menu_length = * - clear_menu
 text_address: .byte $08, $68, $88, $a8, $c8, $e8, $48, $28
