@@ -254,6 +254,12 @@ sound_screen:
     jsr show_pan
     jmp audio_tick
 :
+    lda pressed
+    and #$40           ; B starts the two-axis course directly from the menu.
+    beq :+
+    jsr start_course
+    jmp audio_tick
+:
     jsr wait_terrain_frame
     lda pressed
     and #$0f
@@ -495,7 +501,7 @@ next_line:
     bne :-
 :
     iny
-    cpy #7
+    cpy #static_line_count
     bne next_line
     rts
 
@@ -528,15 +534,19 @@ clear_title: .byte $04, $0f, $14, $11, $12, $06, $00, $04, $0c, $06, $02, $11 ; 
 clear_title_length = * - clear_title
 clear_prompt: .byte $12, $13, $02, $11, $13, $00, $10, $0c, $02, $17 ; START PLAY
 clear_prompt_length = * - clear_prompt
-text_address: .byte $08, $68, $88, $a8, $c8, $e8, $48
-text_start: .byte 0, line2-screen_text, line3-screen_text, line4-screen_text, line5-screen_text, line6-screen_text, line7-screen_text
-screen_text: .byte $15, $11, $04, $01, $02, $00, $12, $0f, $14, $0e, $05, $00, $13, $06, $12, $13, $ff
+clear_menu: .byte $12, $06, $0c, $06, $04, $13, $00, $0d, $06, $0e, $14 ; SELECT MENU
+clear_menu_length = * - clear_menu
+text_address: .byte $08, $68, $88, $a8, $c8, $e8, $48, $28
+static_line_count = * - text_address
+text_start: .byte 0, line2-screen_text, line3-screen_text, line4-screen_text, line5-screen_text, line6-screen_text, line7-screen_text, line8-screen_text
+screen_text: .byte $15, $11, $04, $01, $02, $00, $13, $06, $12, $13, $00, $0d, $06, $0e, $14, $ff ; VRC7A TEST MENU
 line2: .byte $0c, $06, $07, $13, $00, $07, $0d, $ff
 line3: .byte $11, $0a, $08, $09, $13, $00, $02, $10, $14, $ff
 line4: .byte $05, $0f, $16, $0e, $00, $03, $0f, $13, $09, $ff
 line5: .byte $12, $06, $0c, $06, $04, $13, $00, $13, $06, $11, $11, $02, $0a, $0e, $ff ; SELECT TERRAIN
 line6: .byte $12, $13, $02, $11, $13, $00, $10, $0c, $02, $17, $ff ; START PLAY
 line7: .byte $02, $00, $19, $05, $00, $04, $02, $0d, $06, $11, $02, $ff ; A 2D CAMERA
+line8: .byte $03, $00, $04, $0f, $14, $11, $12, $06, $ff ; B COURSE
 error_text: .byte $03, $02, $0e, $0b, $00, $0f, $11, $00, $11, $02, $0d, $00, $06, $11, $11, $0f, $11
 error_length = * - error_text
 pulse_period:

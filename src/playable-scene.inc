@@ -51,6 +51,10 @@ checkpoint_reached: .res 1
 sprites: .res 256
 
 .segment "CODE"
+start_course:
+    jsr blank_display
+    jmp show_pan_game
+
 show_game:
     jsr blank_display
     lda scene
@@ -178,7 +182,9 @@ follow_left:
 camera_ready:
     ldx scene
     cpx #4
-    beq follow_both_axes
+    bne :+
+    jmp follow_both_axes
+:
     jsr step_camera
     jmp draw_sprites
 
@@ -239,6 +245,17 @@ show_course_clear:
     sta $2007
     inx
     cpx #clear_prompt_length
+    bne :-
+    lda #$21
+    sta $2006
+    lda #$eb
+    sta $2006
+    ldx #0
+:
+    lda clear_menu,x
+    sta $2007
+    inx
+    cpx #clear_menu_length
     bne :-
     jmp enable_static_screen
 
