@@ -39,6 +39,7 @@ show_pan:
     lda #3
     sta scene
     lda #0
+    sta pan_y_page
     ldy #0
     jsr draw_pan
     jsr enable_screen
@@ -107,9 +108,13 @@ draw_pan:
     sta $e000           ; Horizontal mirroring: upper/lower nametables.
     lda #0
     sta pan_x
-    sta pan_y_page
-    sta pan_need_row
     sta pan_ctrl
+    ldx pan_y_page
+    lda pan_page_tiles,x
+    sta pan_need_row
+    clc
+    adc pan_tile_y
+    sta pan_tile_y
     ldx #0
     lda scene
     cmp #4

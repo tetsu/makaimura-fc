@@ -65,12 +65,21 @@ draw_campaign_hud:
     lda #$43
     sta $2006
     ldx #0
+    lda arcade_mode
+    bne @draw_score_label
 :
     lda campaign_controls,x
     sta $2007
     inx
     cpx #campaign_controls_length
     bne :-
+    jmp upload_campaign_hud
+@draw_score_label:
+    lda campaign_score_label,x
+    sta $2007
+    inx
+    cpx #campaign_score_label_length
+    bne @draw_score_label
 upload_campaign_hud:
     lda #$20
     sta $2006
@@ -114,6 +123,22 @@ upload_campaign_hud:
     ldx ap_weapon
     lda campaign_weapon_glyphs,x
     sta $2007
+    lda #$20
+    sta $2006
+    lda #$49
+    sta $2006
+    ldx #0
+:
+    lda ap_score,x
+    clc
+    adc #campaign_zero
+    sta $2007
+    inx
+    cpx #4
+    bne :-
+    lda #campaign_zero
+    sta $2007
+    sta $2007
 @skip_weapon_hud:
     lda #0
     sta campaign_hud_dirty
@@ -130,3 +155,5 @@ campaign_controls: ; A JUMP  B FIRE  START RETRY
 campaign_controls_length = * - campaign_controls
 campaign_checkpoint_glyphs: .byte $0e, $17 ; N, Y
 campaign_weapon_glyphs: .byte $0c, $05, $13 ; L (Lance), D (Dagger), T (Torch)
+campaign_score_label: .byte $12, $04, $0f, $11, $06, $00 ; SCORE 
+campaign_score_label_length = * - campaign_score_label

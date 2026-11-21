@@ -51,6 +51,14 @@ sprites: .res 256
 campaign_stage_count = 2
 
 start_arcade_stage:
+    lda #1
+    sta ap_new_game
+    lda #0
+    sta ap_weapon
+    sta ap_score+0
+    sta ap_score+1
+    sta ap_score+2
+    sta ap_score+3
     jsr blank_display
     jsr reset_campaign_clock
     lda #arcade_stage_bank
@@ -71,6 +79,11 @@ start_campaign_stage:
     lda campaign_stage
     sec
     sbc #1
+    ldx arcade_mode
+    beq :+
+    clc
+    adc #arcade_stage_bank
+:
     jsr select_bank0
     jmp show_pan_game
 .endif
@@ -108,13 +121,32 @@ show_pan_game:
 draw_pan_game:
     lda #4
     sta scene
+    lda #0
+    sta pan_y_page
     ldx #0
     ldy #0
     lda checkpoint_reached
-    beq :+
+    beq @pan_start_page
     ldx stage_cp_cam_hi
     ldy stage_cp_cam_y
-:
+.if PRG_ROM_UNITS = 32
+    lda arcade_mode
+    beq @pan_page_done
+    lda sd_cp_cam_y_page
+    sta pan_y_page
+    jmp @pan_page_done
+.endif
+@pan_start_page:
+.if PRG_ROM_UNITS = 32
+    lda arcade_mode
+    beq @pan_page_done
+    lda sd_flags
+    and #sd_flag_start_page1
+    beq @pan_page_done
+    lda #1
+    sta pan_y_page
+.endif
+@pan_page_done:
     txa
     sta camera_high
     jsr draw_pan

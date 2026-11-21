@@ -30,8 +30,8 @@ default_stage_height = 15
 ; Stage header located immediately after the 1-byte bank tag at $8000.
 ; Every stage bank shares the same header layout in the $8000 window.
 .macro stage_header width_cols, height_rows, cam_x_max_hi, cam_y_max_page, start_x, cp_x, cp_feet, cp_cam_hi, cp_cam_y, goal_x_val, goal_feet_val, map_label, pal_label
-    .assert height_rows > 0 .and height_rows <= map_col_stride, error, "Invalid stage height"
-    .assert cp_feet >= 160 .and (cp_feet .mod 8) = 0, error, "Invalid checkpoint scroll"
+    .assert height_rows > 0 .and height_rows <= map_col_stride * 2, error, "Invalid stage height"
+    .assert (cp_feet .mod 8) = 0, error, "Invalid checkpoint scroll"
     .byte width_cols
     .byte height_rows
     .byte cam_x_max_hi
@@ -231,11 +231,13 @@ set_map_col_ptr:
 @cached:
     rts
 
-; A = metatile column (0..255), Y = metatile row.
+; A = metatile column (0..255), Y = metatile row (0..31).
 ; Returns metatile ID in A (mt_rock below the map). Preserves X and Y.
 read_map_cell:
     cpy stage_height_rows
     bcs @below_map
+    cpy #map_col_stride
+    bcs @read_lower_page
     cmp map_cached_col
     beq @read_cell
     sta map_cached_col
@@ -255,6 +257,22 @@ read_map_cell:
     sta map_ptr+1
 @read_cell:
     lda (map_ptr),y
+    rts
+@read_lower_page:
+    clc
+    adc stage_width_cols
+    jsr set_map_col_ptr
+    tya
+    sec
+    sbc #map_col_stride
+    tay
+    lda (map_ptr),y
+    pha
+    tya
+    clc
+    adc #map_col_stride
+    tay
+    pla
     rts
 @below_map:
     lda #mt_rock

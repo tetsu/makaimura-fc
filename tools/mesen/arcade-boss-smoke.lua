@@ -348,9 +348,10 @@ emu.addEventCallback(function()
             -- Press START on Stage 1 Clear screen to advance to Stage 2 (Bank 1).
             input = { start = true }
         elseif phaseFrame == 36 then
-            check(read(0x8000) == 0x81, 36, "stage 2 did not switch to Bank 1")
+            check(read(0x8000) == 0x8d, 36, "stage 2 did not switch to Bank 13")
             check(stageNum() == 2, 37, "stage 2 HUD stage num mismatch")
-            check(lives() == 2, 54, "stage 2 HUD lives mismatch")
+            -- Route 1 lost 1 life (3->2), Route 2 boss+key crossed 2,000 pts for 1UP extend (2->3).
+            check(lives() == 3, 54, "stage 2 HUD lives mismatch")
             check(clock() == 120, 55, "stage 2 HUD clock mismatch")
             check(read(AP_BOSS_STATE) == 0 and read(AP_KEY_COLLECTED) == 0, 38, "stage 2 inherited boss/key state")
             nextPhase("r3_return_title")

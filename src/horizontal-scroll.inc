@@ -343,19 +343,39 @@ apply_camera:
     rts
 
 reset_hud_scroll:
-    lda #hud_y
-    cpx #4
-    bne :+
-    clc
-    adc pan_y
-:
-    sta split_y
     lda camera_high
     and #1
     asl a
     asl a
     sta split_address_high
-    lda split_y
+    lda #hud_y
+    cpx #4
+    bne @split_y_ready
+    clc
+    adc pan_y
+    bcs @split_y_wrap
+    cmp #240
+    bcc @split_y_no_wrap
+@split_y_wrap:
+    sec
+    sbc #240
+    ldy z:pan_y_page
+    iny
+    jmp @split_y_nt
+@split_y_no_wrap:
+    ldy z:pan_y_page
+@split_y_nt:
+    pha
+    tya
+    and #1
+    asl a
+    asl a
+    asl a
+    ora split_address_high
+    sta split_address_high
+    pla
+@split_y_ready:
+    sta split_y
     lsr a
     lsr a
     lsr a

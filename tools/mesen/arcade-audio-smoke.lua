@@ -290,7 +290,7 @@ emu.addEventCallback(function()
             check(read(SND_PLAYING) == 0, 30, "clear fanfare did not auto-stop after completion")
             input = { start = true }
         elseif phaseFrame == 100 then
-            check(read(0x8000) == 0x81, 31, "did not transition to Stage 2")
+            check(read(0x8000) == 0x8d, 31, "did not transition to Stage 2 (Bank 13)")
             check(read(SND_SONG_ID) == 2 and read(SND_PLAYING) == 1, 32, "stage 2 BGM did not start cleanly")
             nextPhase("return_title")
         end

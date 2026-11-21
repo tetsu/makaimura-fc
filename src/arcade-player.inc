@@ -1,6 +1,8 @@
-; Bank 3 ($A000-$BFFF): Arcade-accurate player physics, 2D tile collision,
-; two-stage armor, 16-bit SoA entity pools (weapons, dynamic platforms,
-; item drops). Uses WRAM ($6010+) so fixed bank and internal RAM stay compact.
+; Bank 3 ($A000-$BFFF): Data-driven arcade player physics, 16-bit X/Y 2D tile
+; collision, two-stage armor, 16-bit SoA entity pools, vertical/horizontal
+; camera tracking, multi-part boss, and score/extend system.
+; Reads all stage-specific parameters from the $8080 arcade_stage_desc block
+; in the active $8000 stage bank (Bank 12+).
 
 ap_state_ground = 0
 ap_state_air = 1
@@ -50,7 +52,18 @@ ap_rank_step_frames = 240
 ap_turret_cooldown = 72
 ap_turret_windup = 24
 
+; Score values (in 100-point units) and extend thresholds
+ap_score_zombie = 1             ; 100 pts
+ap_score_enemy  = 2             ; 200 pts
+ap_score_item   = 1             ; 100 pts
+ap_score_key    = 5             ; 500 pts
+ap_score_boss   = 10            ; 1,000 pts
+ap_extend_first = 20            ; 2,000 pts
+ap_extend_step  = 50            ; +5,000 pts
+ap_max_lives    = 9
+
 .segment "WRAM"
+; Existing WRAM layout $6000-$60AB preserved verbatim for regression tests.
 ap_wram_reserved: .res 16       ; $6000-$600F: clear of boot WRAM probe
 ap_state: .res 1                ; $6010
 ap_armor: .res 1                ; $6011
@@ -63,7 +76,6 @@ ap_kb_step: .res 1              ; $6017
 ap_enemy_active: .res 1         ; $6018
 ap_armor_item_active: .res 1    ; $6019 (mirrored with item slot 0 for tests)
 
-; Extended task 3-3 state (WRAM $601A+)
 ap_weapon: .res 1               ; $601A (0=Lance, 1=Dagger, 2=Torch)
 ap_riding_plat: .res 1          ; $601B ($ff = none, 0..3 = platform slot)
 ap_pot_enemy_active: .res 1     ; $601C
@@ -76,74 +88,104 @@ ap_tmp1: .res 1                 ; $6023
 ap_tmp2: .res 1                 ; $6024
 ap_loop_idx: .res 1             ; $6025
 
-; Player shot pool (3 slots, 16-bit X)
-ps_active: .res ap_max_shots    ; 0=free, 1=flying, 2=torch flame on ground
+ps_active: .res ap_max_shots    ; $6026
 ps_kind: .res ap_max_shots
 ps_x_lo: .res ap_max_shots
 ps_x_hi: .res ap_max_shots
 ps_y: .res ap_max_shots
-ps_vx: .res ap_max_shots        ; signed px/frame
-ps_vy: .res ap_max_shots        ; signed px/frame (torch parabola)
-ps_timer: .res ap_max_shots     ; remaining flight / flame lifetime
+ps_vx: .res ap_max_shots
+ps_vy: .res ap_max_shots
+ps_timer: .res ap_max_shots
 
-; Dynamic platform pool (4 slots, 16-bit X)
 plat_type: .res ap_max_plats
 plat_x_lo: .res ap_max_plats
 plat_x_hi: .res ap_max_plats
 plat_y: .res ap_max_plats
-plat_dx: .res ap_max_plats      ; signed delta applied this frame
-plat_dy: .res ap_max_plats      ; signed delta applied this frame
+plat_dx: .res ap_max_plats
+plat_dy: .res ap_max_plats
 plat_timer: .res ap_max_plats
-plat_phase: .res ap_max_plats   ; 0 = positive direction, 1 = reverse
+plat_phase: .res ap_max_plats
 plat_span: .res ap_max_plats
 
-; Item / drop pool (4 slots, 16-bit X; slot 0 mirrors ap_armor_item_active)
 item_type: .res ap_max_items
 item_x_lo: .res ap_max_items
 item_x_hi: .res ap_max_items
 item_y: .res ap_max_items
 
-; Task 3-4: Scroll-linked enemy scheduler, enemy pool, enemy bolt pool, rank ($6072+)
-ap_rank: .res 1                 ; $6072: difficulty rank 0..3
-ap_rank_timer: .res 1           ; $6073: frames until next rank increase
-sched_page: .res 1              ; $6074: last observed camera_high page
-sched_group: .res 1             ; $6075: active spawn group (0=none, 1=page2 zombies)
-sched_wait: .res 1              ; $6076: countdown timer (paused when zombie cap full)
-sched_zombies_live: .res 1      ; $6077: active scheduled zombies count
-ap_turret_spawned: .res 1       ; $6078: 1 if fixed turret at X=712 is currently active/cleared
+ap_rank: .res 1                 ; $6072
+ap_rank_timer: .res 1           ; $6073
+sched_page: .res 1              ; $6074
+sched_group: .res 1             ; $6075
+sched_wait: .res 1              ; $6076
+sched_zombies_live: .res 1      ; $6077
+ap_turret_spawned: .res 1       ; $6078
 
-en_type: .res ap_max_enemies    ; $6079: 0=free, 1=zombie, 2=turret
+en_type: .res ap_max_enemies    ; $6079
 en_x_lo: .res ap_max_enemies    ; $607D
 en_x_hi: .res ap_max_enemies    ; $6081
 en_y: .res ap_max_enemies       ; $6085
-en_dir: .res ap_max_enemies     ; $6089: 0=left, 1=right
+en_dir: .res ap_max_enemies     ; $6089
 en_timer: .res ap_max_enemies   ; $608D
 en_hp: .res ap_max_enemies      ; $6091
 
-eb_active: .res ap_max_ebolts   ; $6095: 0=free, 1=active
+eb_active: .res ap_max_ebolts   ; $6095
 eb_x_lo: .res ap_max_ebolts     ; $6097
 eb_x_hi: .res ap_max_ebolts     ; $6099
 eb_y: .res ap_max_ebolts        ; $609B
-eb_vx: .res ap_max_ebolts       ; $609D (signed px/frame)
+eb_vx: .res ap_max_ebolts       ; $609D
 eb_timer: .res ap_max_ebolts    ; $609F
 
-; Task 3-5: Boss encounter, arena lock, key/exit unlock ($60A1+)
-ap_boss_state: .res 1           ; $60A1: 0=idle, 1=active, 2=defeated
-ap_boss_lock: .res 1            ; $60A2: 1=camera & arena left edge locked
-ap_boss_hp: .res 1              ; $60A3: core/head HP
-ap_boss_shield_hp: .res 1       ; $60A4: lower armor HP
-ap_boss_x_lo: .res 1            ; $60A5: 16-bit world X
+ap_boss_state: .res 1           ; $60A1
+ap_boss_lock: .res 1            ; $60A2
+ap_boss_hp: .res 1              ; $60A3
+ap_boss_shield_hp: .res 1       ; $60A4
+ap_boss_x_lo: .res 1            ; $60A5
 ap_boss_x_hi: .res 1            ; $60A6
-ap_boss_y: .res 1               ; $60A7: feet Y
-ap_boss_dir: .res 1             ; $60A8: 0=left, 1=right
-ap_boss_timer: .res 1           ; $60A9: fire cadence timer
-ap_boss_flash: .res 1           ; $60AA: hit flash countdown
-ap_key_collected: .res 1        ; $60AB: 1=key collected (unlocks stage 1 exit)
+ap_boss_y: .res 1               ; $60A7
+ap_boss_dir: .res 1             ; $60A8
+ap_boss_timer: .res 1           ; $60A9
+ap_boss_flash: .res 1           ; $60AA
+ap_key_collected: .res 1        ; $60AB
+
+; Task 4-2 extensions ($60AC+): 16-bit Y coordinates & score/extend state
+ap_player_y_hi: .res 1          ; $60AC
+ap_prev_feet_hi: .res 1         ; $60AD
+ap_probe_y_hi: .res 1           ; $60AE
+ap_tile_row_top_hi: .res 1      ; $60AF
+ap_cam_y_lo: .res 1             ; $60B0
+ap_cam_y_hi: .res 1             ; $60B1
+ap_boss_y_hi: .res 1            ; $60B2
+ps_y_hi: .res ap_max_shots      ; $60B3
+plat_y_hi: .res ap_max_plats    ; $60B6
+item_y_hi: .res ap_max_items    ; $60BA
+en_y_hi: .res ap_max_enemies    ; $60BE
+eb_y_hi: .res ap_max_ebolts     ; $60C2
+ap_score: .res 4                ; $60C4: 4 decimal digits (d3..d0, x100 pts)
+ap_score_units: .res 2          ; $60C8: 16-bit cumulative 100-pt units
+ap_next_extend: .res 2          ; $60CA: next extend threshold in 100-pt units
+ap_new_game: .res 1             ; $60CC: 1 on fresh game start from title
+ap_tmp3: .res 1                 ; $60CD
 
 .segment "BANK3"
     .byte bank_tag_base + 3
 
 ap_init_stage:
+    ; Reset score/extend only on fresh game start from title.
+    lda ap_new_game
+    beq @keep_score
+    lda #0
+    sta ap_new_game
+    sta ap_score+0
+    sta ap_score+1
+    sta ap_score+2
+    sta ap_score+3
+    sta ap_score_units+0
+    sta ap_score_units+1
+    lda #<ap_extend_first
+    sta ap_next_extend+0
+    lda #>ap_extend_first
+    sta ap_next_extend+1
+@keep_score:
     lda #ap_state_ground
     sta ap_state
     lda #ap_armor_full
@@ -171,22 +213,38 @@ ap_init_stage:
     sta ap_boss_shield_hp
     sta ap_boss_timer
     sta ap_boss_flash
+    sta ap_boss_y_hi
     sta ap_key_collected
     inc campaign_hud_dirty
 
-    ; Clear shot pool
+    ; Load 16-bit player Y from stage descriptor (start or checkpoint).
+    lda checkpoint_reached
+    bne @init_cp_y
+    lda sd_start_y_lo
+    sta player_feet
+    lda sd_start_y_hi
+    sta ap_player_y_hi
+    jmp @init_clear_pools
+@init_cp_y:
+    lda sd_cp_y_lo
+    sta player_feet
+    lda sd_cp_y_hi
+    sta ap_player_y_hi
+
+@init_clear_pools:
     ldx #ap_max_shots - 1
     lda #0
 :
     sta ps_active,x
+    sta ps_y_hi,x
     dex
     bpl :-
 
-    ; Clear item pool and dynamic platforms
     ldx #ap_max_items - 1
     lda #0
 :
     sta item_type,x
+    sta item_y_hi,x
     dex
     bpl :-
 
@@ -198,82 +256,115 @@ ap_init_stage:
     sta plat_dy,x
     sta plat_timer,x
     sta plat_phase,x
+    sta plat_y_hi,x
     dex
     bpl :-
 
-    ; Stage 1 (Bank 12) populates fixed test enemies, items, and dynamic platforms.
-    lda campaign_stage
-    cmp #1
-    bne @init_scheduler_state
+    ; Load stage-specific palettes and CHR overrides while PPU rendering is off.
+    jsr ap_load_stage_visuals
 
+    ; Populate fixed enemies from stage descriptor ($8080+).
+    lda sd_enemy1_x
+    ora sd_enemy1_x+1
+    beq :+
     lda #1
     sta ap_enemy_active
+:
+    lda sd_pot_x
+    ora sd_pot_x+1
+    beq :+
+    lda #1
     sta ap_pot_enemy_active
+:
+
+    ; Populate initial items from sd_items_ptr (5 bytes per entry).
+    lda sd_item_count
+    beq @load_plats
+    sta ap_tmp2
+    lda #$ff
+    sta map_cached_col
+    lda sd_items_ptr
+    sta map_ptr
+    lda sd_items_ptr+1
+    sta map_ptr+1
+    ldx #0
+    ldy #0
+@load_item_loop:
+    lda (map_ptr),y
+    sta item_type,x
+    iny
+    lda (map_ptr),y
+    sta item_x_lo,x
+    iny
+    lda (map_ptr),y
+    sta item_x_hi,x
+    iny
+    lda (map_ptr),y
+    sta item_y,x
+    iny
+    lda (map_ptr),y
+    sta item_y_hi,x
+    iny
+    inx
+    cpx ap_tmp2
+    bne @load_item_loop
+    lda item_type+0
+    cmp #item_armor
+    bne @load_plats
+    lda #1
     sta ap_armor_item_active
 
-    lda #item_armor
-    sta item_type+0
-    lda #<arcade_armor_item_x
-    sta item_x_lo+0
-    lda #>arcade_armor_item_x
-    sta item_x_hi+0
-    lda #arcade_armor_item_feet
-    sta item_y+0
-
-    lda #item_dagger
-    sta item_type+1
-    lda #<arcade_dagger_item_x
-    sta item_x_lo+1
-    lda #>arcade_dagger_item_x
-    sta item_x_hi+1
-    lda #arcade_dagger_item_feet
-    sta item_y+1
-
-    lda #plat_tombstone
-    sta plat_type+0
-    lda #<arcade_tombstone_x
-    sta plat_x_lo+0
-    lda #>arcade_tombstone_x
-    sta plat_x_hi+0
-    lda #arcade_tombstone_y
-    sta plat_y+0
-
-    lda #plat_moving_h
-    sta plat_type+1
-    lda #<arcade_hplat_x
-    sta plat_x_lo+1
-    lda #>arcade_hplat_x
-    sta plat_x_hi+1
-    lda #arcade_hplat_y
-    sta plat_y+1
-    lda #arcade_hplat_span
-    sta plat_span+1
-
-    lda #plat_moving_v
-    sta plat_type+2
-    lda #<arcade_vplat_x
-    sta plat_x_lo+2
-    lda #>arcade_vplat_x
-    sta plat_x_hi+2
-    lda #arcade_vplat_y
-    sta plat_y+2
-    lda #arcade_vplat_span
-    sta plat_span+2
+@load_plats:
+    ; Populate dynamic platforms from sd_plats_ptr (6 bytes per entry).
+    lda sd_plat_count
+    beq @init_scheduler_state
+    sta ap_tmp2
+    lda #$ff
+    sta map_cached_col
+    lda sd_plats_ptr
+    sta map_ptr
+    lda sd_plats_ptr+1
+    sta map_ptr+1
+    ldx #0
+    ldy #0
+@load_plat_loop:
+    lda (map_ptr),y
+    sta plat_type,x
+    iny
+    lda (map_ptr),y
+    sta plat_x_lo,x
+    iny
+    lda (map_ptr),y
+    sta plat_x_hi,x
+    iny
+    lda (map_ptr),y
+    sta plat_y,x
+    iny
+    lda (map_ptr),y
+    sta plat_y_hi,x
+    iny
+    lda (map_ptr),y
+    sta plat_span,x
+    iny
+    inx
+    cpx ap_tmp2
+    bne @load_plat_loop
 
 @init_scheduler_state:
-
-    ; Initialize difficulty rank, scroll-linked scheduler, enemy pool, and enemy bolts.
     lda checkpoint_reached
     bne @keep_rank_on_retry
     lda campaign_lives
     cmp #campaign_initial_lives
+    bne @keep_rank_on_retry
+    lda campaign_stage
+    cmp #1
     bne @keep_rank_on_retry
     lda #0
     sta ap_rank
 @keep_rank_on_retry:
     lda #ap_rank_step_frames
     sta ap_rank_timer
-    lda camera_high
+    jsr ap_current_sched_page
     sta sched_page
     lda #0
     sta sched_group
@@ -283,15 +374,213 @@ ap_init_stage:
     ldx #ap_max_enemies - 1
 :
     sta en_type,x
+    sta en_y_hi,x
     dex
     bpl :-
     ldx #ap_max_ebolts - 1
 :
     sta eb_active,x
+    sta eb_y_hi,x
     dex
     bpl :-
-    lda #snd_song_stage
+    jsr ap_update_cam_y
+    lda sd_bgm_stage
     jmp call_bank8_play_song
+
+; Load per-stage BG/OBJ palettes and optional 64-byte CHR overrides (blanked PPU).
+ap_load_stage_visuals:
+    lda #$ff
+    sta map_cached_col
+    ; BG palette ($3F00, 16 bytes)
+    lda sd_bg_pal_ptr
+    ora sd_bg_pal_ptr+1
+    beq @check_spr_pal
+    lda sd_bg_pal_ptr
+    sta map_ptr
+    lda sd_bg_pal_ptr+1
+    sta map_ptr+1
+    lda #$3f
+    sta $2006
+    lda #$00
+    sta $2006
+    ldy #0
+:
+    lda (map_ptr),y
+    sta $2007
+    iny
+    cpy #16
+    bne :-
+@check_spr_pal:
+    ; OBJ palette ($3F10, 16 bytes)
+    lda sd_spr_pal_ptr
+    ora sd_spr_pal_ptr+1
+    beq @check_bg_chr
+    lda sd_spr_pal_ptr
+    sta map_ptr
+    lda sd_spr_pal_ptr+1
+    sta map_ptr+1
+    lda #$3f
+    sta $2006
+    lda #$10
+    sta $2006
+    ldy #0
+:
+    lda (map_ptr),y
+    sta $2007
+    iny
+    cpy #16
+    bne :-
+@check_bg_chr:
+    ; BG terrain tiles (4 tiles = 64 bytes at terrain_tiles - glyphs).
+    ; Restore default terrain_tiles when sd_bg_chr_ptr == 0.
+    lda sd_bg_chr_ptr
+    ora sd_bg_chr_ptr+1
+    bne @custom_bg_chr
+    lda #<terrain_tiles
+    sta map_ptr
+    lda #>terrain_tiles
+    sta map_ptr+1
+    jmp @upload_bg_chr
+@custom_bg_chr:
+    lda sd_bg_chr_ptr
+    sta map_ptr
+    lda sd_bg_chr_ptr+1
+    sta map_ptr+1
+@upload_bg_chr:
+    lda #>(terrain_tiles - glyphs)
+    sta $2006
+    lda #<(terrain_tiles - glyphs)
+    sta $2006
+    ldy #0
+:
+    lda (map_ptr),y
+    sta $2007
+    iny
+    cpy #64
+    bne :-
+    ; Optional OBJ enemy/boss tiles (4 tiles = 64 bytes at $1050, sprite tiles 5..8).
+    lda sd_spr_chr_ptr
+    ora sd_spr_chr_ptr+1
+    beq @visuals_done
+    lda sd_spr_chr_ptr
+    sta map_ptr
+    lda sd_spr_chr_ptr+1
+    sta map_ptr+1
+    lda #$10
+    sta $2006
+    lda #$50
+    sta $2006
+    ldy #0
+:
+    lda (map_ptr),y
+    sta $2007
+    iny
+    cpy #64
+    bne :-
+@visuals_done:
+    rts
+
+; Compute 16-bit ap_cam_y = pan_y_page * 240 + pan_y.
+ap_update_cam_y:
+    lda pan_y
+    sta ap_cam_y_lo
+    lda #0
+    sta ap_cam_y_hi
+    ldx pan_y_page
+    beq @cam_y_done
+@cam_y_add:
+    lda ap_cam_y_lo
+    clc
+    adc #240
+    sta ap_cam_y_lo
+    bcc :+
+    inc ap_cam_y_hi
+:
+    dex
+    bne @cam_y_add
+@cam_y_done:
+    rts
+
+; Add signed 8-bit delta in A to 16-bit (ap_player_y_hi : player_feet).
+ap_add_player_y:
+    bmi @add_y_neg
+    clc
+    adc player_feet
+    sta player_feet
+    bcc :+
+    inc ap_player_y_hi
+:
+    rts
+@add_y_neg:
+    clc
+    adc player_feet
+    sta player_feet
+    bcs :+
+    dec ap_player_y_hi
+:
+    rts
+
+; Add A (1..25) in 100-point units to score and check 1UP extend threshold.
+ap_add_score:
+    sta ap_tmp3
+    clc
+    adc ap_score_units+0
+    sta ap_score_units+0
+    bcc :+
+    inc ap_score_units+1
+:
+    ; Decimal digit add into ap_score[3] with carry propagation
+    lda ap_score+3
+    clc
+    adc ap_tmp3
+    ldx #3
+@score_carry:
+    cmp #10
+    bcc @score_store
+    sec
+    sbc #10
+    sta ap_score,x
+    dex
+    bmi @score_clamp
+    lda ap_score,x
+    clc
+    adc #1
+    jmp @score_carry
+@score_clamp:
+    lda #9
+    sta ap_score+0
+    sta ap_score+1
+    sta ap_score+2
+    sta ap_score+3
+    jmp @score_extend_chk
+@score_store:
+    sta ap_score,x
+@score_extend_chk:
+    ; Check if ap_score_units >= ap_next_extend
+    lda ap_score_units+1
+    cmp ap_next_extend+1
+    bcc @score_dirty
+    bne @grant_extend
+    lda ap_score_units+0
+    cmp ap_next_extend+0
+    bcc @score_dirty
+@grant_extend:
+    lda ap_next_extend+0
+    clc
+    adc #<ap_extend_step
+    sta ap_next_extend+0
+    lda ap_next_extend+1
+    adc #>ap_extend_step
+    sta ap_next_extend+1
+    lda campaign_lives
+    cmp #ap_max_lives
+    bcs @score_dirty
+    inc campaign_lives
+    lda #snd_se_key
+    jsr call_bank8_play_se
+@score_dirty:
+    inc campaign_hud_dirty
+    rts
 
 ap_update_frame:
     lda player_hit
@@ -310,6 +599,8 @@ ap_update_frame:
     jsr ap_carry_player_on_platform
     lda player_feet
     sta ap_prev_feet
+    lda ap_player_y_hi
+    sta ap_prev_feet_hi
 
     lda ap_state
     cmp #ap_state_ground
@@ -341,7 +632,6 @@ ap_update_frame:
     jsr ap_check_items
     jsr ap_check_enemies_contact
     jsr ap_check_hazard
-    ; Tick stage clock while alive; simultaneous timeout + hit deducts one life.
     jsr tick_campaign_clock
     lda player_hit
     beq @check_goal
@@ -361,13 +651,15 @@ ap_update_frame:
     jmp @camera_and_submit
 
 @check_goal:
+    lda sd_flags
+    and #sd_flag_vertical
+    bne @check_vert_progress
     jsr check_course_progress
     php
-    lda campaign_stage
-    cmp #1
-    bne @non_boss_goal
+    lda sd_flags
+    and #sd_flag_has_boss
+    beq @non_boss_goal
     plp
-    ; Stage 1 exit is locked until the boss is defeated and the key is collected.
     lda ap_key_collected
     beq @camera_and_submit
     jmp show_course_clear
@@ -376,14 +668,94 @@ ap_update_frame:
     bcc @camera_and_submit
     jmp show_course_clear
 
+@check_vert_progress:
+    ; Vertical climbing stage: checkpoint when player_y <= sd_cp_y.
+    lda checkpoint_reached
+    bne @check_vert_goal
+    lda ap_player_y_hi
+    cmp sd_cp_y_hi
+    bcc @vert_cp_hit
+    bne @check_vert_goal
+    lda player_feet
+    cmp sd_cp_y_lo
+    beq @vert_cp_hit
+    bcs @check_vert_goal
+@vert_cp_hit:
+    lda #1
+    sta checkpoint_reached
+    inc campaign_hud_dirty
+@check_vert_goal:
+    lda sd_flags
+    and #sd_flag_has_boss
+    beq @camera_and_submit
+    lda ap_key_collected
+    beq @camera_and_submit
+    jmp show_course_clear
+
 @camera_and_submit:
     lda ap_boss_lock
     beq @unlock_camera
+    jsr ap_update_cam_y
     jsr draw_sprites
     jmp submit_frame
 @unlock_camera:
-    jsr follow_player
+    jsr ap_follow_camera
     jmp submit_frame
+
+; 16-bit X and Y camera follower for both horizontal and vertical arcade stages.
+ap_follow_camera:
+    ; Horizontal axis
+    sec
+    lda player_x
+    sbc camera_low
+    tay
+    lda player_x+1
+    sbc camera_high
+    bmi @cam_left
+    bne @cam_right
+    cpy #192
+    bcs @cam_right
+    cpy #64
+    bcc @cam_left
+    lda #0
+    beq @cam_x_ready
+@cam_right:
+    lda #1
+    bne @cam_x_ready
+@cam_left:
+    lda #2
+@cam_x_ready:
+    sta pan_directions
+
+    ; Vertical axis: follow 16-bit player_y toward screen Y = 160
+    jsr ap_update_cam_y
+    sec
+    lda player_feet
+    sbc ap_cam_y_lo
+    tay
+    lda ap_player_y_hi
+    sbc ap_cam_y_hi
+    bmi @cam_up
+    bne @cam_down
+    cpy #160
+    beq @cam_y_ready
+    bcc @cam_up
+@cam_down:
+    lda #$04
+    bne @cam_apply_y
+@cam_up:
+    lda #$08
+@cam_apply_y:
+    ora pan_directions
+    sta pan_directions
+@cam_y_ready:
+    jsr prepare_pan
+    lda pan_x
+    sta camera_low
+    lda pan_x+1
+    sta camera_high
+    jsr ap_update_cam_y
+    jmp draw_sprites
 
 ; --- Dynamic platforms: tombstone, horizontal moving, vertical moving ---
 ap_update_platforms:
@@ -420,12 +792,19 @@ ap_update_platforms:
 @do_moving_v:
     lda plat_phase,x
     bne @v_down
+    lda plat_y,x
+    bne :+
+    dec plat_y_hi,x
+:
     dec plat_y,x
     lda #$ff
     sta plat_dy,x
     jmp @advance_plat_timer
 @v_down:
     inc plat_y,x
+    bne :+
+    inc plat_y_hi,x
+:
     lda #1
     sta plat_dy,x
 @advance_plat_timer:
@@ -464,9 +843,7 @@ ap_carry_player_on_platform:
 @carry_y:
     lda plat_dy,x
     beq @carry_done
-    clc
-    adc player_feet
-    sta player_feet
+    jsr ap_add_player_y
 @carry_done:
     rts
 
@@ -498,7 +875,6 @@ ap_step_ground:
     lda pressed
     and #$80
     beq @check_ground_walk
-    ; Lock horizontal air direction at takeoff (arcade GnG behavior).
     lda #0
     sta ap_air_dir
     lda #$ff
@@ -582,14 +958,14 @@ ap_step_air_vertical:
     ldx jump_step
     lda jump_delta,x
     bmi @air_rising
-    clc
-    adc player_feet
-    sta player_feet
+    jsr ap_add_player_y
     jsr ap_advance_jump_step
     jsr ap_check_support
     bcc @air_done
     lda ap_tile_row_top
     sta player_feet
+    lda ap_tile_row_top_hi
+    sta ap_player_y_hi
     lda #ap_state_ground
     sta ap_state
     lda #$ff
@@ -600,12 +976,15 @@ ap_step_air_vertical:
     rts
 
 @air_rising:
-    clc
-    adc player_feet
-    sta player_feet
+    jsr ap_add_player_y
+    lda player_feet
     sec
     sbc #player_height
     sta ap_probe_y
+    lda ap_player_y_hi
+    sbc #0
+    sta ap_probe_y_hi
+    bmi @air_advance_rise
     lda player_x
     sta ap_probe_x
     lda player_x+1
@@ -618,6 +997,9 @@ ap_step_air_vertical:
     clc
     adc #16 + player_height
     sta player_feet
+    lda ap_probe_y_hi
+    adc #0
+    sta ap_player_y_hi
     lda #jump_fall
     sta jump_step
     rts
@@ -634,7 +1016,7 @@ ap_advance_jump_step:
     stx jump_step
     rts
 
-; --- Ladder state: vertical climbing only ---
+; --- Ladder state: vertical climbing only (16-bit Y safe) ---
 ap_step_ladder:
     lda #0
     sta ap_crouch
@@ -648,7 +1030,8 @@ ap_step_ladder:
     bne @climb_down
     rts
 @climb_up:
-    dec player_feet
+    lda #$ff
+    jsr ap_add_player_y
     lda player_x
     sta ap_probe_x
     lda player_x+1
@@ -657,6 +1040,9 @@ ap_step_ladder:
     sec
     sbc #1
     sta ap_probe_y
+    lda ap_player_y_hi
+    sbc #0
+    sta ap_probe_y_hi
     jsr ap_tile_type_at
     cmp #tile_type_ladder
     beq @ladder_done
@@ -670,13 +1056,16 @@ ap_step_ladder:
 @ladder_done:
     rts
 @climb_down:
-    inc player_feet
+    lda #1
+    jsr ap_add_player_y
     lda player_x
     sta ap_probe_x
     lda player_x+1
     sta ap_probe_x+1
     lda player_feet
     sta ap_probe_y
+    lda ap_player_y_hi
+    sta ap_probe_y_hi
     jsr ap_tile_type_at
     cmp #tile_type_solid
     bne @check_still_ladder
@@ -708,6 +1097,9 @@ ap_try_enter_ladder_up:
     sec
     sbc #4
     sta ap_probe_y
+    lda ap_player_y_hi
+    sbc #0
+    sta ap_probe_y_hi
     jsr ap_tile_type_at
     cmp #tile_type_ladder
     bne @no_ladder
@@ -725,11 +1117,14 @@ ap_try_enter_ladder_down:
     sta ap_probe_x+1
     lda player_feet
     sta ap_probe_y
+    lda ap_player_y_hi
+    sta ap_probe_y_hi
     jsr ap_tile_type_at
     cmp #tile_type_ladder
     bne @no_ladder_down
     jsr ap_snap_to_ladder
-    inc player_feet
+    lda #1
+    jsr ap_add_player_y
     sec
     rts
 @no_ladder_down:
@@ -764,9 +1159,7 @@ ap_step_knockback:
 @kb_vert:
     ldx ap_kb_step
     lda ap_kb_delta,x
-    clc
-    adc player_feet
-    sta player_feet
+    jsr ap_add_player_y
     inx
     stx ap_kb_step
     cpx #ap_kb_length
@@ -777,6 +1170,8 @@ ap_step_knockback:
     bcc @kb_done
     lda ap_tile_row_top
     sta player_feet
+    lda ap_tile_row_top_hi
+    sta ap_player_y_hi
 @kb_finish:
     jsr ap_check_support
     bcs @kb_land
@@ -790,6 +1185,8 @@ ap_step_knockback:
 @kb_land:
     lda ap_tile_row_top
     sta player_feet
+    lda ap_tile_row_top_hi
+    sta ap_player_y_hi
     lda #ap_state_ground
     sta ap_state
     lda #$ff
@@ -803,11 +1200,20 @@ ap_move_right_1px:
     sta old_x
     lda player_x+1
     sta old_x+1
+    lda sd_flags
+    and #sd_flag_vertical
+    bne @check_vert_right_edge
+    lda player_x+1
     cmp stage_goal_x_hi
     bne @do_inc_x
     lda player_x
     cmp stage_goal_x_lo
     beq @right_blocked
+    jmp @do_inc_x
+@check_vert_right_edge:
+    lda player_x
+    cmp #240
+    bcs @right_blocked
 @do_inc_x:
     inc player_x
     bne :+
@@ -837,11 +1243,11 @@ ap_move_left_1px:
     lda ap_boss_lock
     beq @check_stage_left
     lda player_x+1
-    cmp #>arcade_boss_arena_left
+    cmp sd_boss_arena_l+1
     bcc @left_blocked
     bne @do_dec_x
     lda player_x
-    cmp #<arcade_boss_arena_left
+    cmp sd_boss_arena_l
     beq @left_blocked
     bcc @left_blocked
     bcs @do_dec_x
@@ -878,6 +1284,9 @@ ap_check_side_wall:
     sec
     sbc #2
     sta ap_probe_y
+    lda ap_player_y_hi
+    sbc #0
+    sta ap_probe_y_hi
     jsr ap_tile_type_at
     cmp #tile_type_solid
     beq @wall_hit
@@ -891,6 +1300,9 @@ ap_check_side_wall:
     sbc #12
 @test_upper_wall:
     sta ap_probe_y
+    lda ap_player_y_hi
+    sbc #0
+    sta ap_probe_y_hi
     jsr ap_tile_type_at
     cmp #tile_type_solid
     beq @wall_hit
@@ -900,7 +1312,7 @@ ap_check_side_wall:
     sec
     rts
 
-; --- Support check: dynamic platforms first (+/-12 px), then two-point 2D tiles ---
+; --- Support check: 16-bit dynamic platforms (+/-12 px), then 2D tiles ---
 ap_check_support:
     lda #$ff
     sta ap_riding_plat
@@ -908,7 +1320,6 @@ ap_check_support:
 @check_plat_loop:
     lda plat_type,x
     beq @next_plat_chk
-    ; Check 16-bit |player_x - plat_x[x]| <= 12
     sec
     lda player_x
     sbc plat_x_lo,x
@@ -926,15 +1337,27 @@ ap_check_support:
     lda ap_tmp0
     cmp #25
     bcs @next_plat_chk
-    ; Check vertical crossing: prev_feet <= plat_y and player_feet >= plat_y
+    ; 16-bit vertical crossing: prev_feet <= plat_y and player_feet >= plat_y
+    lda plat_y_hi,x
+    cmp ap_prev_feet_hi
+    bcc @next_plat_chk
+    bne @chk_plat_bot
     lda plat_y,x
     cmp ap_prev_feet
     bcc @next_plat_chk
-    cmp player_feet
-    beq @landed_on_plat
-    bcs @next_plat_chk
+@chk_plat_bot:
+    lda ap_player_y_hi
+    cmp plat_y_hi,x
+    bcc @next_plat_chk
+    bne @landed_on_plat
+    lda player_feet
+    cmp plat_y,x
+    bcc @next_plat_chk
 @landed_on_plat:
+    lda plat_y,x
     sta ap_tile_row_top
+    lda plat_y_hi,x
+    sta ap_tile_row_top_hi
     stx ap_riding_plat
     sec
     rts
@@ -948,6 +1371,9 @@ ap_check_support:
     sta ap_probe_y
     and #$f0
     sta ap_tile_row_top
+    lda ap_player_y_hi
+    sta ap_probe_y_hi
+    sta ap_tile_row_top_hi
     lda player_x
     sec
     sbc #4
@@ -982,13 +1408,22 @@ ap_probe_foot:
     sec
     rts
 @foot_oneway:
+    lda ap_prev_feet_hi
+    cmp ap_tile_row_top_hi
+    bcc @foot_solid
+    bne @foot_no
     lda ap_prev_feet
     cmp ap_tile_row_top
     beq @foot_solid
     bcc @foot_solid
+@foot_no:
     clc
     rts
 @foot_ladder_top:
+    lda ap_prev_feet_hi
+    cmp ap_tile_row_top_hi
+    bcc @check_above_ladder
+    bne @foot_no
     lda ap_prev_feet
     cmp ap_tile_row_top
     beq @check_above_ladder
@@ -1000,9 +1435,14 @@ ap_probe_foot:
     sec
     sbc #16
     sta ap_probe_y
+    lda ap_probe_y_hi
+    sbc #0
+    sta ap_probe_y_hi
     jsr ap_tile_type_at
     ldx ap_tile_row_top
     stx ap_probe_y
+    ldx ap_tile_row_top_hi
+    stx ap_probe_y_hi
     cmp #tile_type_ladder
     beq @not_ladder_top
     sec
@@ -1011,11 +1451,30 @@ ap_probe_foot:
     clc
     rts
 
-; --- Hazard / pit check (fatal even with full armor) ---
+; --- Hazard / pit / bottom-of-camera fall check (fatal even with full armor) ---
 ap_check_hazard:
+    lda sd_flags
+    and #sd_flag_vertical
+    bne @vert_fall_check
+    lda ap_player_y_hi
+    bne @fatal_hazard
     lda player_feet
     cmp #232
     bcs @fatal_hazard
+    jmp @tile_hazard_check
+@vert_fall_check:
+    ; Fatal if player falls below bottom of viewport (player_y - ap_cam_y >= 236).
+    sec
+    lda player_feet
+    sbc ap_cam_y_lo
+    tay
+    lda ap_player_y_hi
+    sbc ap_cam_y_hi
+    bmi @tile_hazard_check
+    bne @fatal_hazard
+    cpy #236
+    bcs @fatal_hazard
+@tile_hazard_check:
     lda player_x
     sta ap_probe_x
     lda player_x+1
@@ -1024,6 +1483,9 @@ ap_check_hazard:
     sec
     sbc #1
     sta ap_probe_y
+    lda ap_player_y_hi
+    sbc #0
+    sta ap_probe_y_hi
     jsr ap_tile_type_at
     cmp #tile_type_hazard
     beq @fatal_hazard
@@ -1033,13 +1495,20 @@ ap_check_hazard:
     sta player_hit
     rts
 
-; --- Tile lookup helper: (ap_probe_x, ap_probe_y) -> A = tile_type_* ---
+; --- Tile lookup helper: (ap_probe_x, ap_probe_y_hi:ap_probe_y) -> A = tile_type_* ---
 ap_tile_type_at:
+    lda ap_probe_y_hi
+    asl a
+    asl a
+    asl a
+    asl a
+    sta ap_tmp0
     lda ap_probe_y
     lsr a
     lsr a
     lsr a
     lsr a
+    ora ap_tmp0
     tay
     ldx ap_probe_x+1
     lda ap_probe_x
@@ -1066,7 +1535,6 @@ ap_update_shots:
 :
     cmp #2
     bne @shot_flying
-    ; Torch ground flame: count down and still test enemy hits.
     jsr ap_shot_check_enemies
     ldx ap_loop_idx
     dec ps_timer,x
@@ -1077,7 +1545,6 @@ ap_update_shots:
     jmp @next_shot
 
 @shot_flying:
-    ; Horizontal 16-bit step by signed ps_vx[x]
     lda ps_vx,x
     bmi @shot_step_left
     clc
@@ -1094,14 +1561,24 @@ ap_update_shots:
     dec ps_x_hi,x
 
 @shot_vert:
-    ; Torch parabola: apply vertical velocity and gravity every 2 frames.
     lda ps_kind,x
     cmp #ap_weapon_torch
     bne @shot_bounds
     lda ps_vy,x
+    bmi @torch_vy_neg
     clc
     adc ps_y,x
     sta ps_y,x
+    bcc @torch_grav
+    inc ps_y_hi,x
+    jmp @torch_grav
+@torch_vy_neg:
+    clc
+    adc ps_y,x
+    sta ps_y,x
+    bcs @torch_grav
+    dec ps_y_hi,x
+@torch_grav:
     lda ps_timer,x
     and #1
     bne @shot_bounds
@@ -1113,25 +1590,29 @@ ap_update_shots:
     sta ps_vy,x
 
 @shot_bounds:
-    ; Off-map or off-camera reclamation (16-bit camera check)
     lda ps_x_hi,x
     cmp #3
-    bcs @reclaim_shot
+    bcc :+
+    jmp @reclaim_shot
+:
     sec
     lda ps_x_lo,x
     sbc camera_low
     sta ap_tmp0
     lda ps_x_hi,x
     sbc camera_high
-    bne @reclaim_shot
+    beq :+
+    jmp @reclaim_shot
+:
 
-    ; Check solid tile / torch landing on floor or one-way
     lda ps_x_lo,x
     sta ap_probe_x
     lda ps_x_hi,x
     sta ap_probe_x+1
     lda ps_y,x
     sta ap_probe_y
+    lda ps_y_hi,x
+    sta ap_probe_y_hi
     jsr ap_tile_type_at
     ldx ap_loop_idx
     cmp #tile_type_solid
@@ -1157,6 +1638,9 @@ ap_update_shots:
     sec
     sbc #4
     sta ps_y,x
+    bcs :+
+    dec ps_y_hi,x
+:
     lda #2
     sta ps_active,x
     lda #ap_torch_flame_frames
@@ -1164,7 +1648,6 @@ ap_update_shots:
     jmp @next_shot
 
 @shot_check_tombstone:
-    ; Indestructible tombstone blocks player projectiles.
     jsr ap_shot_hits_tombstone
     ldx ap_loop_idx
     bcs @reclaim_shot
@@ -1199,14 +1682,13 @@ ap_try_spawn_shot:
     bne :+
     rts
 :
-    ; Enforce per-weapon active shot cap (Lance=2, Dagger=3, Torch=2).
     ldx ap_weapon
     lda ap_weapon_max_shots,x
-    sta ap_tmp0                 ; cap
+    sta ap_tmp0
     lda #0
-    sta ap_tmp1                 ; active count
+    sta ap_tmp1
     lda #$ff
-    sta ap_tmp2                 ; first free slot
+    sta ap_tmp2
     ldx #0
 @count_shots:
     lda ps_active,x
@@ -1248,6 +1730,9 @@ ap_try_spawn_shot:
     sbc #9
 @set_sy:
     sta ps_y,x
+    lda ap_player_y_hi
+    sbc #0
+    sta ps_y_hi,x
     ldy ap_weapon
     lda player_left
     bne @neg_vx
@@ -1296,14 +1781,17 @@ ap_shot_hits_tombstone:
     lda ap_tmp0
     cmp #17
     bcs @next_tomb
+    ; 16-bit Y: plat_y <= ps_y <= plat_y + 16
+    sec
     lda ps_y,x
-    cmp plat_y,y
-    bcc @next_tomb
-    lda plat_y,y
-    clc
-    adc #16
-    cmp ps_y,x
-    bcc @next_tomb
+    sbc plat_y,y
+    sta ap_tmp0
+    lda ps_y_hi,x
+    sbc plat_y_hi,y
+    bne @next_tomb
+    lda ap_tmp0
+    cmp #17
+    bcs @next_tomb
     sec
     rts
 @next_tomb:
@@ -1313,17 +1801,15 @@ ap_shot_hits_tombstone:
     clc
     rts
 
-; Carry set if shot slot ap_loop_idx destroyed an enemy.
-ap_shot_check_enemies:
-    ldx ap_loop_idx
-    lda ap_enemy_active
-    beq @check_pot_enemy
+; Helper: test if shot slot X hits 16x16 enemy centered at (ap_probe_x, ap_probe_y_hi:ap_probe_y).
+; Carry set on hit. Preserves Y.
+ap_shot_hits_probe:
     sec
     lda ps_x_lo,x
-    sbc #<arcade_enemy_x
+    sbc ap_probe_x
     sta ap_tmp0
     lda ps_x_hi,x
-    sbc #>arcade_enemy_x
+    sbc ap_probe_x+1
     sta ap_tmp1
     clc
     lda ap_tmp0
@@ -1331,93 +1817,96 @@ ap_shot_check_enemies:
     sta ap_tmp0
     lda ap_tmp1
     adc #0
-    bne @check_pot_enemy
+    bne @shp_miss
     lda ap_tmp0
     cmp #17
-    bcs @check_pot_enemy
-    lda ps_y,x
-    cmp #arcade_enemy_feet - player_height
+    bcs @shp_miss
+    ; Check probe_y - 16 <= ps_y < probe_y => 0 < probe_y - ps_y <= 16
+    sec
+    lda ap_probe_y
+    sbc ps_y,x
+    sta ap_tmp0
+    lda ap_probe_y_hi
+    sbc ps_y_hi,x
+    bne @shp_miss
+    lda ap_tmp0
+    beq @shp_miss
+    cmp #player_height + 1
+    bcs @shp_miss
+    sec
+    rts
+@shp_miss:
+    clc
+    rts
+
+; Carry set if shot slot ap_loop_idx hit an enemy or boss.
+ap_shot_check_enemies:
+    ldx ap_loop_idx
+    lda ap_enemy_active
+    beq @check_pot_enemy
+    lda sd_enemy1_x
+    sta ap_probe_x
+    lda sd_enemy1_x+1
+    sta ap_probe_x+1
+    lda sd_enemy1_y
+    sta ap_probe_y
+    lda sd_enemy1_y+1
+    sta ap_probe_y_hi
+    jsr ap_shot_hits_probe
     bcc @check_pot_enemy
-    cmp #arcade_enemy_feet
-    bcs @check_pot_enemy
     lda #0
     sta ap_enemy_active
+    lda #ap_score_enemy
+    jsr ap_add_score
     sec
     rts
 
 @check_pot_enemy:
     lda ap_pot_enemy_active
     beq @no_enemy_hit
-    sec
-    lda ps_x_lo,x
-    sbc #<arcade_pot_enemy_x
-    sta ap_tmp0
-    lda ps_x_hi,x
-    sbc #>arcade_pot_enemy_x
-    sta ap_tmp1
-    clc
-    lda ap_tmp0
-    adc #8
-    sta ap_tmp0
-    lda ap_tmp1
-    adc #0
-    bne @no_enemy_hit
-    lda ap_tmp0
-    cmp #17
-    bcs @no_enemy_hit
-    lda ps_y,x
-    cmp #arcade_pot_enemy_feet - player_height
+    lda sd_pot_x
+    sta ap_probe_x
+    lda sd_pot_x+1
+    sta ap_probe_x+1
+    lda sd_pot_y
+    sta ap_probe_y
+    lda sd_pot_y+1
+    sta ap_probe_y_hi
+    jsr ap_shot_hits_probe
     bcc @no_enemy_hit
-    cmp #arcade_pot_enemy_feet
-    bcs @no_enemy_hit
-    ; Pot enemy defeated: drop Torch weapon item at its 16-bit position!
     lda #0
     sta ap_pot_enemy_active
-    lda #item_torch
+    lda sd_pot_drop
     sta item_type+2
-    lda #<arcade_pot_enemy_x
+    lda sd_pot_x
     sta item_x_lo+2
-    lda #>arcade_pot_enemy_x
+    lda sd_pot_x+1
     sta item_x_hi+2
-    lda #arcade_pot_enemy_feet
+    lda sd_pot_y
     sta item_y+2
+    lda sd_pot_y+1
+    sta item_y_hi+2
+    lda #ap_score_enemy
+    jsr ap_add_score
     sec
     rts
+
 @no_enemy_hit:
-    ; Check hits against generic enemy pool (zombies & turrets).
     ldy #0
 @pool_shot_loop:
     lda en_type,y
     beq @next_pool_shot
+    lda en_x_lo,y
+    sta ap_probe_x
+    lda en_x_hi,y
+    sta ap_probe_x+1
+    lda en_y,y
+    sta ap_probe_y
+    lda en_y_hi,y
+    sta ap_probe_y_hi
     ldx ap_loop_idx
-    sec
-    lda ps_x_lo,x
-    sbc en_x_lo,y
-    sta ap_tmp0
-    lda ps_x_hi,x
-    sbc en_x_hi,y
-    sta ap_tmp1
-    clc
-    lda ap_tmp0
-    adc #8
-    sta ap_tmp0
-    lda ap_tmp1
-    adc #0
-    bne @next_pool_shot
-    lda ap_tmp0
-    cmp #17
-    bcs @next_pool_shot
-    lda en_y,y
-    sec
-    sbc #player_height
-    cmp ps_y,x
-    beq @check_pool_y_bot
-    bcs @next_pool_shot
-@check_pool_y_bot:
-    lda en_y,y
-    cmp ps_y,x
+    jsr ap_shot_hits_probe
     bcc @next_pool_shot
-    beq @next_pool_shot
     lda en_hp,y
     sec
     sbc #1
@@ -1425,11 +1914,18 @@ ap_shot_check_enemies:
     bne @pool_hit_survived
     lda en_type,y
     cmp #en_zombie
-    bne :+
+    bne @turret_killed
     dec sched_zombies_live
-:
+    lda #ap_score_zombie
+    jmp @pool_kill_score
+@turret_killed:
+    lda #ap_score_enemy
+@pool_kill_score:
+    pha
     lda #en_none
     sta en_type,y
+    pla
+    jsr ap_add_score
 @pool_hit_survived:
     sec
     rts
@@ -1439,12 +1935,14 @@ ap_shot_check_enemies:
     bne @pool_shot_loop
     jmp ap_shot_check_boss
 
-; --- Item / weapon drop pickup (16-bit safe) ---
+; --- Item / weapon drop pickup (16-bit X and Y safe) ---
 ap_check_items:
     ldx #0
 @item_loop:
     lda item_type,x
-    beq @next_item
+    bne :+
+    jmp @next_item
+:
     sec
     lda player_x
     sbc item_x_lo,x
@@ -1458,34 +1956,59 @@ ap_check_items:
     sta ap_tmp0
     lda ap_tmp1
     adc #0
-    bne @next_item
+    beq :+
+    jmp @next_item
+:
     lda ap_tmp0
     cmp #21
-    bcs @next_item
-    lda player_feet
+    bcc :+
+    jmp @next_item
+:
+    ; 16-bit |player_y - item_y| <= 10
     sec
+    lda player_feet
     sbc item_y,x
+    sta ap_tmp0
+    lda ap_player_y_hi
+    sbc item_y_hi,x
+    sta ap_tmp1
     clc
+    lda ap_tmp0
     adc #10
+    sta ap_tmp0
+    lda ap_tmp1
+    adc #0
+    beq :+
+    jmp @next_item
+:
+    lda ap_tmp0
     cmp #21
-    bcs @next_item
-    ; Apply pickup effect
+    bcc :+
+    jmp @next_item
+:
+
     lda item_type,x
     cmp #item_key
     bne @check_armor_pickup
     lda #1
     sta ap_key_collected
-    bne @consume_item
+    txa
+    pha
+    lda #ap_score_key
+    jsr ap_add_score
+    pla
+    tax
+    jmp @consume_item
 @check_armor_pickup:
     cmp #item_armor
     bne @check_weapon_drop
     lda #ap_armor_full
     sta ap_armor
     cpx #0
-    bne @consume_item
+    bne @score_item_pick
     lda #0
     sta ap_armor_item_active
-    beq @consume_item
+    beq @score_item_pick
 @check_weapon_drop:
     cmp #item_dagger
     bne @check_torch_drop
@@ -1501,6 +2024,13 @@ ap_check_items:
 @set_weapon_hud:
     sta ap_weapon
     inc campaign_hud_dirty
+@score_item_pick:
+    txa
+    pha
+    lda #ap_score_item
+    jsr ap_add_score
+    pla
+    tax
 @consume_item:
     lda #item_none
     sta item_type,x
@@ -1518,7 +2048,7 @@ ap_check_items:
 :
     rts
 
-; --- Enemy contact (both test enemy and pot enemy) ---
+; --- Enemy contact (fixed enemies, enemy pool, and boss) ---
 ap_check_enemies_contact:
     lda ap_invuln
     beq :+
@@ -1526,12 +2056,14 @@ ap_check_enemies_contact:
 :
     lda ap_enemy_active
     beq @check_pot_contact
-    lda #<arcade_enemy_x
+    lda sd_enemy1_x
     sta ap_probe_x
-    lda #>arcade_enemy_x
+    lda sd_enemy1_x+1
     sta ap_probe_x+1
-    lda #arcade_enemy_feet
+    lda sd_enemy1_y
     sta ap_probe_y
+    lda sd_enemy1_y+1
+    sta ap_probe_y_hi
     jsr ap_test_contact_at_probe
     bcc :+
     jmp @do_player_damage
@@ -1539,18 +2071,19 @@ ap_check_enemies_contact:
 @check_pot_contact:
     lda ap_pot_enemy_active
     beq @check_pool_contact
-    lda #<arcade_pot_enemy_x
+    lda sd_pot_x
     sta ap_probe_x
-    lda #>arcade_pot_enemy_x
+    lda sd_pot_x+1
     sta ap_probe_x+1
-    lda #arcade_pot_enemy_feet
+    lda sd_pot_y
     sta ap_probe_y
+    lda sd_pot_y+1
+    sta ap_probe_y_hi
     jsr ap_test_contact_at_probe
     bcc :+
     jmp @do_player_damage
 :
 @check_pool_contact:
-    ; Check contact with generic enemy pool (zombies & turrets).
     ldy #0
 @pool_contact_loop:
     lda en_type,y
@@ -1562,6 +2095,8 @@ ap_check_enemies_contact:
     sta ap_probe_x+1
     lda en_y,y
     sta ap_probe_y
+    lda en_y_hi,y
+    sta ap_probe_y_hi
     jsr ap_test_contact_at_probe
     ldy ap_loop_idx
     bcs @do_player_damage
@@ -1569,7 +2104,8 @@ ap_check_enemies_contact:
     iny
     cpy #ap_max_enemies
     bne @pool_contact_loop
-    ; Check contact with active boss body/head (24x32 px).
+
+    ; Check contact with active boss (16x32 hitbox)
     lda ap_boss_state
     cmp #boss_active
     beq :+
@@ -1592,20 +2128,24 @@ ap_check_enemies_contact:
     lda ap_tmp0
     cmp #29
     bcs @contact_none
-    lda ap_boss_y
+    ; 16-bit Y: boss_y - 31 <= player_y < boss_y + 16 => (player_y - boss_y + 31) < 47
     sec
-    sbc #31
-    cmp player_feet
-    beq @boss_c_bot
-    bcs @contact_none
-@boss_c_bot:
-    lda ap_boss_y
+    lda player_feet
+    sbc ap_boss_y
+    sta ap_tmp0
+    lda ap_player_y_hi
+    sbc ap_boss_y_hi
+    sta ap_tmp1
     clc
-    adc #player_height
-    cmp player_feet
-    bcc @contact_none
-    beq @contact_none
-    bcs @do_player_damage
+    lda ap_tmp0
+    adc #31
+    sta ap_tmp0
+    lda ap_tmp1
+    adc #0
+    bne @contact_none
+    lda ap_tmp0
+    cmp #47
+    bcs @contact_none
 @do_player_damage:
     lda #snd_se_damage
     jsr call_bank8_play_se
@@ -1657,29 +2197,60 @@ ap_test_contact_at_probe:
     lda ap_tmp0
     cmp #21
     bcs @miss
-    lda ap_probe_y
+    ; 16-bit Y: probe_y - 15 <= player_y < probe_y + (crouch ? 10 : 16)
     sec
-    sbc #player_height - 1
-    cmp player_feet
-    beq @check_bottom
-    bcs @miss
-@check_bottom:
-    lda ap_probe_y
+    lda player_feet
+    sbc ap_probe_y
+    sta ap_tmp0
+    lda ap_player_y_hi
+    sbc ap_probe_y_hi
+    sta ap_tmp1
     clc
+    lda ap_tmp0
+    adc #15
+    sta ap_tmp0
+    lda ap_tmp1
+    adc #0
+    bne @miss
+    lda ap_tmp0
     ldx ap_crouch
-    beq @stand_bottom
-    adc #10
-    jmp @cmp_bottom
-@stand_bottom:
-    adc #player_height
-@cmp_bottom:
-    cmp player_feet
-    bcc @miss
-    beq @miss
+    beq @stand_c
+    cmp #25
+    bcs @miss
+    sec
+    rts
+@stand_c:
+    cmp #31
+    bcs @miss
     sec
     rts
 @miss:
     clc
+    rts
+
+; --- 16-bit sprite Y helper ---
+; Input: A = world_y_lo, X = world_y_hi, Y = positive pixel offset to subtract.
+; Sets draw_y to screen Y, or $f8 if offscreen.
+ap_set_sprite_y_off:
+    sty ap_tmp3
+    sec
+    sbc ap_tmp3
+    bcs :+
+    dex
+:
+    sec
+    sbc ap_cam_y_lo
+    sta draw_y
+    txa
+    sbc ap_cam_y_hi
+    bne @off_y
+    lda draw_y
+    cmp #240
+    bcs @off_y
+    rts
+@off_y:
+    lda #$f8
+    sta draw_y
     rts
 
 ; --- OAM sprite rendering for arcade mode ---
@@ -1718,15 +2289,14 @@ ap_draw_sprites:
     lda #1
 @set_player_pal:
     sta draw_palette
-    sec
-    lda player_feet
-    sbc #player_height+1
-    ldx ap_crouch
+    ldy #player_height + 1
+    lda ap_crouch
     beq :+
-    clc
-    adc #4
+    ldy #player_height - 3
 :
-    jsr set_sprite_y
+    lda player_feet
+    ldx ap_player_y_hi
+    jsr ap_set_sprite_y_off
     lda #1
     sta draw_tile
     lda player_x
@@ -1734,34 +2304,38 @@ ap_draw_sprites:
     jsr draw_pair
 
 @draw_enemies:
-    ; Slots 2-3: Test enemy 1
+    ; Slots 2-3: Fixed enemy 1
     lda ap_enemy_active
     beq @draw_pot_enemy
     lda #2 * 4
     sta draw_slot
     lda #1
     sta draw_palette
-    lda #arcade_enemy_feet - player_height - 1
-    jsr set_sprite_y
+    ldy #player_height + 1
+    lda sd_enemy1_y
+    ldx sd_enemy1_y+1
+    jsr ap_set_sprite_y_off
     lda #5
     sta draw_tile
-    lda #<arcade_enemy_x
-    ldx #>arcade_enemy_x
+    lda sd_enemy1_x
+    ldx sd_enemy1_x+1
     jsr draw_pair
 @draw_pot_enemy:
-    ; Slots 9-10: Pot-carrying enemy 2
+    ; Slots 9-10: Pot-carrying enemy
     lda ap_pot_enemy_active
     beq @draw_shots
     lda #9 * 4
     sta draw_slot
     lda #3
     sta draw_palette
-    lda #arcade_pot_enemy_feet - player_height - 1
-    jsr set_sprite_y
+    ldy #player_height + 1
+    lda sd_pot_y
+    ldx sd_pot_y+1
+    jsr ap_set_sprite_y_off
     lda #5
     sta draw_tile
-    lda #<arcade_pot_enemy_x
-    ldx #>arcade_pot_enemy_x
+    lda sd_pot_x
+    ldx sd_pot_x+1
     jsr draw_pair
 
 @draw_shots:
@@ -1777,19 +2351,19 @@ ap_draw_sprites:
     ldx ps_active,y
     cpx #2
     bne :+
-    lda #2                      ; Ground flame uses bright red/orange palette
+    lda #2
 :
     sta draw_palette
     lda #9
     cpx #2
     bne :+
-    lda #15                     ; Flame spark tile
+    lda #15
 :
     sta draw_tile
     lda ps_y,y
-    sec
-    sbc #2
-    jsr set_sprite_y
+    ldx ps_y_hi,y
+    ldy #2
+    jsr ap_set_sprite_y_off
     ldy ap_loop_idx
     lda ps_x_lo,y
     ldx ps_x_hi,y
@@ -1807,7 +2381,7 @@ ap_draw_sprites:
     cpy #ap_max_shots
     bne @draw_shot_loop
 
-    ; Slots 7-8: High-priority enemy bolts (before lower-priority objects)
+    ; Slots 7-8: High-priority enemy bolts
     lda #7 * 4
     sta draw_slot
     ldy #0
@@ -1820,9 +2394,9 @@ ap_draw_sprites:
     lda #15
     sta draw_tile
     lda eb_y,y
-    sec
-    sbc #3
-    jsr set_sprite_y
+    ldx eb_y_hi,y
+    ldy #3
+    jsr ap_set_sprite_y_off
     ldy ap_loop_idx
     lda eb_x_lo,y
     ldx eb_x_hi,y
@@ -1840,7 +2414,7 @@ ap_draw_sprites:
     cpy #ap_max_ebolts
     bne @draw_ebolt_loop
 
-    ; Slots 11-18: Generic enemy pool (zombies & turrets, 2 tiles each)
+    ; Slots 11-18: Generic enemy pool
     lda #11 * 4
     sta draw_slot
     ldy #0
@@ -1851,11 +2425,11 @@ ap_draw_sprites:
     lda #1
     cmp en_type,y
     beq @zombie_pal
-    lda #3                      ; Turret
+    lda #3
     ldx en_timer,y
     cpx #ap_turret_windup
     bcs @set_en_pal
-    lda #2                      ; Lit during windup
+    lda #2
     bne @set_en_pal
 @zombie_pal:
     lda #0
@@ -1869,9 +2443,9 @@ ap_draw_sprites:
 :
     sta draw_tile
     lda en_y,y
-    sec
-    sbc #player_height + 1
-    jsr set_sprite_y
+    ldx en_y_hi,y
+    ldy #player_height + 1
+    jsr ap_set_sprite_y_off
     ldy ap_loop_idx
     lda en_x_lo,y
     ldx en_x_hi,y
@@ -1882,14 +2456,14 @@ ap_draw_sprites:
     cpy #ap_max_enemies
     bne @draw_pool_en_loop
 
-    ; Slots 11-15 reused for 24x32 multi-part boss during boss battle (<=8 sprites/scanline)
+    ; Slots 11-14 reused for 16x32 multi-part boss during boss battle
     lda ap_boss_state
     cmp #boss_active
     bne @draw_plats
     jsr ap_draw_boss
 
 @draw_plats:
-    ; Slots 19-24: Dynamic platforms (2 tiles wide each)
+    ; Slots 19-24: Dynamic platforms
     lda #19 * 4
     sta draw_slot
     ldy #0
@@ -1906,9 +2480,9 @@ ap_draw_sprites:
     lda #11
     sta draw_tile
     lda plat_y,y
-    sec
-    sbc #1
-    jsr set_sprite_y
+    ldx plat_y_hi,y
+    ldy #1
+    jsr ap_set_sprite_y_off
     ldy ap_loop_idx
     lda plat_x_lo,y
     ldx plat_x_hi,y
@@ -1919,7 +2493,7 @@ ap_draw_sprites:
     cpy #ap_max_plats
     bne @draw_plat_loop
 
-    ; Slots 25-28: Items / weapon drops
+    ; Slots 25-28: Items / weapon drops / key
     lda #25 * 4
     sta draw_slot
     ldy #0
@@ -1931,15 +2505,15 @@ ap_draw_sprites:
     ldx item_type,y
     cpx #item_key
     bne :+
-    lda #2                      ; Key highlights in bright gold/red palette
+    lda #2
 :
     sta draw_palette
     lda #15
     sta draw_tile
     lda item_y,y
-    sec
-    sbc #9
-    jsr set_sprite_y
+    ldx item_y_hi,y
+    ldy #9
+    jsr ap_set_sprite_y_off
     ldy ap_loop_idx
     lda item_x_lo,y
     ldx item_x_hi,y
@@ -1978,27 +2552,37 @@ ap_update_rank:
 @rank_done:
     rts
 
-; --- Scroll-linked enemy scheduler & fixed turret spawner ---
+; Return active scheduler page axis in A (camera_high for horizontal, pan_y_page for vertical).
+ap_current_sched_page:
+    lda sd_flags
+    and #sd_flag_vertical
+    bne @use_vert_page
+    lda camera_high
+    rts
+@use_vert_page:
+    lda pan_y_page
+    rts
+
+; --- Data-driven scroll-linked enemy scheduler & fixed turret spawner ---
 ap_update_scheduler:
-    lda campaign_stage
-    cmp #1
-    bne @sched_early_exit
+    lda sd_sched_page
+    cmp #$ff
+    beq @sched_early_exit
     lda ap_boss_state
     beq @sched_run
 @sched_early_exit:
     rts
 @sched_run:
-    lda camera_high
+    jsr ap_current_sched_page
     cmp sched_page
     beq @check_group_spawns
     sta sched_page
-    cmp #2
-    beq @enter_page2
-    ; Leaving page 2 cancels future reservations while keeping active enemies alive.
+    cmp sd_sched_page
+    beq @enter_sched_page
     lda #0
     sta sched_group
     beq @check_group_spawns
-@enter_page2:
+@enter_sched_page:
     lda #1
     sta sched_group
     lda sched_wait
@@ -2008,22 +2592,26 @@ ap_update_scheduler:
     sta sched_wait
 
 @check_group_spawns:
-    ; Fixed turret at X=712 spawns once upon entering page 2 (re-armed if reclaimed offscreen).
-    lda camera_high
-    cmp #2
+    jsr ap_current_sched_page
+    cmp sd_sched_page
     bne @check_zombie_sched
+    lda sd_turret_x
+    ora sd_turret_x+1
+    beq @check_zombie_sched
     lda ap_turret_spawned
     bne @check_zombie_sched
     jsr ap_alloc_enemy_slot
     bcc @check_zombie_sched
     lda #en_turret
     sta en_type,x
-    lda #<arcade_turret_x
+    lda sd_turret_x
     sta en_x_lo,x
-    lda #>arcade_turret_x
+    lda sd_turret_x+1
     sta en_x_hi,x
-    lda #arcade_turret_feet
+    lda sd_turret_y
     sta en_y,x
+    lda sd_turret_y+1
+    sta en_y_hi,x
     lda #0
     sta en_dir,x
     lda #ap_turret_cooldown
@@ -2036,7 +2624,6 @@ ap_update_scheduler:
 @check_zombie_sched:
     lda sched_group
     beq @sched_done
-    ; Pause countdown while zombie cap for current rank is full (Rev G behavior).
     ldx ap_rank
     lda sched_zombies_live
     cmp ap_rank_zombie_cap,x
@@ -2050,12 +2637,14 @@ ap_update_scheduler:
     bcc @sched_done
     lda #en_zombie
     sta en_type,x
-    lda #<arcade_zombie_spawn_x
+    lda sd_zombie_x
     sta en_x_lo,x
-    lda #>arcade_zombie_spawn_x
+    lda sd_zombie_x+1
     sta en_x_hi,x
-    lda #arcade_zombie_feet
+    lda sd_zombie_y
     sta en_y,x
+    lda sd_zombie_y+1
+    sta en_y_hi,x
     lda #0
     sta en_dir,x
     sta en_timer,x
@@ -2068,7 +2657,6 @@ ap_update_scheduler:
 @sched_done:
     rts
 
-; Carry set and X = free slot index if an enemy slot is available.
 ap_alloc_enemy_slot:
     ldx #0
 @alloc_loop:
@@ -2092,7 +2680,6 @@ ap_update_enemies:
     bne :+
     jmp @en_next
 :
-    ; Offscreen reclamation: keep if (en_x - camera_x + 32) in [0..319] ($0000..$013F).
     sec
     lda en_x_lo,x
     sbc camera_low
@@ -2141,7 +2728,6 @@ ap_update_enemies:
 
 @update_zombie:
     inc en_timer,x
-    ; Rank 0-1: 0.5 px/frame; Rank 2-3: 1.0 px/frame.
     lda ap_rank
     cmp #2
     bcs @zombie_step_left
@@ -2161,7 +2747,6 @@ ap_update_enemies:
     bne @en_next
     lda #ap_turret_cooldown
     sta en_timer,x
-    ; Attempt to fire enemy bolt; if bolt pool is full, skip and keep cadence.
     jsr ap_try_spawn_ebolt
     ldx ap_loop_idx
 
@@ -2173,7 +2758,6 @@ ap_update_enemies:
 :
     rts
 
-; X = turret enemy slot. Allocates an enemy bolt if a slot is free.
 ap_try_spawn_ebolt:
     ldy #0
 @eb_find:
@@ -2197,7 +2781,10 @@ ap_try_spawn_ebolt:
     sec
     sbc #9
     sta eb_y,y
-    lda #$fe                    ; -2 px/frame left
+    lda en_y_hi,x
+    sbc #0
+    sta eb_y_hi,y
+    lda #$fe
     sta eb_vx,y
     lda #120
     sta eb_timer,y
@@ -2227,7 +2814,6 @@ ap_update_ebolts:
     bcs @eb_bounds
     dec eb_x_hi,x
 @eb_bounds:
-    ; Reclaim when outside camera [camera_x .. camera_x + 255].
     sec
     lda eb_x_lo,x
     sbc camera_low
@@ -2236,7 +2822,6 @@ ap_update_ebolts:
     bne @eb_reclaim
     dec eb_timer,x
     beq @eb_reclaim
-    ; Hit check against player (respects invulnerability and crouch height).
     lda ap_invuln
     bne @eb_next
     sec
@@ -2256,11 +2841,15 @@ ap_update_ebolts:
     lda ap_tmp0
     cmp #17
     bcs @eb_next
-    lda player_feet
-    cmp eb_y,x
-    bcc @eb_next
+    ; 16-bit Y: eb_y <= player_y < eb_y + (crouch ? 10 : 16)
     sec
+    lda player_feet
     sbc eb_y,x
+    sta ap_tmp0
+    lda ap_player_y_hi
+    sbc eb_y_hi,x
+    bne @eb_next
+    lda ap_tmp0
     ldy ap_crouch
     beq @eb_stand_h
     cmp #10
@@ -2318,48 +2907,79 @@ ap_apply_bolt_damage:
     sta player_hit
     rts
 
-; --- Task 3-5: Multi-part boss encounter, arena lock, key drop ---
+; --- Data-driven multi-part boss encounter, arena lock, key drop ---
 ap_update_boss:
-    lda campaign_stage
-    cmp #1
-    bne @boss_done
+    lda sd_flags
+    and #sd_flag_has_boss
+    bne :+
+    rts
+:
     lda ap_boss_state
     cmp #boss_active
-    beq @boss_step
+    bne :+
+    jmp @boss_step
+:
     cmp #boss_idle
-    bne @boss_done
-    ; Trigger boss encounter when player reaches X >= arcade_boss_trigger_x (720).
+    beq :+
+    rts
+:
+    lda sd_flags
+    and #sd_flag_vertical
+    bne @check_vert_boss_trig
+    ; Horizontal stage: trigger when player_x >= sd_boss_trig_x
     lda player_x+1
-    cmp #>arcade_boss_trigger_x
-    bcc @boss_done
+    cmp sd_boss_trig_x+1
+    bcs :+
+    rts
+:
     bne @start_boss
     lda player_x
-    cmp #<arcade_boss_trigger_x
-    bcc @boss_done
+    cmp sd_boss_trig_x
+    bcs @start_boss
+    rts
+@check_vert_boss_trig:
+    ; Vertical stage: trigger when grounded and player_y <= sd_boss_trig_y
+    lda ap_state
+    cmp #ap_state_ground
+    beq :+
+    rts
+:
+    lda ap_player_y_hi
+    cmp sd_boss_trig_y+1
+    bcc @start_boss
+    beq :+
+    rts
+:
+    lda player_feet
+    cmp sd_boss_trig_y
+    beq @start_boss
+    bcc @start_boss
+    rts
 @start_boss:
     lda #boss_active
     sta ap_boss_state
     lda #1
     sta ap_boss_lock
-    lda #arcade_boss_hp_init
+    lda sd_boss_hp
     sta ap_boss_hp
-    lda #arcade_boss_shield_init
+    lda sd_boss_shield
     sta ap_boss_shield_hp
-    lda #<arcade_boss_start_x
+    lda sd_boss_start_x
     sta ap_boss_x_lo
-    lda #>arcade_boss_start_x
+    lda sd_boss_start_x+1
     sta ap_boss_x_hi
-    lda #arcade_boss_feet
+    lda sd_boss_y
     sta ap_boss_y
+    lda sd_boss_y+1
+    sta ap_boss_y_hi
     lda #0
     sta ap_boss_dir
     sta ap_boss_flash
     sta sched_group
     sta sched_zombies_live
-    lda #arcade_boss_fire_period
+    lda sd_boss_fire_per
     sta ap_boss_timer
-    ; Clear active regular enemies, bolts, platforms, and stray items to keep
-    ; scanline sprite load strictly <= 8 during the 24x32 multi-part boss fight.
+    ; Clear active regular enemies, bolts, platforms, and stray items (<=8 sprites/scanline).
     ldx #ap_max_enemies - 1
     lda #0
 :
@@ -2381,7 +3001,7 @@ ap_update_boss:
     sta item_type,x
     dex
     bpl :-
-    lda #snd_song_boss
+    lda sd_bgm_boss
     jmp call_bank8_play_song
 @boss_done:
     rts
@@ -2391,7 +3011,6 @@ ap_update_boss:
     beq :+
     dec ap_boss_flash
 :
-    ; Pace horizontally between arcade_boss_min_x (684) and arcade_boss_max_x (744) at 0.5 px/f.
     lda ap_boss_timer
     and #1
     bne @boss_fire_check
@@ -2403,10 +3022,10 @@ ap_update_boss:
 :
     dec ap_boss_x_lo
     lda ap_boss_x_hi
-    cmp #>arcade_boss_min_x
+    cmp sd_boss_min_x+1
     bne @boss_fire_check
     lda ap_boss_x_lo
-    cmp #<arcade_boss_min_x
+    cmp sd_boss_min_x
     bne @boss_fire_check
     lda #1
     sta ap_boss_dir
@@ -2417,10 +3036,10 @@ ap_update_boss:
     inc ap_boss_x_hi
 :
     lda ap_boss_x_hi
-    cmp #>arcade_boss_max_x
+    cmp sd_boss_max_x+1
     bne @boss_fire_check
     lda ap_boss_x_lo
-    cmp #<arcade_boss_max_x
+    cmp sd_boss_max_x
     bne @boss_fire_check
     lda #0
     sta ap_boss_dir
@@ -2428,12 +3047,12 @@ ap_update_boss:
 @boss_fire_check:
     dec ap_boss_timer
     bne @boss_done
-    lda #arcade_boss_fire_period
+    lda sd_boss_fire_per
     sta ap_boss_timer
     jmp ap_boss_fire_bolt
 
 ap_boss_fire_bolt:
-    ; Keep at most 1 active boss bolt so player(2) + boss(2) + 3 daggers(3) + bolt(1) <= 8/scanline.
+    ; Cap boss bolts to 1 active (slot 0) so total scanline sprites stay <= 8.
     ldy #0
     lda eb_active+0
     beq @bfb_alloc
@@ -2448,7 +3067,6 @@ ap_boss_fire_bolt:
     lda ap_boss_x_hi
     sbc #0
     sta eb_x_hi,y
-    ; Alternate low (boss_y - 9) and high (boss_y - 22) shots by patrol direction.
     lda ap_boss_y
     sec
     ldx ap_boss_dir
@@ -2459,15 +3077,16 @@ ap_boss_fire_bolt:
     sbc #22
 @bfb_set_y:
     sta eb_y,y
-    lda #$fe                    ; -2 px/frame left
+    lda ap_boss_y_hi
+    sbc #0
+    sta eb_y_hi,y
+    lda #$fe
     sta eb_vx,y
     lda #120
     sta eb_timer,y
     rts
 
 ; Carry set if shot slot ap_loop_idx hits active boss.
-; Upper hits (y < boss_y - 16) or hits after lower armor breaks damage ap_boss_hp;
-; lower hits while ap_boss_shield_hp > 0 chip the armor first.
 ap_shot_check_boss:
     lda ap_boss_state
     cmp #boss_active
@@ -2493,34 +3112,32 @@ ap_shot_check_boss:
     lda ap_tmp0
     cmp #29
     bcs @boss_shot_miss
-    lda ap_boss_y
+    ; 16-bit Y: boss_y - 32 <= ps_y < boss_y => 1 <= boss_y - ps_y <= 32
     sec
-    sbc #32
-    cmp ps_y,x
-    beq @boss_shot_y_ok
-    bcs @boss_shot_miss
-@boss_shot_y_ok:
     lda ap_boss_y
-    cmp ps_y,x
-    bcc @boss_shot_miss
+    sbc ps_y,x
+    sta ap_tmp0
+    lda ap_boss_y_hi
+    sbc ps_y_hi,x
+    bne @boss_shot_miss
+    lda ap_tmp0
     beq @boss_shot_miss
+    cmp #33
+    bcs @boss_shot_miss
     ; Hit confirmed!
     lda #8
     sta ap_boss_flash
     lda ap_boss_shield_hp
     beq @boss_core_hit
-    lda ap_boss_y
-    sec
-    sbc #16
-    cmp ps_y,x
-    bcs @boss_core_hit          ; Shot hit upper head region directly
+    lda ap_tmp0
+    cmp #17
+    bcs @boss_core_hit          ; Shot hit upper head region (boss_y - ps_y >= 17)
     dec ap_boss_shield_hp
     sec
     rts
 @boss_core_hit:
     dec ap_boss_hp
     bne @boss_hit_done
-    ; Boss defeated: drop Key item into slot 3 and clear enemy bolts.
     lda #boss_defeated
     sta ap_boss_state
     ldy #ap_max_ebolts - 1
@@ -2537,6 +3154,10 @@ ap_shot_check_boss:
     sta item_x_hi+3
     lda ap_boss_y
     sta item_y+3
+    lda ap_boss_y_hi
+    sta item_y_hi+3
+    lda #ap_score_boss
+    jsr ap_add_score
 @boss_hit_done:
     sec
     rts
@@ -2544,15 +3165,11 @@ ap_shot_check_boss:
     clc
     rts
 
-; Draw 24x32 multi-part boss in OAM slots 11-15:
-; - Upper head: 2 sprites (16x16) at Y = boss_y - 33
-; - Lower body: 3 sprites (24x16) at Y = boss_y - 17
-; Max scanline sprites during boss fight: head 2 + shots 2 + bolt 1 = 5;
-; body 3 + player 2 + shots 2 + bolt 1 = 8 (within hardware 8-sprite limit).
+; Draw 16x32 multi-part boss in OAM slots 11-14 (4 sprites):
+; Head 2 + Body 2; max scanline = player(2) + boss(2) + 3 daggers(3) + bolt(1) = 8.
 ap_draw_boss:
     lda #11 * 4
     sta draw_slot
-    ; Head palette: flash=2, normal=1
     lda #1
     ldx ap_boss_flash
     beq :+
@@ -2561,15 +3178,14 @@ ap_draw_boss:
     sta draw_palette
     lda #5
     sta draw_tile
+    ldy #33
     lda ap_boss_y
-    sec
-    sbc #33
-    jsr set_sprite_y
+    ldx ap_boss_y_hi
+    jsr ap_set_sprite_y_off
     lda ap_boss_x_lo
     ldx ap_boss_x_hi
     jsr draw_pair
 
-    ; Body palette: flash=2, shielded=3, unshielded=0
     lda #0
     ldx ap_boss_shield_hp
     beq :+
@@ -2582,27 +3198,10 @@ ap_draw_boss:
     sta draw_palette
     lda #11
     sta draw_tile
+    ldy #17
     lda ap_boss_y
-    sec
-    sbc #17
-    jsr set_sprite_y
-    ; Draw 3 contiguous 8x16 sprites centered on ap_boss_x (X-12, X-4, X+4).
+    ldx ap_boss_y_hi
+    jsr ap_set_sprite_y_off
     lda ap_boss_x_lo
-    sec
-    sbc #4
-    pha
-    lda ap_boss_x_hi
-    sbc #0
-    tax
-    pla
-    jsr draw_pair               ; Emits X-12 and X-4
-    lda ap_boss_x_lo
-    clc
-    adc #4
-    pha
-    lda ap_boss_x_hi
-    adc #0
-    tax
-    pla
-    jsr set_sprite_x
-    jmp emit_sprite
+    ldx ap_boss_x_hi
+    jmp draw_pair
