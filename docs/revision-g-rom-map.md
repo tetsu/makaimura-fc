@@ -138,6 +138,35 @@ Remove-Item Env:REVG_TILE_FLOW
 3. `$E9FB` 系は敵枠の空き数と種別別の残り数を検査する。種別 `$0B` は `$EBF1` を経由し、`$8C5F` で敵用の空きリスト（件数 `$93`・ポインタ `$94`）から枠を取る。敵枠の間隔は `$30` で、今回取得した枠ポインタは `$0E00`。
 4. この種別の X はカメラ X `word($9C)` に128を足し、`$56DE` の16ビット値をスケジューラの方向によって加減する。Y は `word($A2)` から取る。`$EAEC` 系がバリアントと種別を書き込み、枠を有効にする。最初の配置は1P の通知1062、デモの通知1080で、どちらもカメラ X=0、オフセット144、初期位置 (272, 62) だった。次の更新で敵枠の状態が1から2に変わる。[ゾンビの出現から歩行・描画まで](revision-g.md#1p-プレイの先頭のゾンビ)
 
+### 開始地点の出現間隔と同時枠
+
+- `$E9FB–$EA06` は敵全体で共有する空き枠数 `$93`、次に種別ごとの残り枠 `$30+種別` を確認する。両方が正のとき、ゾンビでは `$EBF1` が `$8C5F` を呼んで空き枠を取り、`$EB00` が種別の残り枠 `$3B` を減らす。消滅時の `$D44F` が `$3B` を1戻し、`$D459 → $8C6F` が共有枠を返す。
+- `$EC11` は各出現レコードの末尾の待機値を、開始地点のスケジューラ `$07F0` の `−$01`（`$07EF`）に保存する。待機処理 `$EAD1–$EAD7` は `$3B=0` の間その値を保つ。枠が戻った更新から減算し、0に達した次の更新で出現判定を通る。
+- 開始時のグループ0はフレーム1060にパターン0を登録し、最初の個体が1062に出現する。`$E949–$E966` 系はグループ0の登録後に10カウント待ち、次のページのグループ番号をバンク2の `$4307` から読む。カメラ X=0のまま、フレーム1072でグループ1が同じスケジューラをパターン1に切り替え、2体目が1074に出現する。パターン1の1体目の待機値は31で、枠が空いていれば32フレーム後に次の個体が出現する。
+
+MAME 0.289 の1周目、区間0で、Difficulty 以外の DIP を既定にし、1P 開始後は入力を与えずに計測した。`$3B` の初期値は区間設定から読み込まれる。表の停止は最初に `$3B=0` になってから最初の消滅で枠が戻るまでの待機更新数。
+
+| Difficulty | 同時枠 | 枠を使い切るまでの出現フレーム | 待機停止 | 最初の枠返却 | 次の出現 |
+| --- | ---: | --- | ---: | ---: | ---: |
+| Easy / Normal | 3 | 1062、1074、1106 | 342更新 | 1449 | 1490 |
+| Difficult | 2 | 1062、1074 | 314更新 | 1389 | 1420 |
+| Very Difficult | 2 | 1062、1074 | 294更新 | 1369 | 1400 |
+
+最初の待機停止時点でも共有枠は27または28残っていた。比較用の `pool` 試行では、Normal の最初の出現判定（1062）で `$E9FB` が読む `$93` だけを一度0にした。種別の残り枠は3のままで、その更新では出現せず、次の更新1063で出現した。
+
+```powershell
+$env:REVG_ZOMBIE_DIFFICULTY = 'Normal' # Easy、Difficult、Very Difficult も指定可
+$env:REVG_ZOMBIE_CADENCE_TRIAL = 'idle' # pool は Normal のみ
+& "$env:USERPROFILE/tools/mame/mame0289/mame.exe" makaimurg -rompath reference `
+  -noreadconfig -video none -sound none -nothrottle -skip_gameinfo `
+  -autoboot_delay 0 -autoboot_script tools/mame/measure-revg-zombie-cadence.lua `
+  -cfg_directory build/zombie-cadence-cfg -nvram_directory build/zombie-cadence-nvram `
+  -snapshot_directory build/zombie-cadence-snap -seconds_to_run 30
+Remove-Item Env:REVG_ZOMBIE_DIFFICULTY, Env:REVG_ZOMBIE_CADENCE_TRIAL
+```
+
+`zombie_cadence` の `spawn` は敵枠、配置元、次の待機値、更新前後の種別残り枠、確保後の共有空き枠を示す。`release` の共有空き枠は返却直前の値。DIP 4設定の通常試行と共有枠の比較試行を起動から各2回実行し、条件ごとに計測行が一致した。
+
 ### 配置と移動指示のトレース
 
 ```powershell
