@@ -81,7 +81,7 @@ def main():
     tiles = [["sky"] * 48 for _ in range(11)] + [["ledge"] * 48] + [["rock"] * 48 for _ in range(3)]
     for column in range(3, 48, 6):
         tiles[5][column] = "gravel"
-    write_json(output / "stage.json", {
+    stage = {
         "area": "trial",
         "tiles": tiles,
         "regions": {name: [index, 0] for index, name in enumerate(TILES)},
@@ -90,7 +90,17 @@ def main():
         "goal_x": 760,
         "player_poses": poses,
         "enemies": {"fixed": {"x": 258, "y": 176}, "ranged": {"x": 524, "y": 176}},
-    })
+    }
+    write_json(output / "stage.json", stage)
+
+    # The raised floor spans X=96..319 at Y=144. The enemy on the
+    # lower floor forces a retry after crossing the elevated checkpoint.
+    for column in range(6, 20):
+        tiles[9][column] = "ledge"
+        tiles[10][column] = "rock"
+        tiles[11][column] = "rock"
+    stage.update(checkpoint_x=288, enemies={"fixed": {"x": 380, "y": 176}})
+    write_json(output / "steps.json", stage)
 
 
 if __name__ == "__main__":

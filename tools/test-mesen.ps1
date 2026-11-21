@@ -38,14 +38,20 @@ if ($AreaTrial) {
     $fixture = Join-Path $root 'build/area-trial-fixture'
     & python (Join-Path $PSScriptRoot 'make-area-trial.py') $fixture
     if ($LASTEXITCODE -ne 0) { throw "Area trial fixture generation failed with code $LASTEXITCODE" }
-    $rom = (& $buildScript -Hardware -Cc65Bin $Cc65Bin `
-        -AreaManifest (Join-Path $fixture 'areas.json') -AreaTrial (Join-Path $fixture 'stage.json'))[0]
-    $code = Invoke-MesenSuite (Join-Path $PSScriptRoot 'mesen/area-trial.lua') $rom
-    if ($code -ne 0) {
-        Write-Host "FAIL area trial (Mesen exit $code). Logs: $logDir"
-        exit 1
+    $trials = @(
+        @{ Stage = 'steps.json'; Suite = 'area-trial-steps.lua' }
+        @{ Stage = 'stage.json'; Suite = 'area-trial.lua' }
+    )
+    foreach ($trial in $trials) {
+        $rom = (& $buildScript -Hardware -Cc65Bin $Cc65Bin `
+            -AreaManifest (Join-Path $fixture 'areas.json') -AreaTrial (Join-Path $fixture $trial.Stage))[0]
+        $code = Invoke-MesenSuite (Join-Path $PSScriptRoot "mesen/$($trial.Suite)") $rom
+        if ($code -ne 0) {
+            Write-Host "FAIL $($trial.Suite) (Mesen exit $code). Logs: $logDir"
+            exit 1
+        }
+        Write-Host "PASS $($trial.Suite). Logs: $logDir"
     }
-    Write-Host "PASS area trial. Logs: $logDir"
     exit 0
 }
 
