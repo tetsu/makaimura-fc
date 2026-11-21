@@ -96,6 +96,9 @@ snd_ptr: .res 2        ; Bank 8 sound driver stream pointer.
 .include "arcade-player.inc"
 .include "sound-test.inc"
 .include "sprite-view.inc"
+.ifdef NES_AREA_ART
+.include "area-view.inc"
+.endif
 .endif
 
 .if PRG_ROM_UNITS = 32
@@ -103,6 +106,9 @@ title_scene = 7
 stage_view_scene = 8
 sound_test_scene = 9
 sprite_view_scene = 10
+.ifdef NES_AREA_ART
+area_view_scene = 11
+.endif
 .endif
 
 .segment "CODE"
@@ -245,6 +251,13 @@ main:
 same_scene:
 .if PRG_ROM_UNITS = 32
     lda scene
+.ifdef NES_AREA_ART
+    cmp #area_view_scene
+    bne :+
+    jsr update_area_view
+    jmp main
+:
+.endif
     cmp #sprite_view_scene
     bne :+
     jsr update_sprite_view
@@ -381,6 +394,12 @@ commit_pan_game:
     jmp commit_render
 commit_horizontal:
 .if PRG_ROM_UNITS = 32
+.ifdef NES_AREA_ART
+    cmp #area_view_scene
+    bne :+
+    jmp upload_sprites
+:
+.endif
     cmp #stage_view_scene
     beq commit_pan_preview
     cmp #sound_test_scene
@@ -414,7 +433,7 @@ commit_pan_preview:
 sound_screen:
     lda pressed
     and #$80           ; A opens the two-axis camera from the audio screen.
-    beq :+
+    beq @no_a
 .if PRG_ROM_UNITS = 32
     lda pad
     and #$08           ; Up+A previews the stage banks.
@@ -438,10 +457,20 @@ sound_screen:
     jsr show_sprite_view
     jmp main
 @legacy_pan:
+.ifdef NES_AREA_ART
+    lda pad
+    and #$02           ; Left+A opens the manifest area viewer.
+    beq @show_pan
+    lda #nes_area_viewer_bank
+    jsr select_bank1
+    jsr show_area_view
+    jmp main
+@show_pan:
+.endif
 .endif
     jsr show_pan
     jmp audio_tick
-:
+@no_a:
     lda pressed
     and #$40           ; B starts the two-axis course directly from the menu.
     beq :+
@@ -814,6 +843,19 @@ next_line:
     inx
     cpx #sprite_view_menu_length
     bne :-
+.ifdef NES_AREA_ART
+    lda #$22
+    sta $2006
+    lda #$e8
+    sta $2006
+    ldx #0
+:
+    lda area_view_menu,x
+    sta $2007
+    inx
+    cpx #area_view_menu_length
+    bne :-
+.endif
 .endif
     rts
 

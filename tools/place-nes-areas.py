@@ -10,6 +10,7 @@ from pathlib import Path
 DIRECTORY_BANK = 11
 FIRST_BANK = 19
 LAST_BANK = 50
+VIEWER_BANK = 51
 FIXED_BANK = 63
 BANK_SIZE = 0x2000
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -55,15 +56,24 @@ def make_include(areas):
             ])
 
     tail = FIRST_BANK + len(banks)
+    if tail < VIEWER_BANK:
+        lines.extend([
+            '.segment "AREA_PAD"',
+            f".repeat {VIEWER_BANK - tail}, index",
+            f"    .byte bank_tag_base + {tail} + index",
+            "    .res $1fff, $ff",
+            ".endrepeat",
+        ])
     lines.extend([
-        '.segment "AREA_PAD"',
-        f".repeat {FIXED_BANK - tail}, index",
-        f"    .byte bank_tag_base + {tail} + index",
+        '.segment "AREA_TAIL"',
+        f".repeat {FIXED_BANK - VIEWER_BANK - 1}, index",
+        f"    .byte bank_tag_base + {VIEWER_BANK + 1} + index",
         "    .res $1fff, $ff",
         ".endrepeat",
         f'.segment "BANK{DIRECTORY_BANK}"',
         f"    .byte bank_tag_base + {DIRECTORY_BANK}",
         f"nes_area_directory_bank = {DIRECTORY_BANK}",
+        f"nes_area_viewer_bank = {VIEWER_BANK}",
         ".export nes_area_directory_bank, nes_area_count, nes_area_table",
         "nes_area_count:",
         f"    .byte {len(areas)}",
@@ -86,10 +96,20 @@ def make_config(base_config, bank_count):
         f"    PRG{bank}: start = $8000, size = $2000, type = ro, fill = yes, fillval = $FF;"
         for bank in range(FIRST_BANK, tail)
     ]
-    memory.append(f"    AREA_PAD: start = $0000, size = ${(FIXED_BANK - tail) * BANK_SIZE:x},"
-                  " type = ro, fill = yes, fillval = $FF;")
     segments = [f"    BANK{bank}: load = PRG{bank}, type = ro;" for bank in range(FIRST_BANK, tail)]
-    segments.append("    AREA_PAD: load = AREA_PAD, type = ro;")
+    if tail < VIEWER_BANK:
+        memory.append(f"    AREA_PAD: start = $0000, size = ${(VIEWER_BANK - tail) * BANK_SIZE:x},"
+                      " type = ro, fill = yes, fillval = $FF;")
+        segments.append("    AREA_PAD: load = AREA_PAD, type = ro;")
+    memory.extend([
+        f"    PRG{VIEWER_BANK}: start = $A000, size = $2000, type = ro, fill = yes, fillval = $FF;",
+        f"    AREA_TAIL: start = $0000, size = ${(FIXED_BANK - VIEWER_BANK - 1) * BANK_SIZE:x},"
+        " type = ro, fill = yes, fillval = $FF;",
+    ])
+    segments.extend([
+        f"    BANK{VIEWER_BANK}: load = PRG{VIEWER_BANK}, type = ro;",
+        "    AREA_TAIL: load = AREA_TAIL, type = ro;",
+    ])
     config = base_config.splitlines()
     for pad, replacement_memory, replacement_segments in (
         ("PAD_19_62", memory, segments),
