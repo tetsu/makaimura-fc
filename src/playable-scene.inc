@@ -10,6 +10,9 @@ bolt_y = ranged_feet - 9
 checkpoint_x = 704
 checkpoint_feet = 176
 checkpoint_scroll_y = checkpoint_feet - 160
+goal_x = terrain_width * 16 - 8
+goal_feet = 176
+clear_scene = 5
 player_height = 16
 jump_fall = 18
 ranged_slot = 5 * 4
@@ -52,6 +55,8 @@ show_game:
     jsr blank_display
     lda scene
     cmp #3
+    beq show_pan_game
+    cmp #clear_scene
     beq show_pan_game
     cmp #4
     beq retry_pan_game
@@ -144,8 +149,13 @@ update_game:
     jsr update_shot
     jsr check_enemy_contact
     jsr update_ranged
-    jsr check_checkpoint
+    jsr check_course_progress
+    bcs show_course_clear
 game_camera:
+    jsr follow_player
+    jmp submit_frame
+
+follow_player:
     sec
     lda player_x
     sbc camera_low
@@ -172,7 +182,8 @@ camera_ready:
     jsr step_camera
     jmp draw_sprites
 
-check_checkpoint:
+; Carry set only on reaching the goal alive and on the ground.
+check_course_progress:
     lda scene
     cmp #4
     bne :+
@@ -186,8 +197,50 @@ check_checkpoint:
     bcc :+
     lda #1
     sta checkpoint_reached
+    lda player_x
+    cmp #<goal_x
+    bne :+
+    lda player_feet
+    cmp #goal_feet
+    bne :+
+    lda jump_step
+    cmp #$ff
+    beq course_finished
 :
+    clc
     rts
+course_finished:
+    sec
+    rts
+
+show_course_clear:
+    jsr blank_display
+    lda #clear_scene
+    sta scene
+    jsr clear_screen
+    lda #$21
+    sta $2006
+    lda #$8a
+    sta $2006
+    ldx #0
+:
+    lda clear_title,x
+    sta $2007
+    inx
+    cpx #clear_title_length
+    bne :-
+    lda #$21
+    sta $2006
+    lda #$cb
+    sta $2006
+    ldx #0
+:
+    lda clear_prompt,x
+    sta $2007
+    inx
+    cpx #clear_prompt_length
+    bne :-
+    jmp enable_static_screen
 
 follow_both_axes:
     ; Follow the player's feet toward scanline 160 by at most one pixel.
@@ -230,10 +283,10 @@ move_player:
     lda #0
     sta player_left
     lda player_x+1
-    cmp #2
+    cmp #>goal_x
     bne advance_player
     lda player_x
-    cmp #248
+    cmp #<goal_x
     beq read_ground
 advance_player:
     inc player_x

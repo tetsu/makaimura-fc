@@ -377,6 +377,19 @@ prepare_pan_column:
 ; X is the buffer index; Y is scratch.
 pan_tile:
     lda pan_data_x
+    cmp #goal_x / 8
+    bne :+
+    ldy pan_data_y
+    cpy #(goal_feet / 8) - 2
+    beq pan_goal_flag
+    cpy #(goal_feet / 8) - 1
+    bne :+
+    lda #(goal_pattern-glyphs)/16 + 1
+    rts
+pan_goal_flag:
+    lda #(goal_pattern-glyphs)/16
+    rts
+:
     cmp #(checkpoint_x / 8) - 1
     bne :+
     ldy pan_data_y

@@ -124,7 +124,7 @@ reset:
     sta shot_sound_pending
     sta shot_sound_frames
     sta render_pending
-    jsr enable_audio_screen
+    jsr enable_static_screen
     jmp main
 
 wram_error:
@@ -179,16 +179,20 @@ same_scene:
     beq pan_screen
     cmp #2
     beq game_screen
+    cmp #clear_scene
+    beq clear_screen_idle
     cmp #4
     bne free_camera
 game_screen:
     jsr update_game
-    jmp render_terrain
+    jmp audio_tick
+clear_screen_idle:
+    jsr wait_terrain_frame
+    jmp audio_tick
 free_camera:
     lda pad
     and #3
     jsr step_camera
-render_terrain:
     jsr submit_frame
     jmp audio_tick
 pan_screen:
@@ -455,6 +459,28 @@ draw_screen:
     ldx #>CHR_BACKGROUND_BYTES
     lda #<CHR_BACKGROUND_BYTES
     jsr upload_chr_patterns
+    jsr clear_screen
+    ldy #0
+next_line:
+    lda #$21
+    sta $2006
+    lda text_address,y
+    sta $2006
+    ldx text_start,y
+:
+    lda screen_text,x
+    cmp #$ff
+    beq :+
+    sta $2007
+    inx
+    bne :-
+:
+    iny
+    cpy #7
+    bne next_line
+    rts
+
+clear_screen:
     lda #$3f
     sta $2006
     lda #0
@@ -476,27 +502,13 @@ draw_screen:
     bne :-
     dey
     bne :-
-    ldy #0
-next_line:
-    lda #$21
-    sta $2006
-    lda text_address,y
-    sta $2006
-    ldx text_start,y
-:
-    lda screen_text,x
-    cmp #$ff
-    beq :+
-    sta $2007
-    inx
-    bne :-
-:
-    iny
-    cpy #7
-    bne next_line
     rts
 
 .segment "RODATA"
+clear_title: .byte $04, $0f, $14, $11, $12, $06, $00, $04, $0c, $06, $02, $11 ; COURSE CLEAR
+clear_title_length = * - clear_title
+clear_prompt: .byte $12, $13, $02, $11, $13, $00, $10, $0c, $02, $17 ; START PLAY
+clear_prompt_length = * - clear_prompt
 text_address: .byte $08, $68, $88, $a8, $c8, $e8, $48
 text_start: .byte 0, line2-screen_text, line3-screen_text, line4-screen_text, line5-screen_text, line6-screen_text, line7-screen_text
 screen_text: .byte $15, $11, $04, $01, $02, $00, $12, $0f, $14, $0e, $05, $00, $13, $06, $12, $13, $ff
@@ -559,6 +571,10 @@ scenery_patterns:
 checkpoint_pattern:
     ; Diamond and post on the ledge before the kiln.
     .byte $18, $24, $42, $42, $24, $18, $18, $3c, $00, $18, $3c, $3c, $18, $00, $00, $00
+goal_pattern:
+    ; Pennant and its post, followed by the base.
+    .byte $7e, $42, $7a, $46, $78, $40, $40, $40, $00, $3c, $04, $38, $00, $00, $00, $00
+    .byte $40, $40, $40, $40, $40, $40, $e0, $e0, $00, $00, $00, $00, $00, $00, $40, $00
 CHR_TEXT_BYTES = terrain_tiles - glyphs
 CHR_TERRAIN_BYTES = * - terrain_tiles
 CHR_BACKGROUND_BYTES = CHR_TEXT_BYTES + CHR_TERRAIN_BYTES

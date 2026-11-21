@@ -45,7 +45,7 @@ show_sound_screen:
     lda #0
     sta scene
     jsr draw_screen
-enable_audio_screen:
+enable_static_screen:
     jsr enable_screen
     lda #0
     sta terrain_frame
