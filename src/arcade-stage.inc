@@ -18,6 +18,10 @@ arcade_hplat_span = 44
 arcade_vplat_x = 576
 arcade_vplat_y = 176
 arcade_vplat_span = 40
+arcade_turret_x = 712
+arcade_turret_feet = 176
+arcade_zombie_spawn_x = 752
+arcade_zombie_feet = 176
 
 .macro arcade_flat_col
     cliff_col_2d 11

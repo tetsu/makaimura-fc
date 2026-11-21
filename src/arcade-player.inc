@@ -19,6 +19,12 @@ ap_weapon_torch = 2
 ap_max_shots = 3
 ap_max_plats = 4
 ap_max_items = 4
+ap_max_enemies = 4
+ap_max_ebolts = 2
+
+en_none = 0
+en_zombie = 1
+en_turret = 2
 
 plat_none = 0
 plat_tombstone = 1
@@ -35,6 +41,9 @@ ap_invuln_frames = 120
 ap_shoot_lock_frames = 15
 ap_kb_length = 16
 ap_torch_flame_frames = 30
+ap_rank_step_frames = 240
+ap_turret_cooldown = 72
+ap_turret_windup = 24
 
 .segment "WRAM"
 ap_wram_reserved: .res 16       ; $6000-$600F: clear of boot WRAM probe
@@ -88,6 +97,30 @@ item_type: .res ap_max_items
 item_x_lo: .res ap_max_items
 item_x_hi: .res ap_max_items
 item_y: .res ap_max_items
+
+; Task 3-4: Scroll-linked enemy scheduler, enemy pool, enemy bolt pool, rank ($6072+)
+ap_rank: .res 1                 ; $6072: difficulty rank 0..3
+ap_rank_timer: .res 1           ; $6073: frames until next rank increase
+sched_page: .res 1              ; $6074: last observed camera_high page
+sched_group: .res 1             ; $6075: active spawn group (0=none, 1=page2 zombies)
+sched_wait: .res 1              ; $6076: countdown timer (paused when zombie cap full)
+sched_zombies_live: .res 1      ; $6077: active scheduled zombies count
+ap_turret_spawned: .res 1       ; $6078: 1 if fixed turret at X=712 is currently active/cleared
+
+en_type: .res ap_max_enemies    ; $6079: 0=free, 1=zombie, 2=turret
+en_x_lo: .res ap_max_enemies    ; $607D
+en_x_hi: .res ap_max_enemies    ; $6081
+en_y: .res ap_max_enemies       ; $6085
+en_dir: .res ap_max_enemies     ; $6089: 0=left, 1=right
+en_timer: .res ap_max_enemies   ; $608D
+en_hp: .res ap_max_enemies      ; $6091
+
+eb_active: .res ap_max_ebolts   ; $6095: 0=free, 1=active
+eb_x_lo: .res ap_max_ebolts     ; $6097
+eb_x_hi: .res ap_max_ebolts     ; $6099
+eb_y: .res ap_max_ebolts        ; $609B
+eb_vx: .res ap_max_ebolts       ; $609D (signed px/frame)
+eb_timer: .res ap_max_ebolts    ; $609F
 
 .segment "BANK3"
     .byte bank_tag_base + 3
@@ -196,6 +229,35 @@ ap_init_stage:
     sta plat_y+2
     lda #arcade_vplat_span
     sta plat_span+2
+
+    ; Initialize difficulty rank, scroll-linked scheduler, enemy pool, and enemy bolts.
+    lda checkpoint_reached
+    bne @keep_rank_on_retry
+    lda campaign_lives
+    cmp #campaign_initial_lives
+    bne @keep_rank_on_retry
+    lda #0
+    sta ap_rank
+@keep_rank_on_retry:
+    lda #ap_rank_step_frames
+    sta ap_rank_timer
+    lda camera_high
+    sta sched_page
+    lda #0
+    sta sched_group
+    sta sched_wait
+    sta sched_zombies_live
+    sta ap_turret_spawned
+    ldx #ap_max_enemies - 1
+:
+    sta en_type,x
+    dex
+    bpl :-
+    ldx #ap_max_ebolts - 1
+:
+    sta eb_active,x
+    dex
+    bpl :-
     rts
 
 ap_update_frame:
@@ -237,6 +299,10 @@ ap_update_frame:
     jsr ap_step_knockback
 
 @post_move:
+    jsr ap_update_rank
+    jsr ap_update_scheduler
+    jsr ap_update_enemies
+    jsr ap_update_ebolts
     jsr ap_update_shots
     jsr ap_check_items
     jsr ap_check_enemies_contact
@@ -249,6 +315,10 @@ ap_update_frame:
     sta ap_armor
     lda #ap_state_dead
     sta ap_state
+    lda ap_rank
+    beq :+
+    dec ap_rank
+:
     dec campaign_lives
     bne @retry_hud
     jmp show_game_over
@@ -1252,6 +1322,59 @@ ap_shot_check_enemies:
     sec
     rts
 @no_enemy_hit:
+    ; Check hits against generic enemy pool (zombies & turrets).
+    ldy #0
+@pool_shot_loop:
+    lda en_type,y
+    beq @next_pool_shot
+    ldx ap_loop_idx
+    sec
+    lda ps_x_lo,x
+    sbc en_x_lo,y
+    sta ap_tmp0
+    lda ps_x_hi,x
+    sbc en_x_hi,y
+    sta ap_tmp1
+    clc
+    lda ap_tmp0
+    adc #8
+    sta ap_tmp0
+    lda ap_tmp1
+    adc #0
+    bne @next_pool_shot
+    lda ap_tmp0
+    cmp #17
+    bcs @next_pool_shot
+    lda en_y,y
+    sec
+    sbc #player_height
+    cmp ps_y,x
+    beq @check_pool_y_bot
+    bcs @next_pool_shot
+@check_pool_y_bot:
+    lda en_y,y
+    cmp ps_y,x
+    bcc @next_pool_shot
+    beq @next_pool_shot
+    lda en_hp,y
+    sec
+    sbc #1
+    sta en_hp,y
+    bne @pool_hit_survived
+    lda en_type,y
+    cmp #en_zombie
+    bne :+
+    dec sched_zombies_live
+:
+    lda #en_none
+    sta en_type,y
+@pool_hit_survived:
+    sec
+    rts
+@next_pool_shot:
+    iny
+    cpy #ap_max_enemies
+    bne @pool_shot_loop
     clc
     rts
 
@@ -1346,7 +1469,27 @@ ap_check_enemies_contact:
     lda #arcade_pot_enemy_feet
     sta ap_probe_y
     jsr ap_test_contact_at_probe
-    bcc @contact_none
+    bcs @do_player_damage
+    ; Check contact with generic enemy pool (zombies & turrets).
+    ldy #0
+@pool_contact_loop:
+    lda en_type,y
+    beq @next_pool_contact
+    sty ap_loop_idx
+    lda en_x_lo,y
+    sta ap_probe_x
+    lda en_x_hi,y
+    sta ap_probe_x+1
+    lda en_y,y
+    sta ap_probe_y
+    jsr ap_test_contact_at_probe
+    ldy ap_loop_idx
+    bcs @do_player_damage
+@next_pool_contact:
+    iny
+    cpy #ap_max_enemies
+    bne @pool_contact_loop
+    rts
 @do_player_damage:
     lda ap_armor
     cmp #ap_armor_full
@@ -1424,7 +1567,7 @@ ap_test_contact_at_probe:
 ; --- OAM sprite rendering for arcade mode ---
 ap_draw_sprites:
     lda #$f8
-    ldx #24 * 4
+    ldx #30 * 4
 :
     sta sprites,x
     dex
@@ -1488,10 +1631,10 @@ ap_draw_sprites:
     ldx #>arcade_enemy_x
     jsr draw_pair
 @draw_pot_enemy:
-    ; Slots 7-8: Pot-carrying enemy 2
+    ; Slots 9-10: Pot-carrying enemy 2
     lda ap_pot_enemy_active
     beq @draw_shots
-    lda #7 * 4
+    lda #9 * 4
     sta draw_slot
     lda #3
     sta draw_palette
@@ -1546,8 +1689,83 @@ ap_draw_sprites:
     cpy #ap_max_shots
     bne @draw_shot_loop
 
-    ; Slots 9-14: Dynamic platforms (2 tiles wide each)
-    lda #9 * 4
+    ; Slots 7-8: High-priority enemy bolts (before lower-priority objects)
+    lda #7 * 4
+    sta draw_slot
+    ldy #0
+@draw_ebolt_loop:
+    lda eb_active,y
+    beq @skip_ebolt_draw
+    sty ap_loop_idx
+    lda #2
+    sta draw_palette
+    lda #15
+    sta draw_tile
+    lda eb_y,y
+    sec
+    sbc #3
+    jsr set_sprite_y
+    ldy ap_loop_idx
+    lda eb_x_lo,y
+    ldx eb_x_hi,y
+    jsr set_sprite_x
+    jsr emit_sprite
+    ldy ap_loop_idx
+    jmp @next_ebolt_draw
+@skip_ebolt_draw:
+    lda draw_slot
+    clc
+    adc #4
+    sta draw_slot
+@next_ebolt_draw:
+    iny
+    cpy #ap_max_ebolts
+    bne @draw_ebolt_loop
+
+    ; Slots 11-18: Generic enemy pool (zombies & turrets, 2 tiles each)
+    lda #11 * 4
+    sta draw_slot
+    ldy #0
+@draw_pool_en_loop:
+    lda en_type,y
+    beq @next_pool_en_draw
+    sty ap_loop_idx
+    lda #1
+    cmp en_type,y
+    beq @zombie_pal
+    lda #3                      ; Turret
+    ldx en_timer,y
+    cpx #ap_turret_windup
+    bcs @set_en_pal
+    lda #2                      ; Lit during windup
+    bne @set_en_pal
+@zombie_pal:
+    lda #0
+@set_en_pal:
+    sta draw_palette
+    lda #5
+    ldx en_type,y
+    cpx #en_turret
+    bne :+
+    lda #11
+:
+    sta draw_tile
+    lda en_y,y
+    sec
+    sbc #player_height + 1
+    jsr set_sprite_y
+    ldy ap_loop_idx
+    lda en_x_lo,y
+    ldx en_x_hi,y
+    jsr draw_pair
+    ldy ap_loop_idx
+@next_pool_en_draw:
+    iny
+    cpy #ap_max_enemies
+    bne @draw_pool_en_loop
+
+    ; Slots 19-24: Dynamic platforms (2 tiles wide each)
+    lda #19 * 4
     sta draw_slot
     ldy #0
 @draw_plat_loop:
@@ -1576,8 +1794,8 @@ ap_draw_sprites:
     cpy #ap_max_plats
     bne @draw_plat_loop
 
-    ; Slots 17-20: Items / weapon drops
-    lda #17 * 4
+    ; Slots 25-28: Items / weapon drops
+    lda #25 * 4
     sta draw_slot
     ldy #0
 @draw_item_loop:
@@ -1610,6 +1828,352 @@ ap_weapon_vx_neg:    .byte $fd, $fc, $fe
 ap_weapon_vy_init:   .byte 0, 0, $fc
 ap_weapon_life:      .byte 48, 48, 56
 
+ap_rank_zombie_cap:  .byte 2, 2, 3, 3
+ap_rank_spawn_wait:  .byte 48, 36, 28, 20
+
 ap_kb_delta:
     .byte $fe, $fe, $ff, $ff, $ff, $00, $00, $00
     .byte $01, $01, $01, $02, $02, $02, $03, $03
+
+; --- Difficulty rank progression ---
+ap_update_rank:
+    dec ap_rank_timer
+    bne @rank_done
+    lda #ap_rank_step_frames
+    sta ap_rank_timer
+    lda ap_rank
+    cmp #3
+    bcs @rank_done
+    inc ap_rank
+@rank_done:
+    rts
+
+; --- Scroll-linked enemy scheduler & fixed turret spawner ---
+ap_update_scheduler:
+    lda camera_high
+    cmp sched_page
+    beq @check_group_spawns
+    sta sched_page
+    cmp #2
+    beq @enter_page2
+    ; Leaving page 2 cancels future reservations while keeping active enemies alive.
+    lda #0
+    sta sched_group
+    beq @check_group_spawns
+@enter_page2:
+    lda #1
+    sta sched_group
+    lda sched_wait
+    bne @check_group_spawns
+    ldx ap_rank
+    lda ap_rank_spawn_wait,x
+    sta sched_wait
+
+@check_group_spawns:
+    ; Fixed turret at X=712 spawns once upon entering page 2 (re-armed if reclaimed offscreen).
+    lda camera_high
+    cmp #2
+    bne @check_zombie_sched
+    lda ap_turret_spawned
+    bne @check_zombie_sched
+    jsr ap_alloc_enemy_slot
+    bcc @check_zombie_sched
+    lda #en_turret
+    sta en_type,x
+    lda #<arcade_turret_x
+    sta en_x_lo,x
+    lda #>arcade_turret_x
+    sta en_x_hi,x
+    lda #arcade_turret_feet
+    sta en_y,x
+    lda #0
+    sta en_dir,x
+    lda #ap_turret_cooldown
+    sta en_timer,x
+    lda #2
+    sta en_hp,x
+    lda #1
+    sta ap_turret_spawned
+
+@check_zombie_sched:
+    lda sched_group
+    beq @sched_done
+    ; Pause countdown while zombie cap for current rank is full (Rev G behavior).
+    ldx ap_rank
+    lda sched_zombies_live
+    cmp ap_rank_zombie_cap,x
+    bcs @sched_done
+    lda sched_wait
+    beq @spawn_zombie_now
+    dec sched_wait
+    bne @sched_done
+@spawn_zombie_now:
+    jsr ap_alloc_enemy_slot
+    bcc @sched_done
+    lda #en_zombie
+    sta en_type,x
+    lda #<arcade_zombie_spawn_x
+    sta en_x_lo,x
+    lda #>arcade_zombie_spawn_x
+    sta en_x_hi,x
+    lda #arcade_zombie_feet
+    sta en_y,x
+    lda #0
+    sta en_dir,x
+    sta en_timer,x
+    lda #1
+    sta en_hp,x
+    inc sched_zombies_live
+    ldy ap_rank
+    lda ap_rank_spawn_wait,y
+    sta sched_wait
+@sched_done:
+    rts
+
+; Carry set and X = free slot index if an enemy slot is available.
+ap_alloc_enemy_slot:
+    ldx #0
+@alloc_loop:
+    lda en_type,x
+    beq @alloc_found
+    inx
+    cpx #ap_max_enemies
+    bne @alloc_loop
+    clc
+    rts
+@alloc_found:
+    sec
+    rts
+
+; --- Generic enemy pool update + offscreen reclamation ---
+ap_update_enemies:
+    ldx #0
+@en_loop:
+    stx ap_loop_idx
+    lda en_type,x
+    bne :+
+    jmp @en_next
+:
+    ; Offscreen reclamation: keep if (en_x - camera_x + 32) in [0..319] ($0000..$013F).
+    sec
+    lda en_x_lo,x
+    sbc camera_low
+    sta ap_tmp0
+    lda en_x_hi,x
+    sbc camera_high
+    sta ap_tmp1
+    clc
+    lda ap_tmp0
+    adc #32
+    sta ap_tmp0
+    lda ap_tmp1
+    adc #0
+    bmi @reclaim_enemy
+    cmp #2
+    bcs @reclaim_enemy
+    cmp #1
+    bne @en_onscreen
+    lda ap_tmp0
+    cmp #64
+    bcs @reclaim_enemy
+
+@en_onscreen:
+    lda en_type,x
+    cmp #en_zombie
+    beq @update_zombie
+    cmp #en_turret
+    beq @update_turret
+    jmp @en_next
+
+@reclaim_enemy:
+    lda en_type,x
+    cmp #en_zombie
+    bne @check_reclaim_turret
+    dec sched_zombies_live
+    jmp @clear_en_slot
+@check_reclaim_turret:
+    cmp #en_turret
+    bne @clear_en_slot
+    lda #0
+    sta ap_turret_spawned
+@clear_en_slot:
+    lda #en_none
+    sta en_type,x
+    jmp @en_next
+
+@update_zombie:
+    inc en_timer,x
+    ; Rank 0-1: 0.5 px/frame; Rank 2-3: 1.0 px/frame.
+    lda ap_rank
+    cmp #2
+    bcs @zombie_step_left
+    lda en_timer,x
+    and #1
+    bne @en_next
+@zombie_step_left:
+    lda en_x_lo,x
+    bne :+
+    dec en_x_hi,x
+:
+    dec en_x_lo,x
+    jmp @en_next
+
+@update_turret:
+    dec en_timer,x
+    bne @en_next
+    lda #ap_turret_cooldown
+    sta en_timer,x
+    ; Attempt to fire enemy bolt; if bolt pool is full, skip and keep cadence.
+    jsr ap_try_spawn_ebolt
+    ldx ap_loop_idx
+
+@en_next:
+    inx
+    cpx #ap_max_enemies
+    beq :+
+    jmp @en_loop
+:
+    rts
+
+; X = turret enemy slot. Allocates an enemy bolt if a slot is free.
+ap_try_spawn_ebolt:
+    ldy #0
+@eb_find:
+    lda eb_active,y
+    beq @eb_alloc
+    iny
+    cpy #ap_max_ebolts
+    bne @eb_find
+    rts
+@eb_alloc:
+    lda #1
+    sta eb_active,y
+    lda en_x_lo,x
+    sec
+    sbc #8
+    sta eb_x_lo,y
+    lda en_x_hi,x
+    sbc #0
+    sta eb_x_hi,y
+    lda en_y,x
+    sec
+    sbc #9
+    sta eb_y,y
+    lda #$fe                    ; -2 px/frame left
+    sta eb_vx,y
+    lda #120
+    sta eb_timer,y
+    rts
+
+; --- Enemy bolt pool update, offscreen reclamation, player hit ---
+ap_update_ebolts:
+    ldx #0
+@eb_loop:
+    stx ap_loop_idx
+    lda eb_active,x
+    bne :+
+    jmp @eb_next
+:
+    lda eb_vx,x
+    bmi @eb_left
+    clc
+    adc eb_x_lo,x
+    sta eb_x_lo,x
+    bcc @eb_bounds
+    inc eb_x_hi,x
+    jmp @eb_bounds
+@eb_left:
+    clc
+    adc eb_x_lo,x
+    sta eb_x_lo,x
+    bcs @eb_bounds
+    dec eb_x_hi,x
+@eb_bounds:
+    ; Reclaim when outside camera [camera_x .. camera_x + 255].
+    sec
+    lda eb_x_lo,x
+    sbc camera_low
+    lda eb_x_hi,x
+    sbc camera_high
+    bne @eb_reclaim
+    dec eb_timer,x
+    beq @eb_reclaim
+    ; Hit check against player (respects invulnerability and crouch height).
+    lda ap_invuln
+    bne @eb_next
+    sec
+    lda player_x
+    sbc eb_x_lo,x
+    sta ap_tmp0
+    lda player_x+1
+    sbc eb_x_hi,x
+    sta ap_tmp1
+    clc
+    lda ap_tmp0
+    adc #8
+    sta ap_tmp0
+    lda ap_tmp1
+    adc #0
+    bne @eb_next
+    lda ap_tmp0
+    cmp #17
+    bcs @eb_next
+    lda player_feet
+    cmp eb_y,x
+    bcc @eb_next
+    sec
+    sbc eb_y,x
+    ldy ap_crouch
+    beq @eb_stand_h
+    cmp #10
+    bcs @eb_next
+    bcc @eb_hit_player
+@eb_stand_h:
+    cmp #player_height
+    bcs @eb_next
+@eb_hit_player:
+    lda #0
+    sta eb_active,x
+    jsr ap_apply_bolt_damage
+    ldx ap_loop_idx
+    jmp @eb_next
+@eb_reclaim:
+    lda #0
+    sta eb_active,x
+@eb_next:
+    inx
+    cpx #ap_max_ebolts
+    beq :+
+    jmp @eb_loop
+:
+    rts
+
+ap_apply_bolt_damage:
+    lda ap_armor
+    cmp #ap_armor_full
+    bne @eb_fatal
+    lda #ap_armor_naked
+    sta ap_armor
+    lda #ap_invuln_frames
+    sta ap_invuln
+    lda #ap_state_knockback
+    sta ap_state
+    lda #$ff
+    sta ap_riding_plat
+    lda #0
+    sta ap_kb_step
+    sta ap_crouch
+    sta ap_shoot_lock
+    lda player_left
+    beq @eb_kb_left
+    lda #1
+    sta ap_kb_dir
+    rts
+@eb_kb_left:
+    lda #2
+    sta ap_kb_dir
+    rts
+@eb_fatal:
+    lda #1
+    sta player_hit
+    rts
