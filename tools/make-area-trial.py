@@ -107,6 +107,9 @@ def main():
         tiles[9][column] = "ledge"
         tiles[10][column] = "rock"
         tiles[11][column] = "rock"
+    # Move a gravel marker to X=512, where its two tile columns are
+    # streamed into the nametable ring just after the camera wraps at X=256.
+    tiles[5][32], tiles[5][33] = tiles[5][33], tiles[5][32]
     stage.update(area="steps", player_poses=steps_poses, checkpoint_x=288,
                  enemies={"fixed": {"x": 380, "y": 176}})
     write_json(output / "steps.json", stage)

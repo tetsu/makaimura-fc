@@ -4,6 +4,8 @@ local step = "boot"
 local nextInput = {}
 local wallFrames = 0
 local retryAt
+local scrollX, previousScrollX
+local seamColumns
 local idleTile, jumpTile = 0x21, 0x27
 local upperY = 127 -- Floor Y=144, 16 px sprite, OAM Y minus one.
 local lowerY = 143 -- The camera settles with the lower floor at scanline 160.
@@ -42,6 +44,34 @@ local function checkArea()
         "missing second area's player CHR")
     check(ppuMatches(0x3f05, {0x07, 0x18, 0x37}), "wrong second-area background palette")
     check(ppuMatches(0x3f11, {0x12, 0x2a, 0x3c}), "wrong second-area player palette")
+end
+
+emu.addMemoryCallback(function(_, value)
+    -- At the HUD split, the second $2005 write sets the playfield's low X byte.
+    if step == "reach goal" and emu.getState()["ppu.scanline"] == 31 then
+        scrollX = value
+    end
+end, emu.callbackType.write, 0x2005, 0x2005, emu.memType.nesMemory)
+
+local function checkSeam()
+    -- The marker at (512, 80) wraps to columns 0 and 1 in the 32-tile ring.
+    if previousScrollX == 255 and scrollX == 0 then
+        check(ppuMatches(0x2140, {0x60, 0x60}) and ppuMatches(0x2160, {0x60, 0x60}),
+            "seam marker overwrote the ring before its columns entered the screen")
+        seamColumns = 0
+    elseif previousScrollX == 0 and scrollX == 1 and seamColumns == 0 then
+        check(ppuMatches(0x2140, {0x61, 0x60}) and ppuMatches(0x2160, {0x62, 0x60}),
+            "wrong left marker column at the horizontal seam")
+        check(ppuMatches(0x23d0, {0x55}), "wrong palette attribute at the horizontal seam")
+        seamColumns = 1
+    elseif previousScrollX == 8 and scrollX == 9 and seamColumns == 1 then
+        check(ppuMatches(0x2140, {0x61, 0x61}) and ppuMatches(0x2160, {0x62, 0x63}),
+            "wrong right marker column at the horizontal seam")
+        check(ppuMatches(0x23d0, {0x55}), "wrong palette attribute after the second column upload")
+        seamColumns = 2
+    end
+    previousScrollX = scrollX
+    scrollX = nil
 end
 
 emu.addEventCallback(function()
@@ -128,10 +158,12 @@ emu.addEventCallback(function()
         if not enemyGap() then step = "reach goal" end
     elseif step == "reach goal" then
         if ppuMatches(0x218a, clear) then
-            print("Stepped area trial cleared after an elevated checkpoint retry")
+            check(seamColumns == 2, "did not verify both columns at the horizontal seam")
+            print("Stepped area trial cleared after a checkpoint retry and a verified horizontal seam")
             emu.stop(0)
         else
             check((attributes & 3) ~= 2, "player was hit on the second descent")
+            if seamColumns ~= 2 then checkSeam() end
             nextInput.right = true
         end
     end
