@@ -25,6 +25,18 @@ ap_max_items = 4
 ap_max_enemies = 4
 ap_max_ebolts = 2
 
+; OAM slots 0..8 are reserved for the player and projectiles, 11..14 for
+; the boss. Each rotating group reserves two adjacent slots for a sprite pair.
+ap_oam_first = 15
+ap_oam_fixed_enemy = 0
+ap_oam_pot_enemy = ap_oam_fixed_enemy + 2
+ap_oam_enemies = ap_oam_pot_enemy + 2
+ap_oam_platforms = ap_oam_enemies + ap_max_enemies * 2
+ap_oam_items = ap_oam_platforms + ap_max_plats
+ap_oam_groups = ap_oam_items + ap_max_items
+ap_oam_end = ap_oam_first + ap_oam_groups * 2
+.assert ap_oam_end < 64, error, "Arcade OAM clear loop requires fewer than 64 slots"
+
 en_none = 0
 en_zombie = 1
 en_turret = 2
@@ -171,6 +183,7 @@ ap_new_game: .res 1             ; $60CC: 1 on fresh game start from title
 ap_tmp3: .res 1                 ; $60CD
 ap_loop: .res 1                 ; $60CE: 0 = Loop 1, 1 = Loop 2
 ap_bounce_back: .res 1          ; $60CF: 1 when Stage 6 bounced back to Stage 5
+ap_oam_phase: .res 1
 
 .segment "BANK3"
     .byte bank_tag_base + 3
@@ -208,6 +221,7 @@ ap_init_stage:
     lda #$ff
     sta ap_riding_plat
     lda #0
+    sta ap_oam_phase
     sta ap_invuln
     sta ap_crouch
     sta ap_shoot_lock
@@ -2345,6 +2359,21 @@ ap_draw_pair_dir:
     ldx ap_tmp1
     jmp draw_pair
 
+; A = logical group. Set draw_slot to the rotated pair, preserving Y.
+ap_set_oam_group:
+    clc
+    adc ap_oam_phase
+    cmp #ap_oam_groups
+    bcc :+
+    sbc #ap_oam_groups
+:
+    asl a
+    asl a
+    asl a
+    adc #ap_oam_first * 4  ; ASL clears carry for all valid group indices
+    sta draw_slot
+    rts
+
 ap_draw_sprites:
     lda #$f8
     ldx #0
@@ -2354,10 +2383,20 @@ ap_draw_sprites:
     inx
     inx
     inx
-    cpx #48 * 4
+    cpx #ap_oam_end * 4
     bne :-
 
-    ; Slots 0-1 (bottom) + Slots 31-32 (top): Authentic 16x32 Arthur!
+    ; Advance by 7, coprime with 20 groups, to spread turns across frames.
+    lda ap_oam_phase
+    clc
+    adc #7
+    cmp #ap_oam_groups
+    bcc :+
+    sbc #ap_oam_groups
+:
+    sta ap_oam_phase
+
+    ; Slots 0-1 (bottom) and 2-3 (top): keep both halves ahead of other actors.
     lda #0
     sta draw_slot
     lda ap_state
@@ -2492,10 +2531,10 @@ ap_draw_sprites:
     lda player_left
     jsr ap_draw_pair_dir
 
-    ; Draw top 16x16 in OAM slots 31-32 (feet - 33) if standing/jumping/ladder
+    ; Draw top 16x16 in OAM slots 2-3 (feet - 33) if standing/jumping/ladder
     lda ap_tmp2
     beq @draw_enemies
-    lda #31 * 4
+    lda #2 * 4
     sta draw_slot
     lda draw_palette
     and #$3f                    ; restore unflipped palette before ap_draw_pair_dir
@@ -2510,11 +2549,11 @@ ap_draw_sprites:
     jsr ap_draw_pair_dir
 
 @draw_enemies:
-    ; Slots 2-3 (bottom) + Slots 33-34 (top): Fixed enemy 1 (Zombie)
+    ; Fixed enemy 1 (Zombie)
     lda ap_enemy_active
     beq @draw_pot_enemy
-    lda #2 * 4
-    sta draw_slot
+    lda #ap_oam_fixed_enemy
+    jsr ap_set_oam_group
     lda #2                      ; Zombie blue/red/white palette
     sta draw_palette
     ldy #player_height + 1
@@ -2526,8 +2565,8 @@ ap_draw_sprites:
     lda sd_enemy1_x
     ldx sd_enemy1_x+1
     jsr draw_pair
-    lda #33 * 4
-    sta draw_slot
+    lda #ap_oam_fixed_enemy + 1
+    jsr ap_set_oam_group
     ldy #player_height + 17
     lda sd_enemy1_y
     ldx sd_enemy1_y+1
@@ -2538,11 +2577,11 @@ ap_draw_sprites:
     ldx sd_enemy1_x+1
     jsr draw_pair
 @draw_pot_enemy:
-    ; Slots 9-10 (bottom) + Slots 35-36 (top): Pot-carrying Zombie
+    ; Pot-carrying Zombie
     lda ap_pot_enemy_active
     beq @draw_shots
-    lda #9 * 4
-    sta draw_slot
+    lda #ap_oam_pot_enemy
+    jsr ap_set_oam_group
     lda #3
     sta draw_palette
     ldy #player_height + 1
@@ -2554,8 +2593,8 @@ ap_draw_sprites:
     lda sd_pot_x
     ldx sd_pot_x+1
     jsr draw_pair
-    lda #35 * 4
-    sta draw_slot
+    lda #ap_oam_pot_enemy + 1
+    jsr ap_set_oam_group
     ldy #player_height + 17
     lda sd_pot_y
     ldx sd_pot_y+1
@@ -2648,9 +2687,7 @@ ap_draw_sprites:
     cpy #ap_max_ebolts
     bne @draw_ebolt_loop
 
-    ; Slots 11-18: Generic enemy pool (Zombies 16x32 + Green Monster turret 16x16)
-    lda #11 * 4
-    sta draw_slot
+    ; Generic enemy pool: zombies use two pairs, turrets use the lower pair.
     ldy #0
 @draw_pool_en_loop:
     lda en_type,y
@@ -2658,6 +2695,11 @@ ap_draw_sprites:
     jmp @next_pool_en_draw
 :
     sty ap_loop_idx
+    tya
+    asl a
+    adc #ap_oam_enemies
+    jsr ap_set_oam_group
+    lda en_type,y
     cmp #en_turret
     beq @draw_pool_turret
     ; Zombie: palette 2 (blue/red/white), 2-frame walk animation, 16x32
@@ -2687,17 +2729,11 @@ ap_draw_sprites:
     lda en_x_lo,y
     ldx en_x_hi,y
     jsr draw_pair
-    ; Top half in slots 37 + y*2
-    lda draw_slot
-    pha
-    lda ap_loop_idx
+    ; Top half follows the lower pair in the rotation.
+    tya
     asl a
-    clc
-    adc #37
-    asl a
-    asl a
-    sta draw_slot
-    ldy ap_loop_idx
+    adc #ap_oam_enemies + 1
+    jsr ap_set_oam_group
     lda en_y,y
     ldx en_y_hi,y
     ldy #player_height + 17
@@ -2708,8 +2744,6 @@ ap_draw_sprites:
     lda en_x_lo,y
     ldx en_x_hi,y
     jsr draw_pair
-    pla
-    sta draw_slot
     ldy ap_loop_idx
     jmp @next_pool_en_draw
 @draw_pool_turret:
@@ -2737,21 +2771,24 @@ ap_draw_sprites:
     beq :+
     jmp @draw_pool_en_loop
 :
-    ; Slots 11-14 reused for 16x32 Unicorn Cyclops boss during boss battle
+    ; Slots 11-14: remain ahead of rotating groups during the boss battle.
     lda ap_boss_state
     cmp #boss_active
     bne @draw_plats
     jsr ap_draw_boss
 
 @draw_plats:
-    ; Slots 19-26: Dynamic platforms (Tombstone $69/$6b, Moving platforms $0b/$0d)
-    lda #19 * 4
-    sta draw_slot
+    ; Dynamic platforms (Tombstone $69/$6b, Moving platforms $0b/$0d)
     ldy #0
 @draw_plat_loop:
     lda plat_type,y
     beq @next_plat_draw
     sty ap_loop_idx
+    tya
+    clc
+    adc #ap_oam_platforms
+    jsr ap_set_oam_group
+    lda plat_type,y
     cmp #plat_tombstone
     bne @plat_is_moving
     lda #0                      ; Tombstone: stone gray/white
@@ -2780,15 +2817,17 @@ ap_draw_sprites:
     jmp @draw_plat_loop
 :
 
-    ; Slots 27-30: Items / weapon drops / key (up to 4 sprites)
-    lda #27 * 4
-    sta draw_slot
+    ; Items use the first sprite of each pair.
     ldy #0
 @draw_item_loop:
     lda item_type,y
     beq @next_item_draw
     sty ap_loop_idx
-    tax
+    tya
+    clc
+    adc #ap_oam_items
+    jsr ap_set_oam_group
+    ldx item_type,y
     lda ap_item_pal_tbl,x
     sta draw_palette
     lda ap_item_tile_tbl,x

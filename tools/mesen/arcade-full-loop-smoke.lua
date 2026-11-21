@@ -102,7 +102,7 @@ end
 
 local function checkScanlineSpriteLimit()
     local counts = {}
-    for i = 0, 30 do
+    for i = 0, 63 do
         local y = read(0x200 + i * 4)
         if y < 0xef then
             for row = y + 1, y + 16 do
