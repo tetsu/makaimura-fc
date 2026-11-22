@@ -63,8 +63,10 @@ if ($AreaTrial) {
             Courses = @(
                 Join-Path $fixture 'platform-scroll.json'
                 Join-Path $fixture 'platform-lift.json'
+                Join-Path $fixture 'platform-transfer.json'
             )
-            Suites = 'area-trial-platform-scroll.lua', 'area-trial-platform-lift.lua'
+            Suites = 'area-trial-platform-scroll.lua', 'area-trial-platform-lift.lua',
+                'area-trial-platform-transfer.lua'
         }
     )
     foreach ($batch in $batches) {

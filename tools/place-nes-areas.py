@@ -15,6 +15,7 @@ VIEWER_BANK = 51
 TRIAL_BANK = VIEWER_BANK + 1
 FIXED_BANK = 63
 MAX_TRIALS = FIXED_BANK - TRIAL_BANK
+MAX_TRIAL_PLATFORMS = 2
 BANK_SIZE = 0x2000
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 TRIAL_POSES = ("idle", "walk_a", "walk_b", "jump")
@@ -48,7 +49,7 @@ def make_trial(path, areas, bank):
     stage_map = import_module("convert-stage-map")
     trial = json.loads(path.read_text(encoding="utf-8-sig"))
     fields = {"area", "tiles", "regions", "start_x", "checkpoint_x", "goal_x"}
-    optional = {"player_poses", "enemies", "checkpoint_y", "goal_y", "moving_platform"}
+    optional = {"player_poses", "enemies", "checkpoint_y", "goal_y", "moving_platform", "moving_platforms"}
     if not isinstance(trial, dict) or not fields <= trial.keys() <= fields | optional:
         raise ValueError(f"trial must define {', '.join(sorted(fields))} and may define {', '.join(sorted(optional))}")
     name = trial["area"]
@@ -86,11 +87,21 @@ def make_trial(path, areas, bank):
 
     checkpoint_feet = marker_feet("checkpoint_y", checkpoint)
     goal_feet = marker_feet("goal_y", goal)
-    platform_start_x = platform_right_x = platform_start_y = platform_top_y = 0
-    platform = "moving_platform" in trial
-    if platform:
-        field = "trial.moving_platform"
-        entry = trial["moving_platform"]
+    if "moving_platforms" in trial:
+        if "moving_platform" in trial:
+            raise ValueError("trial must use only one of moving_platform and moving_platforms")
+        platforms = trial["moving_platforms"]
+        if not isinstance(platforms, list) or not 1 <= len(platforms) <= MAX_TRIAL_PLATFORMS:
+            raise ValueError(f"trial.moving_platforms must be a list of 1..{MAX_TRIAL_PLATFORMS} platforms")
+        entries = [(f"trial.moving_platforms[{index}]", entry) for index, entry in enumerate(platforms)]
+    elif "moving_platform" in trial:
+        entries = [("trial.moving_platform", trial["moving_platform"])]
+    else:
+        entries = []
+
+    platform_positions = []
+    for field, entry in entries:
+        platform_right_x = platform_top_y = 0
         horizontal = {"left_x", "right_x", "y"}
         vertical = {"x", "top_y", "bottom_y"}
         if not isinstance(entry, dict) or entry.keys() not in (horizontal, vertical):
@@ -108,6 +119,9 @@ def make_trial(path, areas, bank):
         occupied_floors = floors[(platform_start_x - 8) // 16 : (last_x + 7) // 16 + 1]
         if any(floor is not None and floor < platform_start_y for floor in occupied_floors):
             raise ValueError(f"{field} path cannot extend below a solid floor")
+        platform_positions.append((platform_start_y, platform_start_x & 255, platform_start_x >> 8,
+                                   platform_right_x & 255, platform_right_x >> 8, platform_top_y))
+    platform_positions.extend([(0,) * 6] * (MAX_TRIAL_PLATFORMS - len(platform_positions)))
     camera_y = max(0, checkpoint_feet - 160)
     regions = trial["regions"]
     if not isinstance(regions, dict) or regions.keys() != stage_map.TILES.keys():
@@ -151,7 +165,7 @@ def make_trial(path, areas, bank):
             if not isinstance(pose, str) or not IDENTIFIER.fullmatch(pose):
                 raise ValueError(f"trial.player_poses.{state} must be a packed OBJ pose name")
             lines.append(f"    .addr {obj}::obj_pose_{pose}")
-        reserved_patterns = "CHR_SPRITE_BYTES + TRIAL_PLATFORM_PATTERN_BYTES" if platform else "CHR_SPRITE_BYTES"
+        reserved_patterns = "CHR_SPRITE_BYTES + TRIAL_PLATFORM_PATTERN_BYTES" if entries else "CHR_SPRITE_BYTES"
         lines.append(f'    .assert {obj}::obj_chr_vram >= chr_sprite_address + {reserved_patterns}, '
                      'error, "Trial OBJ overlaps gameplay sprite patterns"')
     else:
@@ -182,14 +196,11 @@ def make_trial(path, areas, bank):
     lines.extend([
         "trial_exact_checkpoint:",
         f"    .byte {int('checkpoint_y' in trial)}",
-        "trial_platform_start_y:",
-        f"    .byte {platform_start_y}",
-        "trial_platform_start_x:",
-        f"    .word {platform_start_x}",
-        "trial_platform_right_x:",
-        f"    .word {platform_right_x}",
-        "trial_platform_top_y:",
-        f"    .byte {platform_top_y}",
+    ])
+    lines.append("trial_platform_table:")
+    for values in zip(*platform_positions):
+        lines.append(f"    .byte {', '.join(map(str, values))}")
+    lines.extend([
         '    .res $100 - (* - trial_bank_start), $ff',
         stage_map.convert(stage, "trial").rstrip(),
         ".endscope",
@@ -310,6 +321,7 @@ def make_include(areas, trials):
         lines.extend([
             f"nes_area_trial_bank = {TRIAL_BANK}",
             f"nes_area_trial_count = {len(trials)}",
+            f"trial_platform_count = {MAX_TRIAL_PLATFORMS}",
             ".macro emit_area_trials",
         ])
         for course in trials:
@@ -317,8 +329,7 @@ def make_include(areas, trials):
         # The runtime addresses must match in every switchable course bank.
         for label in ("trial_area_index", "trial_region_offsets", "trial_player_pose_addresses",
                       "trial_has_enemies", "trial_enemy_positions", "trial_exact_checkpoint",
-                      "trial_platform_start_y", "trial_platform_start_x",
-                      "trial_platform_right_x", "trial_platform_top_y"):
+                      "trial_platform_table"):
             lines.append(f"{label} = trial_bank_{TRIAL_BANK}::{label}")
             for bank in range(TRIAL_BANK + 1, TRIAL_BANK + len(trials)):
                 lines.append(f'    .assert {label} = trial_bank_{bank}::{label}, lderror, "Trial layout mismatch"')

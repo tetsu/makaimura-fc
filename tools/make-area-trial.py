@@ -178,6 +178,20 @@ def main():
         "moving_platform": {"x": 96, "top_y": 104, "bottom_y": 160},
     })
 
+    transfer_tiles = [row.copy() for row in tiles]
+    for row in range(11, 15):
+        transfer_tiles[row][4:8] = ["sky"] * 4  # X=64..127.
+    transfer_tiles[7][10:12] = ["oneway"] * 2  # X=160..191, Y=112.
+    transfer_tiles[10][1] = "hazard"
+    write_json(output / "platform-transfer.json", {
+        **stage, "area": "steps", "tiles": transfer_tiles, "player_poses": steps_poses,
+        "start_x": 32, "checkpoint_x": 48, "goal_x": 176, "goal_y": 112, "enemies": {},
+        "moving_platforms": [
+            {"left_x": 71, "right_x": 127, "y": 160},
+            {"x": 144, "top_y": 104, "bottom_y": 176},
+        ],
+    })
+
     # The raised floor spans X=96..319 at Y=144. The enemy on the
     # lower floor forces a retry after crossing the elevated checkpoint.
     for column in range(6, 20):

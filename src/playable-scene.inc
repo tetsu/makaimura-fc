@@ -54,10 +54,19 @@ checkpoint_tile_x: .res 1
 .ifdef NES_AREA_TRIAL
 .segment "BSS"
 trial_climbing: .res 1
-trial_platform_x: .res 2
-trial_platform_y: .res 1
-trial_platform_reverse: .res 1
+trial_platform_x_lo: .res trial_platform_count
+trial_platform_x_hi: .res trial_platform_count
+trial_platform_y: .res trial_platform_count
+trial_platform_reverse: .res trial_platform_count
 trial_platform_tick: .res 1
+trial_rider_carried: .res 1
+
+trial_platform_start_y = trial_platform_table
+trial_platform_start_lo = trial_platform_start_y + trial_platform_count
+trial_platform_start_hi = trial_platform_start_lo + trial_platform_count
+trial_platform_right_lo = trial_platform_start_hi + trial_platform_count
+trial_platform_right_hi = trial_platform_right_lo + trial_platform_count
+trial_platform_top_y = trial_platform_right_hi + trial_platform_count
 .endif
 
 .segment "OAM"
@@ -871,16 +880,23 @@ trial_cell_at_y:
     rts
 
 init_trial_platform:
-    lda trial_platform_start_y
-    sta trial_platform_y
-    beq @done
-    lda trial_platform_start_x
-    sta trial_platform_x
-    lda trial_platform_start_x+1
-    sta trial_platform_x+1
     lda #0
-    sta trial_platform_reverse
     sta trial_platform_tick
+    ldx #0
+@init:
+    lda trial_platform_start_y,x
+    sta trial_platform_y,x
+    lda trial_platform_start_lo,x
+    sta trial_platform_x_lo,x
+    lda trial_platform_start_hi,x
+    sta trial_platform_x_hi,x
+    lda #0
+    sta trial_platform_reverse,x
+    inx
+    cpx #trial_platform_count
+    bne @init
+    lda trial_platform_y
+    beq @done
     lda #>(chr_sprite_address + CHR_SPRITE_BYTES)
     sta $2006
     lda #<(chr_sprite_address + CHR_SPRITE_BYTES)
@@ -902,34 +918,49 @@ move_trial_platform:
     eor #1
     sta trial_platform_tick
     bne @done
+    sta trial_rider_carried
+    ldx #0
+@move:
+    lda trial_platform_y,x
+    beq @done
+    jsr move_trial_platform_slot
+    inx
+    cpx #trial_platform_count
+    bne @move
+@done:
+    rts
+
+move_trial_platform_slot:
     ; A zero top Y selects the horizontal path.
-    lda trial_platform_top_y
+    lda trial_platform_top_y,x
     bne move_trial_platform_vertical
-    lda trial_platform_x
-    ldx trial_platform_x+1
-    cmp trial_platform_start_x
+    lda trial_platform_x_hi,x
+    cmp trial_platform_start_hi,x
     bne @check_right
-    cpx trial_platform_start_x+1
+    lda trial_platform_x_lo,x
+    cmp trial_platform_start_lo,x
     bne @check_right
     lda #0
-    sta trial_platform_reverse
+    sta trial_platform_reverse,x
     beq @right
 @check_right:
-    cmp trial_platform_right_x
+    lda trial_platform_x_hi,x
+    cmp trial_platform_right_hi,x
     bne @move
-    cpx trial_platform_right_x+1
+    lda trial_platform_x_lo,x
+    cmp trial_platform_right_lo,x
     bne @move
     lda #1
-    sta trial_platform_reverse
+    sta trial_platform_reverse,x
 @move:
-    lda trial_platform_reverse
+    lda trial_platform_reverse,x
     beq @right
-    jsr trial_platform_has_rider
-    lda trial_platform_x
+    jsr claim_trial_rider
+    lda trial_platform_x_lo,x
     bne :+
-    dec trial_platform_x+1
+    dec trial_platform_x_hi,x
 :
-    dec trial_platform_x
+    dec trial_platform_x_lo,x
     bcc @done
     lda player_x
     bne :+
@@ -938,10 +969,10 @@ move_trial_platform:
     dec player_x
     rts
 @right:
-    jsr trial_platform_has_rider
-    inc trial_platform_x
+    jsr claim_trial_rider
+    inc trial_platform_x_lo,x
     bne :+
-    inc trial_platform_x+1
+    inc trial_platform_x_hi,x
 :
     bcc @done
     inc player_x
@@ -951,44 +982,65 @@ move_trial_platform:
     rts
 
 move_trial_platform_vertical:
-    lda trial_platform_y
-    cmp trial_platform_start_y
+    lda trial_platform_y,x
+    cmp trial_platform_start_y,x
     bne @check_top
     lda #0
-    sta trial_platform_reverse
+    sta trial_platform_reverse,x
     beq @up
 @check_top:
-    cmp trial_platform_top_y
+    cmp trial_platform_top_y,x
     bne @move
     lda #1
-    sta trial_platform_reverse
+    sta trial_platform_reverse,x
 @move:
-    lda trial_platform_reverse
+    lda trial_platform_reverse,x
     beq @up
-    jsr trial_platform_has_rider
-    inc trial_platform_y
+    jsr claim_trial_rider
+    inc trial_platform_y,x
     bcc @done
     inc player_feet
     rts
 @up:
-    jsr trial_platform_has_rider
-    dec trial_platform_y
+    jsr claim_trial_rider
+    dec trial_platform_y,x
     bcc @done
     dec player_feet
 @done:
     rts
 
-trial_platform_has_rider:
+claim_trial_rider:
+    ; If two movers overlap, the first matching slot carries the player once.
+    lda trial_rider_carried
+    bne trial_platform_no_rider
     lda trial_climbing
     bne trial_platform_no_rider
     lda jump_step
     bpl trial_platform_no_rider
     lda player_feet
-    cmp trial_platform_y
+    cmp trial_platform_y,x
     bne trial_platform_no_rider
-    ; Test the old footprint before moving either the platform or the rider.
+    jsr trial_platform_covers_player
+    bcc trial_platform_no_rider
+    inc trial_rider_carried
+    rts
+
+; X holds the platform slot. Accept differences from -8 through +7.
 trial_platform_covers_player:
-    require_x_window player_x, trial_platform_x, 8, 16, trial_platform_no_rider
+    sec
+    lda player_x
+    sbc trial_platform_x_lo,x
+    tay
+    lda player_x+1
+    sbc trial_platform_x_hi,x
+    beq @nonnegative
+    cmp #$ff
+    bne trial_platform_no_rider
+    cpy #$f8
+    rts
+@nonnegative:
+    cpy #8
+    bcs trial_platform_no_rider
     sec
     rts
 trial_platform_no_rider:
@@ -996,25 +1048,49 @@ trial_platform_no_rider:
     rts
 
 draw_trial_platform:
+    ldx #0
+    lda #$f8
+@hide:
+    sta sprites+crowd_end,x
+    inx
+    inx
+    inx
+    inx
+    cpx #trial_platform_count*8
+    bne @hide
     jsr check_trial_bank
     bcs @done
-    lda #$f8
-    sta sprites+crowd_end
-    sta sprites+crowd_end+4
-    lda trial_platform_y
+    ldx #0
+@draw:
+    lda trial_platform_y,x
     beq @done
+    txa
+    pha
+    asl a
+    asl a
+    asl a
+    clc
+    adc #crowd_end
+    sta draw_slot
+    lda trial_platform_y,x
     sec
     sbc #1
     jsr set_sprite_y
-    lda #crowd_end
-    sta draw_slot
     lda #3
     sta draw_palette
     lda #(CHR_SPRITE_BYTES / chr_tile_bytes) | 1
     sta draw_tile
-    lda trial_platform_x
-    ldx trial_platform_x+1
-    jmp draw_pair
+    pla
+    tay
+    pha
+    lda trial_platform_x_lo,y
+    ldx trial_platform_x_hi,y
+    jsr draw_pair
+    pla
+    tax
+    inx
+    cpx #trial_platform_count
+    bne @draw
 @done:
     rts
 
@@ -1116,16 +1192,22 @@ find_trial_support:
 @support:
     stx ground
 @platform:
-    lda trial_platform_y
+    ldx #0
+@check:
+    lda trial_platform_y,x
     beq @no_platform
     cmp player_feet
-    bcc @no_platform
+    bcc @next
     cmp ground
-    bcs @no_platform
+    bcs @next
     jsr trial_platform_covers_player
-    bcc @no_platform
-    lda trial_platform_y
+    bcc @next
+    lda trial_platform_y,x
     sta ground
+@next:
+    inx
+    cpx #trial_platform_count
+    bne @check
 @no_platform:
     rts
 .segment "CODE"
