@@ -1,31 +1,64 @@
--- Normal 512 KiB game mode with the original -PlatformCourse fixture.
+-- Normal 512 KiB game mode with -PlatformCourse or -CourseSequence.
 -- Drive the entire route with controller input. Read gameplay state for assertions.
 -- Zero page from vrc7a-test.s and playable-scene.inc, WRAM from arcade-player.inc.
 local SCENE = 0x07
+local STAGE = 0x14
 local LIVES = 0x15
+local CAMERA_X = 0x25
 local PLAYER_X = 0x4c
 local PLAYER_FEET = 0x4e
 local CHECKPOINT = 0x70
 local AP_STATE = 0x6010
 local AP_RIDING = 0x601b
+local PLAT_TYPE = 0x603e
 local PLAT_X = 0x6042
 local LIFT_Y = 0x604b
 local HORIZONTAL_PHASE = 0x605a
+local SCHED_PAGE = 0x6074
+local SCHED_GROUP = 0x6075
+local EN_TYPE = 0x6079
+local EN_X_LO = 0x607d
+local EN_X_HI = 0x6081
+local SCORE = 0x60c8
 
 local frame = 0
 local phase = "boot"
 local clearFrame
 local input = {}
 local clearTitle = {0x04, 0x0f, 0x14, 0x11, 0x12, 0x06, 0, 0x04, 0x0c, 0x06, 0x02, 0x11}
+local finalTitle = {0x07, 0x0a, 0x0e, 0x02, 0x0c, 0, 0x04, 0x0c, 0x06, 0x02, 0x11, 0}
+local sequence = emu.getRomInfo().name:find("-course-sequence", 1, true) ~= nil
+local scrollStart
+local sawFirstEnemy = false
 
 local function read(addr)
     return emu.read(addr, emu.memType.nesMemory)
 end
 
+local function readWord(addr)
+    return read(addr) + 256 * read(addr + 1)
+end
+
 local function check(cond, message)
     if cond then return true end
-    print(string.format("FAIL frame=%d phase=%s: %s", frame, phase, message))
+    print(string.format("FAIL frame=%d phase=%s x=%d: %s", frame, phase, readWord(PLAYER_X), message))
     emu.stop(1)
+    return false
+end
+
+local function resultMatches(title)
+    for index, tile in ipairs(title) do
+        if emu.read(0x2189 + index, emu.memType.nesPpuDebug) ~= tile then return false end
+    end
+    return true
+end
+
+local function fireAhead(x)
+    if (frame - scrollStart) % 18 ~= 0 then return false end
+    for slot = 0, 3 do
+        local distance = read(EN_X_LO + slot) + 256 * read(EN_X_HI + slot) - x
+        if read(EN_TYPE + slot) ~= 0 and distance > 0 and distance <= 92 then return true end
+    end
     return false
 end
 
@@ -36,7 +69,7 @@ end, emu.eventType.inputPolled)
 emu.addEventCallback(function()
     frame = frame + 1
     input = {}
-    if not check(frame < 900, "route timed out") then return end
+    if not check(frame < (sequence and 2000 or 900), "route timed out") then return end
 
     local x = read(PLAYER_X)
     local y = read(PLAYER_FEET)
@@ -133,11 +166,63 @@ emu.addEventCallback(function()
         end
     elseif phase == "verify_clear" then
         if frame == clearFrame + 4 then
-            for index, tile in ipairs(clearTitle) do
-                if not check(emu.read(0x2189 + index, emu.memType.nesPpuDebug) == tile,
-                        "COURSE CLEAR title missing") then return end
+            if not check(resultMatches(clearTitle), "COURSE CLEAR title missing") then return end
+            if sequence then
+                if not check(readWord(SCORE) == 1, "first course item should award 100 points") then return end
+                input = {start = true}
+                phase = "scroll_entry"
+            else
+                print("PASS: checkpoint restart, horizontal-to-vertical transfer, ladder, course clear")
+                emu.stop(0)
             end
-            print("PASS: checkpoint restart, horizontal-to-vertical transfer, ladder, course clear")
+        end
+    elseif phase == "scroll_entry" then
+        if read(SCENE) == 4 and read(0x8000) == 0x8d and read(SCHED_GROUP) == 1 then
+            if not check(read(STAGE) == 2 and x == 32 and y == 176 and readWord(CAMERA_X) == 0
+                    and read(CHECKPOINT) == 0 and read(SCHED_PAGE) == 0 and riding == 0xff,
+                    "second course initialization") then return end
+            if not check(readWord(SCORE) == 1 and read(LIVES) == 2, "score and lives did not carry") then return end
+            for slot = 0, 3 do
+                if not check(read(PLAT_TYPE + slot) == 0 and read(EN_TYPE + slot) == 0,
+                        "second course platform or enemy pool was not reset") then return end
+            end
+            scrollStart = frame
+            phase = "scroll"
+        end
+    elseif phase == "scroll" then
+        x = readWord(PLAYER_X)
+        if readWord(CAMERA_X) == 0 and read(EN_TYPE) == 1 then
+            local enemyX = read(EN_X_LO) + 256 * read(EN_X_HI)
+            sawFirstEnemy = sawFirstEnemy or enemyX == 225 or enemyX == 224
+        end
+        input = {right = true, b = fireAhead(x), a = x == 575 and state == 0}
+        if read(SCENE) == 5 then
+            local score = readWord(SCORE)
+            local expectedLives = score >= 20 and 3 or 2
+            if not check(x == 724 and y == 176 and read(LIVES) == expectedLives and sawFirstEnemy and score > 1,
+                    "second course goal and enemy score") then return end
+            clearFrame = frame
+            phase = "final_clear"
+        end
+    elseif phase == "final_clear" and frame == clearFrame + 4 then
+        if not check(resultMatches(finalTitle), "FINAL CLEAR title missing") then return end
+        input = {start = true}
+        phase = "return_to_title"
+    elseif phase == "return_to_title" then
+        if read(SCENE) == 7 then
+            if not check(read(STAGE) == 0, "final clear did not return to title") then return end
+            if frame >= clearFrame + 12 then
+                input = {start = true}
+                phase = "new_game"
+            end
+        else
+            if not check(read(STAGE) == 2, "final clear advanced beyond the sequence") then return end
+        end
+    elseif phase == "new_game" then
+        if read(SCENE) == 4 and read(0x8000) == 0x8c and read(PLAT_TYPE) ~= 0 then
+            if not check(read(STAGE) == 1 and x == 32 and y == 176 and read(CHECKPOINT) == 0
+                    and read(LIVES) == 3 and readWord(SCORE) == 0, "fresh sequence did not reset") then return end
+            print("PASS: two-course sequence, score/lives carry, final clear, fresh start")
             emu.stop(0)
         end
     end

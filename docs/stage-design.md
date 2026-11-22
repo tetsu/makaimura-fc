@@ -188,6 +188,17 @@ python tools/convert-stage-map.py stage.json build/stage.inc --prefix test_stage
 
 自動試験はコントローラー入力でページ切り替えと敵の出現を確認し、穴に落ちてからワールド X=416、カメラ X=256 へ復帰する。敵の枠が初期化されて砲台とゾンビが再出現し、穴を越えて最後のグループを出現させ、クリア画面まで到達する。`-UseBuiltRoms` を省略すると ROM もビルドする。
 
+#### 通常ゲームモードの2コース連続プレイ
+
+```powershell
+./build.ps1 -Hardware -CourseSequence
+./tools/test-mesen.ps1 -CourseSequence -UseBuiltRoms
+```
+
+`build/vrc7a-test-512k-course-sequence.nes` を Mesen で開き、タイトルで **START** を押す。第1コースは移動足場とはしごを渡る構成で、上段のアイテムを取ると100点入る。`COURSE CLEAR` で **START** を押すと、スコアと残機を引き継いで第2コースへ進む。横3ページを抜け、`FINAL CLEAR` で **START** を押すとタイトルに戻る。
+
+試験では第1コースで一度落下し、途中復帰してアイテムを取る。第2コース開始時に100点と残機2が引き継がれ、カメラ、チェックポイント、足場と敵の枠が初期化されることを確認する。最終クリア後にもう一度始めると、第1コース、0点、残機3に戻る。`-UseBuiltRoms` を省略すると ROM もビルドする。
+
 ---
 
 ### 3.4 PNG の NES パレットを生成する

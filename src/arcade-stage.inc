@@ -159,6 +159,7 @@ arcade_boss_fire_period = 48
 .segment "BANK12"
     .byte bank_tag_base + arcade_stage_bank
 .ifdef ORIGINAL_COURSE
+    course_is_scroll = .defined(SCROLL_COURSE)
     .include "original-course.inc"
 .else
 arcade_stage_header:

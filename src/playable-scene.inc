@@ -98,6 +98,9 @@ sprites: .res 256
 .if PRG_ROM_UNITS = 32
 campaign_stage_count = 2
 arcade_stage_count = 7
+.ifdef COURSE_SEQUENCE
+original_course_count = 2
+.endif
 
 start_arcade_stage:
     lda #1
@@ -124,6 +127,10 @@ is_final_clear:
     rts
 @check_arcade_final:
     lda campaign_stage
+.ifdef COURSE_SEQUENCE
+    cmp #original_course_count
+    rts
+.else
     cmp #arcade_stage_count
     bcc @not_final
     lda ap_loop
@@ -134,6 +141,7 @@ is_final_clear:
 @is_final:
     sec
     rts
+.endif
 
 next_campaign_stage:
     lda arcade_mode
@@ -144,6 +152,13 @@ next_campaign_stage:
     jsr blank_display
     jmp show_sound_screen
 @arcade_next:
+.ifdef COURSE_SEQUENCE
+    ; The authored sequence ends after the second course.
+    jsr is_final_clear
+    bcc @advance_stage
+    jsr blank_display
+    jmp show_title_screen
+.else
     lda campaign_stage
     cmp #6
     bne @check_stage7
@@ -172,6 +187,7 @@ next_campaign_stage:
 @arcade_advance:
     lda #0
     sta ap_bounce_back
+.endif
 @advance_stage:
     inc campaign_stage
 start_campaign_stage:

@@ -64,6 +64,12 @@ stage2_height = 30
 
 .segment "BANK13"
     .byte bank_tag_base + arcade_stage2_bank
+.ifdef COURSE_SEQUENCE
+.scope sequence_stage2
+    course_is_scroll = 1
+    .include "original-course.inc"
+.endscope
+.else
 arcade_stage2_header:
     stage_header stage2_width, stage2_height, 0, 1, 48, 200, 208, 0, 0, 208, 144, arcade_stage2_map, arcade_stage2_palettes
 .assert arcade_stage2_header = stage_header_base, lderror, "Stage 2 header offset mismatch"
@@ -180,3 +186,4 @@ arcade_stage2_spr_chr:
     ; Tile 7 bottom-right (armored mantle right)
     .byte $fc, $fe, $fe, $f6, $fc, $78, $38, $7c
     .byte $f8, $fc, $fc, $08, $f8, $70, $30, $78
+.endif

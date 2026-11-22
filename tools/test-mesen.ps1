@@ -7,12 +7,13 @@ param(
     [switch]$UseBuiltRoms,
     [switch]$AreaTrial,
     [switch]$PlatformCourse,
-    [switch]$ScrollCourse
+    [switch]$ScrollCourse,
+    [switch]$CourseSequence
 )
 
 $ErrorActionPreference = 'Stop'
-if (($AreaTrial -and ($PlatformCourse -or $ScrollCourse)) -or ($PlatformCourse -and $ScrollCourse)) {
-    throw 'Choose one of -AreaTrial, -PlatformCourse, or -ScrollCourse.'
+if (@($AreaTrial, $PlatformCourse, $ScrollCourse, $CourseSequence).Where({ $_ }).Count -gt 1) {
+    throw 'Choose one of -AreaTrial, -PlatformCourse, -ScrollCourse, or -CourseSequence.'
 }
 $root = Split-Path -Parent $PSScriptRoot
 if (!$MesenPath) {
@@ -38,15 +39,16 @@ function Invoke-MesenSuite($SuitePath, $RomPath) {
 }
 
 $buildScript = Join-Path $root 'build.ps1'
-if ($PlatformCourse -or $ScrollCourse) {
-    $courseName = if ($PlatformCourse) { 'platform-course' } else { 'scroll-course' }
+if ($PlatformCourse -or $ScrollCourse -or $CourseSequence) {
+    $courseName = if ($PlatformCourse) { 'platform-course' } elseif ($ScrollCourse) { 'scroll-course' } else { 'course-sequence' }
     $rom = Join-Path $root "build/vrc7a-test-512k-$courseName.nes"
     if (!$UseBuiltRoms) {
-        $courseOptions = @{ PlatformCourse = $PlatformCourse; ScrollCourse = $ScrollCourse }
+        $courseOptions = @{ PlatformCourse = $PlatformCourse; ScrollCourse = $ScrollCourse; CourseSequence = $CourseSequence }
         $rom = (& $buildScript -Hardware @courseOptions -Cc65Bin $Cc65Bin)[0]
     }
     if (!(Test-Path -LiteralPath $rom -PathType Leaf)) { throw "ROM not found: $rom." }
-    $suite = Join-Path $PSScriptRoot "mesen/$courseName.lua"
+    $suiteName = if ($ScrollCourse) { 'scroll-course' } else { 'platform-course' }
+    $suite = Join-Path $PSScriptRoot "mesen/$suiteName.lua"
     $exitCode = Invoke-MesenSuite $suite $rom
     if ($exitCode -ne 0) { throw "$courseName failed with code $exitCode. See $logDir." }
     Write-Host "$courseName passed."

@@ -4,7 +4,8 @@ param(
     [string]$AreaManifest = '',
     [string[]]$AreaTrial = @(),
     [switch]$PlatformCourse,
-    [switch]$ScrollCourse
+    [switch]$ScrollCourse,
+    [switch]$CourseSequence
 )
 $ErrorActionPreference = 'Stop'
 if ($AreaManifest -and !$Hardware) {
@@ -13,10 +14,10 @@ if ($AreaManifest -and !$Hardware) {
 if ($AreaTrial -and !$AreaManifest) {
     throw '-AreaTrial requires -AreaManifest.'
 }
-if ($PlatformCourse -and $ScrollCourse) {
-    throw 'Choose one game-mode course.'
+if (@($PlatformCourse, $ScrollCourse, $CourseSequence).Where({ $_ }).Count -gt 1) {
+    throw 'Choose one of -PlatformCourse, -ScrollCourse, or -CourseSequence.'
 }
-$courseName = if ($PlatformCourse) { 'platform-course' } elseif ($ScrollCourse) { 'scroll-course' }
+$courseName = if ($PlatformCourse) { 'platform-course' } elseif ($ScrollCourse) { 'scroll-course' } elseif ($CourseSequence) { 'course-sequence' }
 if ($courseName -and !$Hardware) {
     throw 'Game-mode courses require -Hardware.'
 }
@@ -65,13 +66,17 @@ if ($AreaManifest) {
 }
 if ($courseName) {
     $stageConverter = Join-Path $PSScriptRoot 'tools/convert-stage-map.py'
-    $courseJson = Join-Path $PSScriptRoot "tools/fixtures/$courseName.json"
-    $courseInclude = Join-Path $buildDir "$courseName-map.inc"
-    & python $stageConverter $courseJson $courseInclude --prefix course
-    if ($LASTEXITCODE -ne 0) { throw "$courseName conversion failed with code $LASTEXITCODE" }
+    $courseMaps = if ($CourseSequence) { 'platform-course', 'scroll-course' } else { $courseName }
+    foreach ($courseMap in $courseMaps) {
+        $courseJson = Join-Path $PSScriptRoot "tools/fixtures/$courseMap.json"
+        $courseInclude = Join-Path $buildDir "$courseMap-map.inc"
+        & python $stageConverter $courseJson $courseInclude --prefix course
+        if ($LASTEXITCODE -ne 0) { throw "$courseMap conversion failed with code $LASTEXITCODE" }
+    }
     $basename += "-$courseName"
     $assembleOptions += @('-D', 'ORIGINAL_COURSE=1', '-I', $buildDir)
     if ($ScrollCourse) { $assembleOptions += @('-D', 'SCROLL_COURSE=1') }
+    if ($CourseSequence) { $assembleOptions += @('-D', 'COURSE_SEQUENCE=1') }
 }
 $object = Join-Path $buildDir "$basename.o"
 $rom = Join-Path $buildDir "$basename.nes"
