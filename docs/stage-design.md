@@ -383,6 +383,8 @@ OBJ シートは `pack-nes-chr.py --first-tile 0x10 --prefix obj --poses poses.j
 
 ### 4.1 PRG-ROM バンク別使用量（512 KiB = 64 × 8 KiB）
 
+下の表は Task 4 の完了時点の値。C-2 で `BANK3` の描画を `BANK7` に、敵・敵弾・ボスを `BANK4` に移した。今の値は [実測推移](vrc7a-architecture.md#現状の実測推移512-kib-版)にある。
+
 | バンク / セグメント | 配置窓 | 用途 | 使用量 (B) | 上限 (B) | 残量 (B) |
 | --- | --- | --- | ---: | ---: | ---: |
 | `FIXED` (`FIXED_TAG`+`CODE`+`RODATA`) | `$E000-$FFF9` | 起動検査・NMI/IRQ・スクロール・トランポリン・共通データ | 6,592 | 8,186 | 1,594 |

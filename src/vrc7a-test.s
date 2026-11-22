@@ -23,9 +23,9 @@ bank_tag_base = $80
 .segment "BANK2"
 .byte bank_tag_base + 2
 .if fixed_bank > 3
-.segment "PAD_4_7"
-.repeat 4, index
-    .byte bank_tag_base + 4 + index
+.segment "PAD_5_6"
+.repeat 2, index
+    .byte bank_tag_base + 5 + index
     .res $1fff, $ff
 .endrepeat
 .ifdef NES_AREA_ART
@@ -111,6 +111,8 @@ nes_area_trial_count = 0
 .include "arcade-stage6.inc"
 .include "arcade-stage7.inc"
 .include "arcade-player.inc"
+.include "arcade-enemy.inc"
+.include "arcade-draw.inc"
 .include "sound-test.inc"
 .include "sprite-view.inc"
 .ifdef NES_AREA_ART
@@ -735,9 +737,9 @@ call_bank3_update:
     jsr select_bank1
     jmp ap_update_frame
 
-call_bank3_draw_sprites:
-    lda #3
-    jsr select_bank1
+call_bank7_draw_sprites:
+    lda #7
+    jsr select_bank2
     jmp ap_draw_sprites
 
 call_bank3_load_stage_visuals:
@@ -750,19 +752,28 @@ call_bank8_audio_init:
     jsr select_bank2
     jmp snd_init
 
+; Song and effect calls put the caller's $C000 bank back, so Bank 4 and 7 code can use them.
 call_bank8_play_song:
+    sta snd_call_arg
+    lda prg_bank2
     pha
     lda #8
     jsr select_bank2
+    lda snd_call_arg
+    jsr snd_play_song
     pla
-    jmp snd_play_song
+    jmp select_bank2
 
 call_bank8_play_se:
+    sta snd_call_arg
+    lda prg_bank2
     pha
     lda #8
     jsr select_bank2
+    lda snd_call_arg
+    jsr snd_play_se
     pla
-    jmp snd_play_se
+    jmp select_bank2
 
 call_bank8_audio_tick:
     lda #8

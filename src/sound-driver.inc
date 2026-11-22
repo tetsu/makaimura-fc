@@ -56,6 +56,7 @@ snd_tmp0:           .res 1
 snd_tmp1:           .res 1
 snd_ch:             .res 1
 snd_saved_bank0:    .res 1
+snd_call_arg:       .res 1                  ; the song or effect call_bank8_play_* passes on
 
 .segment "BANK8"
     .byte bank_tag_base + 8

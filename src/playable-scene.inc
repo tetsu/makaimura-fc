@@ -1453,7 +1453,7 @@ draw_sprites:
 .if PRG_ROM_UNITS = 32
     lda arcade_mode
     beq :+
-    jmp call_bank3_draw_sprites
+    jmp call_bank7_draw_sprites
 :
 .endif
     ; Hide the gameplay entries before drawing visible pieces.

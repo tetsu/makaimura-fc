@@ -1,4 +1,4 @@
-; Sprite diagnostics use the gameplay player renderer in Bank 3.
+; Sprite diagnostics use the gameplay player renderer in Bank 7.
 .segment "BSS"
 sprite_view_pose: .res 1
 sprite_view_tick: .res 1
@@ -117,6 +117,8 @@ update_sprite_view:
     jmp submit_frame
 
 draw_sprite_view:
+    lda #7             ; The player renderer is in Bank 7 at $C000.
+    jsr select_bank2
     lda #$f8           ; Crouching leaves the top two slots unused.
     sta sprites
     sta sprites+4
