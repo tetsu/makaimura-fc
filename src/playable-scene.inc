@@ -754,7 +754,13 @@ floor_height:
     asl a
     rts
 
+.ifdef NES_AREA_TRIAL
+.segment "BANK1"
+.endif
 move_vertically:
+.ifdef NES_AREA_TRIAL
+    jsr find_trial_support
+.endif
     ldx jump_step
     bpl air_step
     lda pressed
@@ -768,11 +774,27 @@ move_vertically:
 begin_jump:
     ldx #0
 air_step:
+.ifdef NES_AREA_TRIAL
+    lda jump_delta,x
+    bpl @add_delta
+    clc
+    adc player_feet
+    bcs @check_landing
+    lda #0              ; A jump from a high platform can reach the map ceiling.
+    beq @continue_jump
+@add_delta:
+.endif
     lda player_feet
     clc
     adc jump_delta,x
+.ifdef NES_AREA_TRIAL
+@check_landing:
+.endif
     cmp ground
     bcs land
+.ifdef NES_AREA_TRIAL
+@continue_jump:
+.endif
     sta player_feet
     inx
     cpx #jump_length
@@ -788,6 +810,34 @@ land:
     lda #$ff
     sta jump_step
     rts
+
+.ifdef NES_AREA_TRIAL
+find_trial_support:
+    jsr check_trial_bank
+    bcs @done
+    ; Horizontal movement already set map_ptr for the final player column.
+    ; A step moves at most 4 px, so only the first tile top at or below
+    ; the current feet can catch the player this frame.
+    lda player_feet
+    clc
+    adc #15
+    and #$f0
+    cmp ground
+    bcs @done
+    tax
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda (map_ptr),y
+    cmp #mt_oneway
+    bne @done
+    stx ground
+@done:
+    rts
+.segment "CODE"
+.endif
 
 update_shot:
     lda shot_life

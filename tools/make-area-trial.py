@@ -117,6 +117,14 @@ def main():
         "enemies": {},
     })
 
+    oneway_tiles = [row.copy() for row in tiles]
+    oneway_tiles[9][3:5] = ["oneway", "oneway"]  # X=48..79, Y=144.
+    oneway_tiles[10][4] = "oneway"  # A lower platform in the same column as the jump.
+    write_json(output / "oneway.json", {
+        **stage, "tiles": oneway_tiles, "start_x": 32, "checkpoint_x": 96, "goal_x": 176,
+        "enemies": {},
+    })
+
     # The raised floor spans X=96..319 at Y=144. The enemy on the
     # lower floor forces a retry after crossing the elevated checkpoint.
     for column in range(6, 20):

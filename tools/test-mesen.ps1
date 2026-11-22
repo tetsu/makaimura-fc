@@ -41,10 +41,13 @@ if ($AreaTrial) {
     $courses = foreach ($course in 'stage.json', 'steps.json', 'finish.json') {
         Join-Path $fixture $course
     }
-    $capacityCourses = $courses + $courses[1] + (Join-Path $fixture 'hazard.json') + (@($courses[2]) * 6)
+    $capacityCourses = $courses + $courses[1] + @(
+        Join-Path $fixture 'hazard.json'
+        Join-Path $fixture 'oneway.json'
+    ) + (@($courses[2]) * 5)
     $rom = (& $buildScript -Hardware -Cc65Bin $Cc65Bin `
         -AreaManifest (Join-Path $fixture 'areas.json') -AreaTrial $capacityCourses)[0]
-    foreach ($suite in 'area-trial-selector.lua', 'area-trial-hazard.lua') {
+    foreach ($suite in 'area-trial-selector.lua', 'area-trial-hazard.lua', 'area-trial-oneway.lua') {
         $code = Invoke-MesenSuite (Join-Path $PSScriptRoot "mesen/$suite") $rom
         if ($code -ne 0) {
             Write-Host "FAIL $suite (Mesen exit $code). Logs: $logDir"
