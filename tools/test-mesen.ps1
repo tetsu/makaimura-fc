@@ -5,10 +5,14 @@ param(
     [ValidateRange(1, 3600)]
     [int]$TimeoutSeconds = 120,
     [switch]$UseBuiltRoms,
-    [switch]$AreaTrial
+    [switch]$AreaTrial,
+    [switch]$PlatformCourse
 )
 
 $ErrorActionPreference = 'Stop'
+if ($AreaTrial -and $PlatformCourse) {
+    throw 'Choose either -AreaTrial or -PlatformCourse.'
+}
 $root = Split-Path -Parent $PSScriptRoot
 if (!$MesenPath) {
     $MesenPath = Join-Path $root 'build/mesen/Mesen.exe'
@@ -33,6 +37,16 @@ function Invoke-MesenSuite($SuitePath, $RomPath) {
 }
 
 $buildScript = Join-Path $root 'build.ps1'
+if ($PlatformCourse) {
+    $rom = Join-Path $root 'build/vrc7a-test-512k-platform-course.nes'
+    if (!$UseBuiltRoms) { $rom = (& $buildScript -Hardware -PlatformCourse -Cc65Bin $Cc65Bin)[0] }
+    if (!(Test-Path -LiteralPath $rom -PathType Leaf)) { throw "ROM not found: $rom." }
+    $suite = Join-Path $PSScriptRoot 'mesen/platform-course.lua'
+    $exitCode = Invoke-MesenSuite $suite $rom
+    if ($exitCode -ne 0) { throw "Platform course failed with code $exitCode. See $logDir." }
+    Write-Host 'Platform course passed.'
+    return
+}
 if ($AreaTrial) {
     if ($UseBuiltRoms) { throw '-AreaTrial generates its own fixture and cannot use -UseBuiltRoms.' }
     $fixture = Join-Path $root 'build/area-trial-fixture'

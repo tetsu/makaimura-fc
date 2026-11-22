@@ -1,0 +1,23 @@
+{
+  "tiles": [
+    ["sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky"],
+    ["sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky"],
+    ["sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky"],
+    ["sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky"],
+    ["sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky"],
+    ["sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "ladder", "oneway", "oneway", "oneway", "oneway"],
+    ["sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "ladder", "sky", "sky", "sky", "sky"],
+    ["sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "ladder", "sky", "sky", "sky", "sky"],
+    ["sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "ladder", "sky", "sky", "sky", "sky"],
+    ["sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "oneway", "oneway", "oneway", "oneway", "oneway", "oneway"],
+    ["sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky", "sky"],
+    ["ledge", "ledge", "ledge", "ledge", "sky", "sky", "sky", "sky", "sky", "sky", "ledge", "ledge", "ledge", "ledge", "ledge", "ledge"],
+    ["rock", "rock", "rock", "rock", "sky", "sky", "sky", "sky", "sky", "sky", "rock", "rock", "rock", "rock", "rock", "rock"],
+    ["rock", "rock", "rock", "rock", "sky", "sky", "sky", "sky", "sky", "sky", "rock", "rock", "rock", "rock", "rock", "rock"],
+    ["rock", "rock", "rock", "rock", "sky", "sky", "sky", "sky", "sky", "sky", "rock", "rock", "rock", "rock", "rock", "rock"]
+  ],
+  "platforms": [
+    {"type": "horizontal", "x": 70, "y": 176, "span": 56},
+    {"type": "vertical", "x": 148, "y": 176, "span": 40}
+  ]
+}

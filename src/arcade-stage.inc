@@ -158,6 +158,9 @@ arcade_boss_fire_period = 48
 
 .segment "BANK12"
     .byte bank_tag_base + arcade_stage_bank
+.ifdef PLATFORM_COURSE
+    .include "platform-course.inc"
+.else
 arcade_stage_header:
     stage_header default_stage_width, default_stage_height, 2, 2, 48, 480, 176, 1, 16, 760, 176, arcade_stage_map, arcade_stage_palettes
 .assert arcade_stage_header = stage_header_base, lderror, "Arcade stage header offset mismatch"
@@ -306,3 +309,4 @@ arcade_stage1_bg_pal:
 arcade_stage1_spr_pal:
     .byte $0f, $00, $10, $30,  $0f, $16, $27, $38
     .byte $0f, $12, $16, $30,  $0f, $1a, $27, $30
+.endif

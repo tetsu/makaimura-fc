@@ -162,6 +162,19 @@ python tools/convert-stage-map.py stage.json build/stage.inc --prefix test_stage
 
 テーブルはページ0〜2の順に、各9 Bの `page, turret_x, turret_y, zombie_x, zombie_y` を格納する。座標は16ビットのリトルエンディアンで、未設定のページの先頭バイトは `$FF`。グループ形式では開始・復帰時のページも出現対象になり、未設定のページでは新規出現が止まる。ゾンビの出現待ちと同時出現上限はマップ全体で共有する。砲台の出現状態はページ別で、画面外回収後は再出現でき、撃破後はステージの再初期化まで撃破状態を維持する。
 
+#### 通常ゲームモードの足場コース
+
+`-Hardware -PlatformCourse` で、[自作マップの JSON](../tools/fixtures/platform-course.json) を変換し、通常のゲームモードの Stage 1（PRG Bank 12）に組み込む。開始・復帰・ゴールの座標は [ステージヘッダ](../src/platform-course.inc) で指定する。
+
+```powershell
+./build.ps1 -Hardware -PlatformCourse
+./tools/test-mesen.ps1 -PlatformCourse -UseBuiltRoms
+```
+
+1行目が出力する `build/vrc7a-test-512k-platform-course.nes` を Mesen で開き、タイトルで **START** を押す。左の床から横足場、縦足場と飛び移り、右の棚からはしごを登る。上段の右端で `COURSE CLEAR` が表示される。穴に落ちた後は **START** で再開する。
+
+自動試験はコントローラー入力で一度落下し、チェックポイント座標、残機、両足場の初期位置を確認してから、足場の乗り継ぎ、はしご昇降、クリア表示まで進む。`-UseBuiltRoms` を省略すると、試験コマンドが ROM もビルドする。
+
 ---
 
 ### 3.4 PNG の NES パレットを生成する

@@ -2,7 +2,8 @@ param(
     [string]$Cc65Bin = '',
     [switch]$Hardware,
     [string]$AreaManifest = '',
-    [string[]]$AreaTrial = @()
+    [string[]]$AreaTrial = @(),
+    [switch]$PlatformCourse
 )
 $ErrorActionPreference = 'Stop'
 if ($AreaManifest -and !$Hardware) {
@@ -10,6 +11,9 @@ if ($AreaManifest -and !$Hardware) {
 }
 if ($AreaTrial -and !$AreaManifest) {
     throw '-AreaTrial requires -AreaManifest.'
+}
+if ($PlatformCourse -and !$Hardware) {
+    throw '-PlatformCourse requires -Hardware.'
 }
 
 if (!$Cc65Bin -and !(Get-Command ca65 -ErrorAction SilentlyContinue)) {
@@ -53,6 +57,15 @@ if ($AreaManifest) {
         $assembleOptions += @('-D', 'NES_AREA_TRIAL=1')
     }
     $configPath = Join-Path $areaDir 'nes-areas.cfg'
+}
+if ($PlatformCourse) {
+    $stageConverter = Join-Path $PSScriptRoot 'tools/convert-stage-map.py'
+    $courseJson = Join-Path $PSScriptRoot 'tools/fixtures/platform-course.json'
+    $courseInclude = Join-Path $buildDir 'platform-course-map.inc'
+    & python $stageConverter $courseJson $courseInclude --prefix platform_course
+    if ($LASTEXITCODE -ne 0) { throw "Platform course conversion failed with code $LASTEXITCODE" }
+    $basename += '-platform-course'
+    $assembleOptions += @('-D', 'PLATFORM_COURSE=1', '-I', $buildDir)
 }
 $object = Join-Path $buildDir "$basename.o"
 $rom = Join-Path $buildDir "$basename.nes"
