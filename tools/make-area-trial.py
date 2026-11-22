@@ -159,6 +159,16 @@ def main():
         "moving_platform": {"left_x": 119, "right_x": 176, "y": 160},
     })
 
+    crossing_tiles = [row.copy() for row in tiles]
+    # The gravel marker at X=336 enters the viewport during the ride.
+    for row in range(11, 15):
+        crossing_tiles[row][15:19] = ["sky"] * 4  # X=240..303.
+    write_json(output / "platform-scroll.json", {
+        **stage, "area": "steps", "tiles": crossing_tiles, "player_poses": steps_poses,
+        "start_x": 160, "checkpoint_x": 208, "goal_x": 320, "enemies": {},
+        "moving_platform": {"left_x": 247, "right_x": 304, "y": 160},
+    })
+
     # The raised floor spans X=96..319 at Y=144. The enemy on the
     # lower floor forces a retry after crossing the elevated checkpoint.
     for column in range(6, 20):

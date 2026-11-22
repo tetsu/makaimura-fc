@@ -49,26 +49,32 @@ if ($AreaTrial) {
         Join-Path $fixture 'pit.json'
         Join-Path $fixture 'platform.json'
     ) + $courses[2]
-    $rom = (& $buildScript -Hardware -Cc65Bin $Cc65Bin `
-        -AreaManifest (Join-Path $fixture 'areas.json') -AreaTrial $capacityCourses)[0]
-    foreach ($suite in 'area-trial-selector.lua', 'area-trial-hazard.lua', 'area-trial-oneway.lua', 'area-trial-ladder.lua', 'area-trial-markers.lua', 'area-trial-pit.lua', 'area-trial-platform.lua') {
-        $code = Invoke-MesenSuite (Join-Path $PSScriptRoot "mesen/$suite") $rom
-        if ($code -ne 0) {
-            Write-Host "FAIL $suite (Mesen exit $code). Logs: $logDir"
-            exit 1
+    $batches = @(
+        @{
+            Courses = $capacityCourses
+            Suites = 'area-trial-selector.lua', 'area-trial-hazard.lua', 'area-trial-oneway.lua',
+                'area-trial-ladder.lua', 'area-trial-markers.lua', 'area-trial-pit.lua', 'area-trial-platform.lua'
         }
-        Write-Host "PASS $suite. Logs: $logDir"
-    }
-
-    $rom = (& $buildScript -Hardware -Cc65Bin $Cc65Bin `
-        -AreaManifest (Join-Path $fixture 'areas.json') -AreaTrial $courses)[0]
-    foreach ($suite in 'area-trial.lua', 'area-trial-steps.lua') {
-        $code = Invoke-MesenSuite (Join-Path $PSScriptRoot "mesen/$suite") $rom
-        if ($code -ne 0) {
-            Write-Host "FAIL $suite (Mesen exit $code). Logs: $logDir"
-            exit 1
+        @{
+            Courses = $courses
+            Suites = 'area-trial.lua', 'area-trial-steps.lua'
         }
-        Write-Host "PASS $suite. Logs: $logDir"
+        @{
+            Courses = @(Join-Path $fixture 'platform-scroll.json')
+            Suites = 'area-trial-platform-scroll.lua'
+        }
+    )
+    foreach ($batch in $batches) {
+        $rom = (& $buildScript -Hardware -Cc65Bin $Cc65Bin `
+            -AreaManifest (Join-Path $fixture 'areas.json') -AreaTrial $batch.Courses)[0]
+        foreach ($suite in $batch.Suites) {
+            $code = Invoke-MesenSuite (Join-Path $PSScriptRoot "mesen/$suite") $rom
+            if ($code -ne 0) {
+                Write-Host "FAIL $suite (Mesen exit $code). Logs: $logDir"
+                exit 1
+            }
+            Write-Host "PASS $suite. Logs: $logDir"
+        }
     }
     exit 0
 }
