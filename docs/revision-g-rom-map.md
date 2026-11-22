@@ -16,6 +16,8 @@
 
 `$3E00` への書き込み値が4なら bank4、それ以外は下位2ビットで bank0〜3を選ぶ。上の配置は MAME のメモリマップとローカルの `-listxml makaimurg` で照合した。さらに起動時の自己診断と同じ方法で計算した16ビット加算チェックサム8個が、`bank3:$5FF0–$5FFF` の期待値とすべて一致した。順序は bank4、3、2、1、0、固定 ROM の `$6000–$7FFF`、`$8000–$BFFF`、`$C000–$FFFF`。bank3 の加算範囲は `$4000–$5FEF`。[MAME のバンク選択](https://github.com/mamedev/mame/blob/mame0289/src/mame/capcom/gng.cpp#L211-L220) · [MAME のバンク配置](https://github.com/mamedev/mame/blob/mame0289/src/mame/capcom/gng.cpp#L496-L500)
 
+スプライトの一覧を組む `$F6F2`、絵の形、アニメーションのコマの書式、OBJ ROM の色の読み方は [スプライトとアニメーション](revision-g-sprites.md) にまとめた。
+
 ## 起動と割り込み
 
 | 起点 | 種別 | 確認した内容 |
