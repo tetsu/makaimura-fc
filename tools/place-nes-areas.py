@@ -86,20 +86,27 @@ def make_trial(path, areas, bank):
 
     checkpoint_feet = marker_feet("checkpoint_y", checkpoint)
     goal_feet = marker_feet("goal_y", goal)
-    platform_left = platform_right = platform_y = 0
+    platform_start_x = platform_right_x = platform_start_y = platform_top_y = 0
     platform = "moving_platform" in trial
     if platform:
         field = "trial.moving_platform"
         entry = trial["moving_platform"]
-        keys = {"left_x", "right_x", "y"}
-        stage_map.check_fields(entry, keys, field)
-        if entry.keys() != keys:
-            raise ValueError(f"{field} must define left_x, right_x and y")
-        platform_left = bounded(entry["left_x"], start + 8, goal - 9, f"{field}.left_x")
-        platform_right = bounded(entry["right_x"], platform_left + 1, goal - 8, f"{field}.right_x")
-        platform_y = bounded(entry["y"], 40, 224, f"{field}.y")
-        occupied_floors = floors[(platform_left - 8) // 16 : (platform_right + 7) // 16 + 1]
-        if any(floor is not None and floor < platform_y for floor in occupied_floors):
+        horizontal = {"left_x", "right_x", "y"}
+        vertical = {"x", "top_y", "bottom_y"}
+        if not isinstance(entry, dict) or entry.keys() not in (horizontal, vertical):
+            raise ValueError(f"{field} must define left_x, right_x and y, or x, top_y and bottom_y")
+        if entry.keys() == horizontal:
+            platform_start_x = bounded(entry["left_x"], start + 8, goal - 9, f"{field}.left_x")
+            platform_right_x = bounded(entry["right_x"], platform_start_x + 1, goal - 8, f"{field}.right_x")
+            platform_start_y = bounded(entry["y"], 40, 224, f"{field}.y")
+            last_x = platform_right_x
+        else:
+            platform_start_x = bounded(entry["x"], start + 8, goal - 8, f"{field}.x")
+            platform_top_y = bounded(entry["top_y"], 40, 223, f"{field}.top_y")
+            platform_start_y = bounded(entry["bottom_y"], platform_top_y + 1, 224, f"{field}.bottom_y")
+            last_x = platform_start_x
+        occupied_floors = floors[(platform_start_x - 8) // 16 : (last_x + 7) // 16 + 1]
+        if any(floor is not None and floor < platform_start_y for floor in occupied_floors):
             raise ValueError(f"{field} path cannot extend below a solid floor")
     camera_y = max(0, checkpoint_feet - 160)
     regions = trial["regions"]
@@ -175,12 +182,14 @@ def make_trial(path, areas, bank):
     lines.extend([
         "trial_exact_checkpoint:",
         f"    .byte {int('checkpoint_y' in trial)}",
-        "trial_platform_y:",
-        f"    .byte {platform_y}",
-        "trial_platform_left:",
-        f"    .word {platform_left}",
-        "trial_platform_right:",
-        f"    .word {platform_right}",
+        "trial_platform_start_y:",
+        f"    .byte {platform_start_y}",
+        "trial_platform_start_x:",
+        f"    .word {platform_start_x}",
+        "trial_platform_right_x:",
+        f"    .word {platform_right_x}",
+        "trial_platform_top_y:",
+        f"    .byte {platform_top_y}",
         '    .res $100 - (* - trial_bank_start), $ff',
         stage_map.convert(stage, "trial").rstrip(),
         ".endscope",
@@ -308,7 +317,8 @@ def make_include(areas, trials):
         # The runtime addresses must match in every switchable course bank.
         for label in ("trial_area_index", "trial_region_offsets", "trial_player_pose_addresses",
                       "trial_has_enemies", "trial_enemy_positions", "trial_exact_checkpoint",
-                      "trial_platform_y", "trial_platform_left", "trial_platform_right"):
+                      "trial_platform_start_y", "trial_platform_start_x",
+                      "trial_platform_right_x", "trial_platform_top_y"):
             lines.append(f"{label} = trial_bank_{TRIAL_BANK}::{label}")
             for bank in range(TRIAL_BANK + 1, TRIAL_BANK + len(trials)):
                 lines.append(f'    .assert {label} = trial_bank_{bank}::{label}, lderror, "Trial layout mismatch"')

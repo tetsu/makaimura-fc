@@ -169,6 +169,15 @@ def main():
         "moving_platform": {"left_x": 247, "right_x": 304, "y": 160},
     })
 
+    lift_tiles = [row.copy() for row in tiles]
+    lift_tiles[7][7:10] = ["oneway"] * 3  # X=112..159, Y=112.
+    lift_tiles[10][1] = "hazard"  # Retry trigger behind the starting point.
+    write_json(output / "platform-lift.json", {
+        **stage, "area": "steps", "tiles": lift_tiles, "player_poses": steps_poses,
+        "start_x": 32, "checkpoint_x": 64, "goal_x": 152, "goal_y": 112, "enemies": {},
+        "moving_platform": {"x": 96, "top_y": 104, "bottom_y": 160},
+    })
+
     # The raised floor spans X=96..319 at Y=144. The enemy on the
     # lower floor forces a retry after crossing the elevated checkpoint.
     for column in range(6, 20):

@@ -55,7 +55,8 @@ checkpoint_tile_x: .res 1
 .segment "BSS"
 trial_climbing: .res 1
 trial_platform_x: .res 2
-trial_platform_leftward: .res 1
+trial_platform_y: .res 1
+trial_platform_reverse: .res 1
 trial_platform_tick: .res 1
 .endif
 
@@ -870,14 +871,15 @@ trial_cell_at_y:
     rts
 
 init_trial_platform:
-    lda trial_platform_y
+    lda trial_platform_start_y
+    sta trial_platform_y
     beq @done
-    lda trial_platform_left
+    lda trial_platform_start_x
     sta trial_platform_x
-    lda trial_platform_left+1
+    lda trial_platform_start_x+1
     sta trial_platform_x+1
     lda #0
-    sta trial_platform_leftward
+    sta trial_platform_reverse
     sta trial_platform_tick
     lda #>(chr_sprite_address + CHR_SPRITE_BYTES)
     sta $2006
@@ -900,24 +902,27 @@ move_trial_platform:
     eor #1
     sta trial_platform_tick
     bne @done
+    ; A zero top Y selects the horizontal path.
+    lda trial_platform_top_y
+    bne move_trial_platform_vertical
     lda trial_platform_x
     ldx trial_platform_x+1
-    cmp trial_platform_left
+    cmp trial_platform_start_x
     bne @check_right
-    cpx trial_platform_left+1
+    cpx trial_platform_start_x+1
     bne @check_right
     lda #0
-    sta trial_platform_leftward
+    sta trial_platform_reverse
     beq @right
 @check_right:
-    cmp trial_platform_right
+    cmp trial_platform_right_x
     bne @move
-    cpx trial_platform_right+1
+    cpx trial_platform_right_x+1
     bne @move
     lda #1
-    sta trial_platform_leftward
+    sta trial_platform_reverse
 @move:
-    lda trial_platform_leftward
+    lda trial_platform_reverse
     beq @right
     jsr trial_platform_has_rider
     lda trial_platform_x
@@ -942,6 +947,34 @@ move_trial_platform:
     inc player_x
     bne @done
     inc player_x+1
+@done:
+    rts
+
+move_trial_platform_vertical:
+    lda trial_platform_y
+    cmp trial_platform_start_y
+    bne @check_top
+    lda #0
+    sta trial_platform_reverse
+    beq @up
+@check_top:
+    cmp trial_platform_top_y
+    bne @move
+    lda #1
+    sta trial_platform_reverse
+@move:
+    lda trial_platform_reverse
+    beq @up
+    jsr trial_platform_has_rider
+    inc trial_platform_y
+    bcc @done
+    inc player_feet
+    rts
+@up:
+    jsr trial_platform_has_rider
+    dec trial_platform_y
+    bcc @done
+    dec player_feet
 @done:
     rts
 
