@@ -51,6 +51,11 @@ crowd_first: .res 1
 checkpoint_reached: .res 1
 checkpoint_tile_x: .res 1
 
+.ifdef NES_AREA_TRIAL
+.segment "BSS"
+trial_climbing: .res 1
+.endif
+
 .segment "OAM"
 sprites: .res 256
 
@@ -321,6 +326,9 @@ setup_game:
     sta bolt_active
     sta crowd_enabled
     sta crowd_first
+.ifdef NES_AREA_TRIAL
+    sta trial_climbing
+.endif
     lda #$ff
     sta jump_step
 .if PRG_ROM_UNITS = 32
@@ -421,6 +429,10 @@ update_game:
     lda campaign_stage
     bne check_player_hit
 .endif
+.ifdef NES_AREA_TRIAL
+    jsr check_trial_bank
+    bcc check_player_hit
+.endif
     lda pressed
     and #$08            ; Up toggles the sprite evaluation test.
     beq :+
@@ -433,8 +445,12 @@ update_game:
 check_player_hit:
     lda player_hit
     bne game_camera
+.ifdef NES_AREA_TRIAL
+    jsr move_trial_player
+.else
     jsr move_player
     jsr move_vertically
+.endif
     jsr update_shot
     jsr check_enemy_contact
     jsr update_ranged
@@ -756,6 +772,72 @@ floor_height:
 
 .ifdef NES_AREA_TRIAL
 .segment "BANK1"
+
+move_trial_player:
+    jsr check_trial_bank
+    bcs @walk
+    lda pad
+    and #$0c
+    cmp #$08
+    beq @up
+    cmp #$04
+    beq @down
+    lda trial_climbing
+    bne @done           ; Hold position while paused on a ladder.
+@walk:
+    jsr move_player
+    jmp move_vertically
+@up:
+    lda jump_step
+    bpl @walk
+    jsr read_ground
+    jsr trial_cell_above_feet
+    cmp #mt_ladder
+    bne @walk
+    dec player_feet
+    jsr trial_cell_above_feet
+    jmp @set_climbing
+@down:
+    lda jump_step
+    bpl @walk
+    jsr read_ground
+    lda player_feet
+    cmp ground
+    bcs @walk
+    jsr trial_cell_at_y
+    cmp #mt_ladder
+    bne @walk
+    inc player_feet
+    lda player_feet
+    jsr trial_cell_at_y
+@set_climbing:
+    cmp #mt_ladder
+    bne @release
+    lda #1
+    bne @store
+@release:
+    lda #0
+@store:
+    sta trial_climbing
+@done:
+    rts
+
+trial_cell_above_feet:
+    lda player_feet
+    bne @above
+    lda #mt_sky
+    rts
+@above:
+    sec
+    sbc #1
+trial_cell_at_y:
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda (map_ptr),y
+    rts
 .endif
 move_vertically:
 .ifdef NES_AREA_TRIAL
@@ -832,7 +914,17 @@ find_trial_support:
     tay
     lda (map_ptr),y
     cmp #mt_oneway
+    beq @support
+    cmp #mt_ladder
     bne @done
+    ; The top of a continuous ladder supports a player like a one-way tile.
+    tya
+    beq @support
+    dey
+    lda (map_ptr),y
+    cmp #mt_ladder
+    beq @done
+@support:
     stx ground
 @done:
     rts

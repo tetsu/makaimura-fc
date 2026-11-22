@@ -125,6 +125,15 @@ def main():
         "enemies": {},
     })
 
+    ladder_tiles = [row.copy() for row in tiles]
+    for row in range(7, 11):
+        ladder_tiles[row][4] = "ladder"
+    ladder_tiles[7][5:7] = ["oneway", "oneway"]  # Landing at the ladder top, Y=112.
+    write_json(output / "ladder.json", {
+        **stage, "tiles": ladder_tiles, "start_x": 32, "checkpoint_x": 120, "goal_x": 176,
+        "enemies": {},
+    })
+
     # The raised floor spans X=96..319 at Y=144. The enemy on the
     # lower floor forces a retry after crossing the elevated checkpoint.
     for column in range(6, 20):
