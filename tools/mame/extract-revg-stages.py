@@ -24,6 +24,38 @@ SECTIONS = 7
 SCHEDULER_TYPES = 16       # enemy scheduler slots $0690 + 32 * type
 DIFFICULTY_KEYS = (0x00, 0x10, 0x20, 0x30)  # $9A & $30
 
+# Names from MAME snapshots of each type (tools/mame/capture-revg-types.py) and, for the bosses,
+# the section boss tables; see docs/revision-g-stage-data.md for the evidence and open cases.
+ENEMY_NAMES = {
+    0x00: "red-eyed flier from trees and walls (Woody Pig?)",
+    0x01: "crow / bat",
+    0x02: "small blue imp (Petite Devil?)",
+    0x03: "Flying Knight",
+    0x04: "purple winged flier from windows",
+    0x05: "Red Arremer",
+    0x06: "Satan",
+    0x07: "unused",
+    0x08: "Unicorn",
+    0x09: "floor skull",
+    0x0A: "Big Man",
+    0x0B: "zombie",
+    0x0C: "Dragon",
+    0x0D: "Astaroth",
+    0x0E: "fire column on the bridge",
+    0x0F: "unused",
+    0x10: "unused",
+    0x11: "man-eating plant",
+    0x12: "grey stone pillar",
+}
+SUPPORT_NAMES = {
+    0x00: "pickup (bonus or item drop)",
+    0x01: "tombstone / rock",
+    0x02: "moving platform on a path",
+    0x03: "path platform (variant 0) / falling platform (variant 1)",
+    0x04: "moving platform",
+    0x05: "ball platform that reacts to the player",
+}
+
 
 class Rom:
     def __init__(self, images):
@@ -132,6 +164,7 @@ def enemy_groups(rom):
             a, b = rom.bytes(2, pointer + 1 + 2 * item, 2)
             entries.append({
                 "type": a >> 4,
+                "name": ENEMY_NAMES.get(a >> 4),
                 "pattern": (a & 0x0F) << 4 | (b & 0x0F),
                 "flags": b >> 4,
             })
@@ -161,19 +194,19 @@ def enemy_patterns(rom, groups):
                     variant, wait = rom.bytes(2, pointer + 5 + 6 * item, 2)
                     records.append({"x": s16(x), "y": s16(y), "variant": variant, "wait": wait})
             patterns.append({
-                "type": kind, "pattern": index, "address": hexa(pointer), "count": count,
+                "type": kind, "name": ENEMY_NAMES.get(kind), "pattern": index, "address": hexa(pointer), "count": count,
                 "referenced": index in used.get(kind, ()), "records": records,
             })
     return tables, patterns
 
 
-def placement_list(rom, pointer):
+def placement_list(rom, pointer, names):
     count = rom.byte(2, pointer)
     records = []
     for item in range(count):
         kind, variant = rom.bytes(2, pointer + 1 + 6 * item, 2)
         x, y = rom.word(2, pointer + 3 + 6 * item), rom.word(2, pointer + 5 + 6 * item)
-        records.append({"type": kind, "variant": variant, "x": x, "y": y})
+        records.append({"type": kind, "name": names.get(kind), "variant": variant, "x": x, "y": y})
     return records
 
 
@@ -207,9 +240,9 @@ def section_settings(rom):
             "type_limits_address": hexa(limits_pointer),
             "type_limits": limits,
             "enemy_list_address": hexa(enemy_list),
-            "enemy_list": placement_list(rom, enemy_list),
+            "enemy_list": placement_list(rom, enemy_list, ENEMY_NAMES),
             "support_list_address": hexa(support_list),
-            "support_list": placement_list(rom, support_list),
+            "support_list": placement_list(rom, support_list, SUPPORT_NAMES),
         })
     return sections
 
@@ -352,6 +385,8 @@ def main():
         "screens": screens,
     })
     write("enemies.json", {
+        "enemy_types": {hexa(k, 2): v for k, v in ENEMY_NAMES.items()},
+        "support_types": {hexa(k, 2): v for k, v in SUPPORT_NAMES.items()},
         "type_tables": [hexa(t) for t in type_tables],
         "groups": groups,
         "patterns": patterns,
