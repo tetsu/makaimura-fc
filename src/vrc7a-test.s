@@ -284,6 +284,8 @@ same_scene:
 :
     cmp #sound_test_scene
     bne :+
+    lda #3
+    jsr select_bank1
     jsr update_sound_test
     jsr call_bank8_audio_tick
     jmp main
@@ -465,6 +467,8 @@ sound_screen:
     lda pad
     and #$04           ; Down+A opens the Bank 8 sound test.
     beq @check_sprite_view
+    lda #3
+    jsr select_bank1
     jsr show_sound_test
     jmp main
 @check_sprite_view:
@@ -1280,6 +1284,14 @@ CHR_BACKGROUND_BYTES = CHR_TEXT_BYTES + CHR_TERRAIN_BYTES
 .assert CHR_BACKGROUND_BYTES <= chr_table_bytes, error, "Text and terrain exceed the background pattern table"
 .assert CHR_TEXT_BYTES .mod chr_tile_bytes = 0, error, "Incomplete text tile"
 .assert CHR_TERRAIN_BYTES .mod chr_tile_bytes = 0, error, "Incomplete terrain tile"
+
+; Kept last in BSS so earlier variables keep the addresses the Mesen tests read.
+.segment "BSS"
+pan_tile_x_hi: .res 1           ; Bit 8 of pan_tile_x (two-axis-scroll.inc)
+pan_data_x_hi: .res 1
+goal_tile_x_hi: .res 1
+checkpoint_tile_x_hi: .res 1
+pan_row_start: .res 1            ; First ring column of a prepared row
 
 .segment "VECTORS"
 .word terrain_nmi, reset, hud_irq

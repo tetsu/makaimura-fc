@@ -1,7 +1,7 @@
 -- Cross a wide gap on one mover, then transfer to a lift to reach the goal.
 local cpu, ppu = emu.memType.nesMemory, emu.memType.nesPpuDebug
 local frame, nextInput, step = 0, {}, "select"
-local splitY, lastShuttle, lastLift, riderOffset
+local splitY, lastShuttle, lastLift, riderOffset, resumeFrame
 local shuttleStart, liftX, liftBottom = 71, 144, 176
 
 local function check(ok, detail)
@@ -55,9 +55,13 @@ emu.addEventCallback(function()
         check(shuttleX == shuttleStart and y + 16 - shuttleY == 16
             and y + 16 == liftY, "both movers did not return to their starting positions")
         step = "approach"
+        resumeFrame = frame
         return
     end
 
+    -- The split resumes one or two frames after the reset OAM, depending on whether the
+    -- redraw ends inside vertical blank (enable_screen polls $2002 for the next one).
+    if not cameraY and resumeFrame and frame <= resumeFrame + 2 then return end
     check(cameraY, "missing playfield scroll")
     check(emu.read(0x240, cpu) == shuttleY and emu.read(0x243, cpu) == shuttleX - 8
         and emu.read(0x248, cpu) == liftY and emu.read(0x24b, cpu) == liftX - 8

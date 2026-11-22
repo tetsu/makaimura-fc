@@ -1614,13 +1614,18 @@ ap_tile_type_at:
     lsr a
     ora ap_tmp0
     tay
-    ldx ap_probe_x+1
+    lda ap_probe_x+1     ; Metatile column = X / 16, up to 255 (16 pages).
+    asl a
+    asl a
+    asl a
+    asl a
+    sta ap_tmp0
     lda ap_probe_x
     lsr a
     lsr a
     lsr a
     lsr a
-    ora page_columns,x
+    ora ap_tmp0
     jsr read_map_cell
     tax
     lda metatile_attr,x
@@ -1694,11 +1699,7 @@ ap_update_shots:
     sta ps_vy,x
 
 @shot_bounds:
-    lda ps_x_hi,x
-    cmp #3
-    bcc :+
-    jmp @reclaim_shot
-:
+    ; Keep shots inside the camera's 256 px; this also drops shots left of X 0.
     sec
     lda ps_x_lo,x
     sbc camera_low

@@ -31,6 +31,8 @@
 
 512 KiB 版を `./build.ps1 -Hardware -CourseSequence` でビルドすると、足場とはしごを使う自作コースから、敵が出現する横3ページの自作コースへ続けて遊べる。Mesen でスコアと残機の引き継ぎから最終クリア後の再スタートまで確認した。[操作と自動試験](docs/stage-design.md#通常ゲームモードの2コース連続プレイ) · [開発タスク](TODO.md)
 
+`./build.ps1 -Hardware -RevgStage1` は、アーケードの Stage 1 の区間0の地形（横14ページ）を Stage 1 に組み込む。地形と当たりはアーケードのとおりで、絵は仮のもの。敵とボスはまだいない。ビルドには、MAME の ROM から抽出したステージデータが要る。[実マップの規則](docs/stage-design.md#revision-g-の実マップstage-1-の区間0)
+
 [実装と検証のチェックリスト](TODO.md#次の開発マイルストーン)
 
 ## Mesen 用の試験パッケージ

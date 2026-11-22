@@ -5,7 +5,8 @@ param(
     [string[]]$AreaTrial = @(),
     [switch]$PlatformCourse,
     [switch]$ScrollCourse,
-    [switch]$CourseSequence
+    [switch]$CourseSequence,
+    [switch]$RevgStage1
 )
 $ErrorActionPreference = 'Stop'
 if ($AreaManifest -and !$Hardware) {
@@ -14,8 +15,11 @@ if ($AreaManifest -and !$Hardware) {
 if ($AreaTrial -and !$AreaManifest) {
     throw '-AreaTrial requires -AreaManifest.'
 }
-if (@($PlatformCourse, $ScrollCourse, $CourseSequence).Where({ $_ }).Count -gt 1) {
-    throw 'Choose one of -PlatformCourse, -ScrollCourse, or -CourseSequence.'
+if (@($PlatformCourse, $ScrollCourse, $CourseSequence, $RevgStage1).Where({ $_ }).Count -gt 1) {
+    throw 'Choose one of -PlatformCourse, -ScrollCourse, -CourseSequence, or -RevgStage1.'
+}
+if ($RevgStage1 -and !$Hardware) {
+    throw '-RevgStage1 requires -Hardware.'
 }
 $courseName = if ($PlatformCourse) { 'platform-course' } elseif ($ScrollCourse) { 'scroll-course' } elseif ($CourseSequence) { 'course-sequence' }
 if ($courseName -and !$Hardware) {
@@ -77,6 +81,18 @@ if ($courseName) {
     $assembleOptions += @('-D', 'ORIGINAL_COURSE=1', '-I', $buildDir)
     if ($ScrollCourse) { $assembleOptions += @('-D', 'SCROLL_COURSE=1') }
     if ($CourseSequence) { $assembleOptions += @('-D', 'COURSE_SEQUENCE=1') }
+}
+if ($RevgStage1) {
+    # The map comes from the arcade ROM (reference/makaimurg.zip), which is not in the repository.
+    $stageDir = Join-Path $buildDir 'revg-stages'
+    if (!(Test-Path -LiteralPath (Join-Path $stageDir 'section0-map.json'))) {
+        & python (Join-Path $PSScriptRoot 'tools/mame/extract-revg-stages.py') --output $stageDir | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Stage extraction failed with code $LASTEXITCODE" }
+    }
+    & python (Join-Path $PSScriptRoot 'tools/convert-revg-section.py') (Join-Path $buildDir 'revg-section0-map.inc') --stages $stageDir | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Real map conversion failed with code $LASTEXITCODE" }
+    $basename += '-revg-stage1'
+    $assembleOptions += @('-D', 'REVG_STAGE1=1', '-I', $buildDir)
 }
 $object = Join-Path $buildDir "$basename.o"
 $rom = Join-Path $buildDir "$basename.nes"

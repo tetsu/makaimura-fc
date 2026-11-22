@@ -106,12 +106,7 @@ update_stage_view:
 draw_pan:
     sta pan_x+1
     sty pan_y
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    sta pan_tile_x
+    jsr pan_set_tile_x
     tya
     lsr a
     lsr a
@@ -119,13 +114,11 @@ draw_pan:
     clc
     adc #pan_page_rows
     sta pan_tile_y
+    ; Tile columns are 9-bit: a 14-page stage reaches tile 447.
     lda stage_cp_x_hi
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
+    jsr pan_page_tile
     sta z:checkpoint_tile_x
+    stx checkpoint_tile_x_hi
     lda stage_cp_x_lo
     lsr a
     lsr a
@@ -134,13 +127,13 @@ draw_pan:
     sec
     sbc #1
     sta z:checkpoint_tile_x
+    bcs :+
+    dec checkpoint_tile_x_hi
+:
     lda stage_goal_x_hi
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
+    jsr pan_page_tile
     sta goal_tile_x
+    stx goal_tile_x_hi
     lda stage_goal_x_lo
     lsr a
     lsr a
@@ -206,12 +199,7 @@ prepare_pan:
     jsr pan_move_x
     jsr pan_move_y
     lda pan_x+1
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    sta pan_tile_x
+    jsr pan_set_tile_x
     lda pan_x
     lsr a
     lsr a
@@ -244,9 +232,38 @@ pan_row_ready:
     lda pan_tile_x
     clc
     adc pan_col_offset,x
+    sta pan_data_x
+    lda pan_tile_x_hi
+    adc #0
+    sta pan_data_x_hi
+    lda pan_data_x
+    and #31              ; Only the ring column; bit 7 would read as "no update".
     sta pan_need_col
     jsr prepare_pan_column
 :
+    rts
+
+; A = camera X high byte (page). Set pan_tile_x/pan_tile_x_hi to its first tile column.
+; Preserves Y.
+pan_set_tile_x:
+    jsr pan_page_tile
+    sta pan_tile_x
+    stx pan_tile_x_hi
+    rts
+
+; A = page. Return its first tile column: low byte in A, bit 8 in X. Preserves Y.
+pan_page_tile:
+    pha
+    lsr a
+    lsr a
+    lsr a
+    tax
+    pla
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
     rts
 
 upload_pan:
@@ -426,23 +443,51 @@ pan_store_attr:
     sta pan_data_y
     lda pan_tile_x
     sta pan_data_x
+    lda pan_tile_x_hi
+    sta pan_data_x_hi
     lda pan_x
     and #7
     beq :+
-    inc pan_data_x       ; At fine X > 0 only the left clipped tile is hidden.
+    jsr pan_next_data_x  ; At fine X > 0 only the left clipped tile is hidden.
 :
-    ldx #32
-pan_row_data:
-    jsr pan_tile
-    pha
+    ; Fill the 32-column ring in two runs, from the first column to 31 and then
+    ; from 0, so X is the buffer index without masking. pan_tile preserves X.
+    ; Restarts redraw the whole screen this way during forced blank, and must
+    ; still reach enable_terrain inside the same vertical blank.
     lda pan_data_x
     and #31
-    tay
-    pla
-    sta pan_row_tiles,y
+    sta pan_row_start
+    tax
+pan_row_to_end:
+    jsr pan_tile
+    sta pan_row_tiles,x
     inc pan_data_x
-    dex
-    bne pan_row_data
+    bne :+
+    inc pan_data_x_hi
+:
+    inx
+    cpx #32
+    bne pan_row_to_end
+    ldx #0
+pan_row_from_start:
+    cpx pan_row_start
+    beq pan_row_done
+    jsr pan_tile
+    sta pan_row_tiles,x
+    inc pan_data_x
+    bne :+
+    inc pan_data_x_hi
+:
+    inx
+    bne pan_row_from_start
+pan_row_done:
+    rts
+
+pan_next_data_x:
+    inc pan_data_x
+    bne :+
+    inc pan_data_x_hi
+:
     rts
 
 prepare_pan_column:
@@ -468,9 +513,7 @@ prepare_pan_column:
     lda pan_col_length
 :
     sta pan_col_split_count
-    lda pan_need_col
-    sta pan_data_x
-    ldx #0
+    ldx #0               ; prepare_pan set pan_data_x/pan_data_x_hi.
 :
     jsr pan_tile
     sta pan_col_tiles,x
@@ -504,23 +547,33 @@ pan_trial_tile:
 
 ; X is the buffer index; Y is scratch.
 pan_tile:
+    ; Compare the low byte first: it settles almost every tile in one test,
+    ; and the first screen must still be drawn within the same frames.
     lda pan_data_x
     cmp goal_tile_x
-    bne :+
+    bne pan_not_goal
+    lda pan_data_x_hi
+    cmp goal_tile_x_hi
+    bne pan_not_goal_reload
     lda pan_data_y
     sec
     sbc goal_flag_row
     beq pan_goal_flag
     cmp #1
-    bne :+
+    bne pan_not_goal_reload
     lda #(goal_pattern-glyphs)/16 + 1
     rts
 pan_goal_flag:
     lda #(goal_pattern-glyphs)/16
     rts
-:
+pan_not_goal_reload:
+    lda pan_data_x
+pan_not_goal:
     cmp z:checkpoint_tile_x
-    bne :+
+    bne pan_map_tile
+    lda pan_data_x_hi
+    cmp checkpoint_tile_x_hi
+    bne pan_map_tile_reload
 .ifdef NES_AREA_TRIAL
     cmp_trial_bank
     bcs @legacy_checkpoint
@@ -532,18 +585,20 @@ pan_goal_flag:
     sbc #1
     cmp pan_data_y
     beq @checkpoint
-    bne :+
+    bne pan_map_tile_reload
 @legacy_checkpoint:
 .endif
     ldy pan_data_y
     cpy #23
-    bne :+
+    bne pan_map_tile_reload
 .ifdef NES_AREA_TRIAL
 @checkpoint:
 .endif
     lda #(checkpoint_pattern-glyphs)/16
     rts
-:
+pan_map_tile_reload:
+    lda pan_data_x
+pan_map_tile:
 .ifdef NES_AREA_TRIAL
     cmp_trial_bank
     bcc pan_trial_tile
@@ -563,10 +618,14 @@ pan_goal_flag:
     lda pan_data_y
     lsr a
     tay
-    lda pan_data_x
+    lda pan_data_x_hi    ; Metatile column = 9-bit tile column / 2.
     lsr a
+    lda pan_data_x
+    ror a
     jsr read_map_cell
-    beq pan_sky
+    bne :+
+    jmp pan_sky
+:
 .if PRG_ROM_UNITS = 32
     cmp #mt_cross
     bcs @pan_arc_deco
@@ -612,6 +671,14 @@ pan_goal_flag:
     lda #$48
     bne @pan_arc_quad
 @pan_arc_deco:
+    ; Real-map metatiles reuse the grass, dirt and tombstone art.
+    cmp #mt_floor
+    bcc @pan_deco_range
+    beq @pan_arc_grass
+    cmp #mt_dirt
+    beq @pan_arc_dirt
+    lda #mt_tomb_bg
+@pan_deco_range:
     ; mt_cross(7)..mt_castle(14) -> base tile $4C, $50, ..., $68
     sec
     sbc #4

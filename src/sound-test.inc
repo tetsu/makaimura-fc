@@ -1,9 +1,11 @@
 ; Bank 8 audio diagnostics. Keep the selected IDs independent of playback.
+; The screen runs from Bank 3 ($A000) with Bank 8 at $C000; callers select Bank 3.
+; Only commit_sound_test, which the NMI calls, stays in the fixed bank.
 .segment "BSS"
 sound_test_song: .res 1
 sound_test_se: .res 1
 
-.segment "CODE"
+.segment "BANK3"
 show_sound_test:
     jsr blank_display
     jsr call_bank8_audio_init
@@ -109,6 +111,21 @@ select_sound_test_ids:
 @done:
     rts
 
+sound_test_row_hi: .byte $21, $21, $21, $21, $21, $22, $22, $22, $22
+sound_test_row_count = * - sound_test_row_hi
+sound_test_row_lo: .byte $08, $68, $88, $a8, $c8, $08, $28, $48, $88
+sound_test_text:
+    .byte $12, $0f, $14, $0e, $05, $00, $13, $06, $12, $13, $ff ; SOUND TEST
+    .byte $03, $08, $0d, $00, $ff ; BGM
+    .byte $0c, $06, $07, $13, $00, $11, $0a, $08, $09, $13, $ff ; LEFT RIGHT
+    .byte $12, $06, $00, $00, $ff ; SE
+    .byte $14, $10, $00, $05, $0f, $16, $0e, $ff ; UP DOWN
+    .byte $02, $00, $10, $0c, $02, $18, $00, $03, $08, $0d, $ff ; A PLAY BGM
+    .byte $03, $00, $10, $0c, $02, $18, $00, $12, $06, $ff ; B PLAY SE
+    .byte $12, $13, $02, $11, $13, $00, $12, $13, $0f, $10, $ff ; START STOP
+    .byte $12, $06, $0c, $06, $04, $13, $00, $0d, $06, $0e, $14, $ff ; SELECT MENU
+
+.segment "CODE"
 ; Called during forced blank on entry, and by NMI for subsequent changes.
 commit_sound_test:
     lda #$21
@@ -132,17 +149,3 @@ commit_sound_test:
     sta $2005
     rts
 
-.segment "RODATA"
-sound_test_row_hi: .byte $21, $21, $21, $21, $21, $22, $22, $22, $22
-sound_test_row_count = * - sound_test_row_hi
-sound_test_row_lo: .byte $08, $68, $88, $a8, $c8, $08, $28, $48, $88
-sound_test_text:
-    .byte $12, $0f, $14, $0e, $05, $00, $13, $06, $12, $13, $ff ; SOUND TEST
-    .byte $03, $08, $0d, $00, $ff ; BGM
-    .byte $0c, $06, $07, $13, $00, $11, $0a, $08, $09, $13, $ff ; LEFT RIGHT
-    .byte $12, $06, $00, $00, $ff ; SE
-    .byte $14, $10, $00, $05, $0f, $16, $0e, $ff ; UP DOWN
-    .byte $02, $00, $10, $0c, $02, $18, $00, $03, $08, $0d, $ff ; A PLAY BGM
-    .byte $03, $00, $10, $0c, $02, $18, $00, $12, $06, $ff ; B PLAY SE
-    .byte $12, $13, $02, $11, $13, $00, $12, $13, $0f, $10, $ff ; START STOP
-    .byte $12, $06, $0c, $06, $04, $13, $00, $0d, $06, $0e, $14, $ff ; SELECT MENU

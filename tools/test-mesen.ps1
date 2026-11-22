@@ -8,12 +8,13 @@ param(
     [switch]$AreaTrial,
     [switch]$PlatformCourse,
     [switch]$ScrollCourse,
-    [switch]$CourseSequence
+    [switch]$CourseSequence,
+    [switch]$RevgStage1
 )
 
 $ErrorActionPreference = 'Stop'
-if (@($AreaTrial, $PlatformCourse, $ScrollCourse, $CourseSequence).Where({ $_ }).Count -gt 1) {
-    throw 'Choose one of -AreaTrial, -PlatformCourse, -ScrollCourse, or -CourseSequence.'
+if (@($AreaTrial, $PlatformCourse, $ScrollCourse, $CourseSequence, $RevgStage1).Where({ $_ }).Count -gt 1) {
+    throw 'Choose one of -AreaTrial, -PlatformCourse, -ScrollCourse, -CourseSequence, or -RevgStage1.'
 }
 $root = Split-Path -Parent $PSScriptRoot
 if (!$MesenPath) {
@@ -39,6 +40,17 @@ function Invoke-MesenSuite($SuitePath, $RomPath) {
 }
 
 $buildScript = Join-Path $root 'build.ps1'
+if ($RevgStage1) {
+    $rom = Join-Path $root 'build/vrc7a-test-512k-revg-stage1.nes'
+    if (!$UseBuiltRoms) {
+        $rom = (& $buildScript -Hardware -RevgStage1 -Cc65Bin $Cc65Bin)[0]
+    }
+    if (!(Test-Path -LiteralPath $rom -PathType Leaf)) { throw "ROM not found: $rom." }
+    $exitCode = Invoke-MesenSuite (Join-Path $PSScriptRoot 'mesen/revg-stage1.lua') $rom
+    if ($exitCode -ne 0) { throw "revg-stage1 failed with code $exitCode. See $logDir." }
+    Write-Host 'revg-stage1 passed.'
+    return
+}
 if ($PlatformCourse -or $ScrollCourse -or $CourseSequence) {
     $courseName = if ($PlatformCourse) { 'platform-course' } elseif ($ScrollCourse) { 'scroll-course' } else { 'course-sequence' }
     $rom = Join-Path $root "build/vrc7a-test-512k-$courseName.nes"
