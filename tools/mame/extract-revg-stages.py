@@ -48,7 +48,7 @@ ENEMY_NAMES = {
     0x12: "grey stone pillar",
 }
 SUPPORT_NAMES = {
-    0x00: "pickup (bonus or item drop)",
+    0x00: "touch trigger (variant 0 hidden armour, 1 hidden 10000 points, 2 coin 200, 3 coin 500)",
     0x01: "tombstone / rock",
     0x02: "moving platform on a path",
     0x03: "path platform (variant 0) / falling platform (variant 1)",
