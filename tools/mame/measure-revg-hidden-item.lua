@@ -1,16 +1,22 @@
 -- MAME 0.289, makaimurg, default DIP switches.
--- Checks the hidden-armour trigger (support type $00, variant 0) at (1440, 96) in section 0.
--- Starts the section at page $005, sets $AC (0 = armoured, 1 = armour lost) from REVG_ARMOUR_AC,
--- then holds the player on the trigger for a few frames and logs the support slot and the item pool.
+-- Checks a hidden-item trigger (support type $00, variant 0 or 1) in section 0.
+-- REVG_HIDDEN_VARIANT=0 (default): the hidden armour at (1440, 96), started from page $005.
+-- REVG_HIDDEN_VARIANT=1: the hidden 10,000-point item at (2968, 112), started from page $00B.
+-- Sets $AC (0 = armoured, 1 = armour lost) from REVG_ARMOUR_AC, then holds the player on the
+-- trigger for a few frames and logs the support slot, the item pool, the score and sound requests.
 -- If an item appears, the player is moved onto it once it has landed, to log the pickup.
 -- With REVG_ARMOUR_RETRY=1, $AC is set to 1 after the first touch and the trigger is touched again.
 local machine = manager.machine
 local cpu = machine.devices[":maincpu"]
 local mem = cpu.spaces.program
+local variant = tonumber(os.getenv("REVG_HIDDEN_VARIANT") or "0")
 local ac = assert(tonumber(os.getenv("REVG_ARMOUR_AC")), "Expected REVG_ARMOUR_AC=0 or 1")
 local retry = os.getenv("REVG_ARMOUR_RETRY") == "1"
-local section, page = 0, 0x005
-local trigger_x, trigger_y = 1440, 96
+local targets = { [0] = { 0x005, 1440, 96 }, [1] = { 0x00b, 2968, 112 } }
+local target = assert(targets[variant], "Expected REVG_HIDDEN_VARIANT=0 or 1")
+local section, page = 0, target[1]
+local trigger_x, trigger_y = target[2], target[3]
+local tag = string.format("hidden-v%d-ac%d%s", variant, ac, retry and "-retry" or "")
 
 local function field(port, mask)
     for _, item in pairs(machine.ioport.ports[port].fields) do
@@ -49,7 +55,7 @@ end)
 local function find_trigger()
     for i = 0, 29 do
         local x = 0x1010 + i * 0x20
-        if mem:read_u8(x - 0x10) ~= 0 and mem:read_u8(x + 5) == 0 and mem:read_u8(x - 0x0e) == 0
+        if mem:read_u8(x - 0x10) ~= 0 and mem:read_u8(x + 5) == 0 and mem:read_u8(x - 0x0e) == variant
             and word(x - 0x0a) == trigger_x and word(x - 0x07) == trigger_y then
             return x
         end
@@ -60,6 +66,8 @@ local function log_changes(t)
     local values = {
         ac = mem:read_u8(0xac),
         armour = mem:read_u8(0x0500),
+        score = string.format("%02x%02x%02x%02x", mem:read_u8(0x68), mem:read_u8(0x69), mem:read_u8(0x6a),
+            mem:read_u8(0x6b)),
         trig = trigger_slot and string.format("%02x/%04x/%04x", mem:read_u8(trigger_slot - 0x10),
             word(trigger_slot - 0x0d), word(trigger_slot + 3)) or "-",
     }
@@ -68,7 +76,7 @@ local function log_changes(t)
         values["item" .. i] = mem:read_u8(x - 0x10) == 0 and "-" or string.format("type=%02x kind=%02x state=%04x x=%d y=%d",
             mem:read_u8(x + 5), mem:read_u8(x - 0x0e), word(x - 0x0d), word(x - 0x0a), word(x - 0x07))
     end
-    for _, key in ipairs({ "ac", "armour", "trig", "item0", "item1" }) do
+    for _, key in ipairs({ "ac", "armour", "score", "trig", "item0", "item1" }) do
         if last[key] ~= values[key] then
             print(string.format("state,%d,%s,%s,player=%d/%d", t, key, tostring(values[key]),
                 word(0x0506), word(0x0509)))
@@ -121,10 +129,10 @@ revg_armour_frame = emu.add_machine_frame_notifier(function()
     end
     if t >= 0 then log_changes(t) end
     if t >= 400 then
-        machine.screens[":screen"]:snapshot(string.format("hidden-armour-ac%d%s.png", ac, retry and "-retry" or ""))
+        machine.screens[":screen"]:snapshot(tag .. ".png")
         machine:exit()
     end
     if hold_from and t == hold_from + 40 then
-        machine.screens[":screen"]:snapshot(string.format("hidden-armour-ac%d%s-touch.png", ac, retry and "-retry" or ""))
+        machine.screens[":screen"]:snapshot(tag .. "-touch.png")
     end
 end)
