@@ -34,7 +34,7 @@ ENEMY_NAMES = {
     0x04: "purple winged flier from windows",
     0x05: "Red Arremer",
     0x06: "Satan",
-    0x07: "unused",
+    0x07: "magician? (not in any table, spawned by $EBCB)",
     0x08: "Unicorn",
     0x09: "floor skull",
     0x0A: "Big Man",
