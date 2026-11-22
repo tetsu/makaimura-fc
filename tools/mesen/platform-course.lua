@@ -53,13 +53,18 @@ local function resultMatches(title)
     return true
 end
 
-local function fireAhead(x)
-    if (frame - scrollStart) % 18 ~= 0 then return false end
+-- Whether a zombie is within 48 px ahead, and whether any enemy is within 92 px ahead.
+local function enemiesAhead(x)
+    local zombie, any = false, false
     for slot = 0, 3 do
+        local kind = read(EN_TYPE + slot)
         local distance = read(EN_X_LO + slot) + 256 * read(EN_X_HI + slot) - x
-        if read(EN_TYPE + slot) ~= 0 and distance > 0 and distance <= 92 then return true end
+        if kind ~= 0 and distance > 0 and distance <= 92 then
+            any = true
+            zombie = zombie or (kind == 1 and distance <= 48)
+        end
     end
-    return false
+    return zombie, any
 end
 
 emu.addEventCallback(function()
@@ -195,7 +200,13 @@ emu.addEventCallback(function()
             local enemyX = read(EN_X_LO) + 256 * read(EN_X_HI)
             sawFirstEnemy = sawFirstEnemy or enemyX == 225 or enemyX == 224
         end
-        input = {right = true, b = fireAhead(x), a = x == 575 and state == 0}
+        -- With two zombies at most, one rises past the pit soon after the last is shot.
+        -- Shoot a close zombie quickly and wait at the pit edge while one is close.
+        -- Firing more often than every 18 frames otherwise keeps the player standing.
+        local zombie, any = enemiesAhead(x)
+        local tick = frame - scrollStart
+        input = {right = x ~= 575 or not zombie, b = (zombie and tick % 8 == 0) or (any and tick % 18 == 0),
+            a = x == 575 and state == 0 and not zombie}
         if read(SCENE) == 5 then
             local score = readWord(SCORE)
             local expectedLives = score >= 20 and 3 or 2
