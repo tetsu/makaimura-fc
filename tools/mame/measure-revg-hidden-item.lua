@@ -1,5 +1,5 @@
 -- MAME 0.289, makaimurg, default DIP switches.
--- Checks a hidden-item trigger (support type $00, variant 0 or 1) in section 0.
+-- Checks a support type $00 trigger (variants 0-3) in section 0.
 -- REVG_HIDDEN_VARIANT=0 (default): the hidden armour at (1440, 96), started from page $005.
 -- REVG_HIDDEN_VARIANT=1: the hidden 10,000-point item at (2968, 112), started from page $00B.
 -- Sets $AC (0 = armoured, 1 = armour lost) from REVG_ARMOUR_AC, then holds the player on the
@@ -12,8 +12,10 @@ local mem = cpu.spaces.program
 local variant = tonumber(os.getenv("REVG_HIDDEN_VARIANT") or "0")
 local ac = assert(tonumber(os.getenv("REVG_ARMOUR_AC")), "Expected REVG_ARMOUR_AC=0 or 1")
 local retry = os.getenv("REVG_ARMOUR_RETRY") == "1"
-local targets = { [0] = { 0x005, 1440, 96 }, [1] = { 0x00b, 2968, 112 } }
-local target = assert(targets[variant], "Expected REVG_HIDDEN_VARIANT=0 or 1")
+-- Variants 2 and 3 are the 200- and 500-point discs at (368, 56) and (1408, 56).
+local targets = { [0] = { 0x005, 1440, 96 }, [1] = { 0x00b, 2968, 112 }, [2] = { 0x001, 368, 56 },
+    [3] = { 0x005, 1408, 56 } }
+local target = assert(targets[variant], "Expected REVG_HIDDEN_VARIANT=0 to 3")
 local section, page = 0, target[1]
 local trigger_x, trigger_y = target[2], target[3]
 local tag = string.format("hidden-v%d-ac%d%s", variant, ac, retry and "-retry" or "")
@@ -52,6 +54,12 @@ revg_armour_sound = mem:install_write_tap(0x3a00, 0x3a00, "sound", function(_, d
     if playing_at then print(string.format("sound,%d,%02x", frame - playing_at, data)) end
 end)
 
+-- Every write to the disc bits $74-$77, from power-on.
+revg_armour_once = mem:install_write_tap(0x74, 0x77, "once bits", function(address, data)
+    print(string.format("once_write,%d,%04x,%02x,pc=%04x,e0=%02x", playing_at and frame - playing_at or -frame,
+        address, data, cpu.state.PC.value, mem:read_u8(0xe0)))
+end)
+
 local function find_trigger()
     for i = 0, 29 do
         local x = 0x1010 + i * 0x20
@@ -68,6 +76,9 @@ local function log_changes(t)
         armour = mem:read_u8(0x0500),
         score = string.format("%02x%02x%02x%02x", mem:read_u8(0x68), mem:read_u8(0x69), mem:read_u8(0x6a),
             mem:read_u8(0x6b)),
+        -- One-time bits of the discs ($E3BA clears the bit for the slot index in $E0).
+        once = string.format("%02x%02x%02x%02x", mem:read_u8(0x74), mem:read_u8(0x75), mem:read_u8(0x76),
+            mem:read_u8(0x77)),
         trig = trigger_slot and string.format("%02x/%04x/%04x", mem:read_u8(trigger_slot - 0x10),
             word(trigger_slot - 0x0d), word(trigger_slot + 3)) or "-",
     }
@@ -76,7 +87,7 @@ local function log_changes(t)
         values["item" .. i] = mem:read_u8(x - 0x10) == 0 and "-" or string.format("type=%02x kind=%02x state=%04x x=%d y=%d",
             mem:read_u8(x + 5), mem:read_u8(x - 0x0e), word(x - 0x0d), word(x - 0x0a), word(x - 0x07))
     end
-    for _, key in ipairs({ "ac", "armour", "score", "trig", "item0", "item1" }) do
+    for _, key in ipairs({ "ac", "armour", "score", "once", "trig", "item0", "item1" }) do
         if last[key] ~= values[key] then
             print(string.format("state,%d,%s,%s,player=%d/%d", t, key, tostring(values[key]),
                 word(0x0506), word(0x0509)))
