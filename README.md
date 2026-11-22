@@ -14,7 +14,7 @@
 
 ## 調査ツールの使い分け
 
-国内版 Revision G の調査結果は技術資料として参照できる。基盤の変更は Mesen で試験 ROM を実行し、観測した画素、レジスタ、フレーム数などで検証する。[国内版 G の計測結果と再現手順](docs/revision-g.md) · [6809 ROM マップ](docs/revision-g-rom-map.md)
+国内版 Revision G の調査結果は技術資料として参照できる。基盤の変更は Mesen で試験 ROM を実行し、観測した画素、レジスタ、フレーム数などで検証する。[国内版 G の計測結果と再現手順](docs/revision-g.md) · [6809 ROM マップ](docs/revision-g-rom-map.md) · [Z80 サウンド ROM マップ](docs/revision-g-sound-rom-map.md)
 
 - アーケード基板の挙動を参照する際は、`mame -rompath reference -verifyroms makaimurg` で ROM セットを照合する。メモリマップと描画順は公開ドライバを参照し、実行時のレジスタ書き込みは必要に応じて MAME のデバッガーで観測する。[MAME のコマンドライン仕様](https://docs.mamedev.org/commandline/commandline-all.html#verifyroms) · [MAME デバッガー](https://docs.mamedev.org/debugger/)
 - REA は、ビルド済みの試験 ROM や実行時の状態を調べる必要があり、Mesen の試験とソースだけでは原因を絞れない場合に使う。

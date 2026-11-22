@@ -1,4 +1,4 @@
-"""Produce local, bank-separated 6809 listings for MAME's makaimurg set."""
+"""Produce local 6809 (bank-separated) and Z80 sound listings for MAME's makaimurg set."""
 
 import argparse
 import hashlib
@@ -11,6 +11,7 @@ ROM_SHA1 = {
     "mj04g.bin": "07f7cf788810a1425016e016ce3579adb3253ac7",
     "mj03g.bin": "23a0a17d0abc4b084ffeba90266ef455361771cc",
     "mj05g.bin": "7694a981a6196d77fd2279fc34042b4cfb40c054",
+    "gg2.bin": "7ef9ec5c2072e21c787a6bbf700033f50c759c1d",
 }
 
 
@@ -34,21 +35,23 @@ def main():
     low_fixed_and_bank4 = images["mj04g.bin"]
     banked = images["mj05g.bin"]
     regions = {
-        "fixed": (0x6000, low_fixed_and_bank4[0x2000:] + images["mj03g.bin"]),
-        "bank4": (0x4000, low_fixed_and_bank4[:0x2000]),
+        "fixed": ("m6809", 0x6000, low_fixed_and_bank4[0x2000:] + images["mj03g.bin"]),
+        "bank4": ("m6809", 0x4000, low_fixed_and_bank4[:0x2000]),
     }
     for bank in range(4):
         start = bank * 0x2000
-        regions[f"bank{bank}"] = (0x4000, banked[start:start + 0x2000])
+        regions[f"bank{bank}"] = ("m6809", 0x4000, banked[start:start + 0x2000])
+    # audiocpu: the Z80 sees gg2.bin unbanked at $0000-$7FFF.
+    regions["sound"] = ("z80", 0x0000, images["gg2.bin"])
 
     args.output.mkdir(parents=True, exist_ok=True)
-    for name, (address, data) in regions.items():
+    for name, (arch, address, data) in regions.items():
         binary = args.output / f"{name}.bin"
         binary.write_bytes(data)
         listing = args.output / f"{name}.asm"
         with listing.open("wb") as output:
             subprocess.run(
-                [str(args.unidasm.resolve()), str(binary), "-arch", "m6809",
+                [str(args.unidasm.resolve()), str(binary), "-arch", arch,
                  "-basepc", f"0x{address:x}", "-lower"],
                 stdout=output,
                 check=True,
