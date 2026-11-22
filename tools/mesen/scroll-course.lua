@@ -60,8 +60,9 @@ local function turretAt(page, x)
     return false
 end
 
+-- The arcade walk is 288/256 px per frame, so fire every 12 frames to clear enemies in time.
 local function fireAhead(x)
-    if frame % 24 ~= 0 then return false end
+    if frame % 12 ~= 0 then return false end
     for slot = 0, 3 do
         local distance = read(EN_X_LO + slot) + 256 * read(EN_X_HI + slot) - x
         if read(EN_TYPE + slot) ~= 0 and distance > 0 and distance <= 92 then
@@ -142,7 +143,8 @@ emu.addEventCallback(function()
         end
         -- Wait well short of the goal for the last group to spawn, while defending.
         input = {right = x < 710 or (seen.lastTurret and seen.lastZombie), b = fireAhead(x)}
-        if x == 573 and state == 0 then input.a = true end
+        -- The walk skips a pixel every 8 frames, so take off anywhere in a 4 px window.
+        if x >= 571 and x <= 574 and state == 0 then input.a = true end
         if scene == 5 then
             if not check(x == 724 and read(PLAYER_FEET) == 176 and read(LIVES) == 2
                     and seen.retryZombie and seen.lastTurret and seen.lastZombie,

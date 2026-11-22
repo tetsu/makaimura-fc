@@ -38,10 +38,10 @@ local input = {}
 local didBounceTest = false
 local killedEnemy1 = false
 local killedPot = false
-local walkDist = 0
 local prevPlatX = 0
 local loop1Score = 0
 local loop1Lives = 0
+local jumpArmed = nil
 
 local function read(addr)
     return emu.read(addr, emu.memType.nesMemory)
@@ -70,6 +70,10 @@ end
 
 local function playerScreenX()
     return read(0x203)
+end
+
+local function playerX()
+    return read(0x4d) * 256 + read(0x4c)
 end
 
 local function platX(slot)
@@ -135,6 +139,55 @@ local function dodgeBolts(inp, pWorldX, lowThresh)
         end
     end
     return false
+end
+
+-- Turret bolts fly level at a height that hits a standing player and also knock the
+-- player off a ladder. Returns the distance to the nearest bolt flying at the player
+-- at that height (nil when there is none).
+local function incomingBoltDist(pWorldX)
+    local best = nil
+    local feet = read(0x60AC) * 256 + read(0x4e)
+    for i = 0, 1 do
+        if read(EB_ACTIVE + i) ~= 0 then
+            local dx = read(EB_X_HI + i) * 256 + read(EB_X_LO + i) - pWorldX
+            local vx = read(0x609D + i)
+            local dy = feet - (read(0x60C2 + i) * 256 + read(EB_Y + i))
+            local towards = (dx > 0 and vx >= 0x80) or (dx < 0 and vx > 0 and vx < 0x80)
+            if towards and dy >= 0 and dy < 16 then
+                local d = math.abs(dx)
+                if best == nil or d < best then best = d end
+            end
+        end
+    end
+    return best
+end
+
+-- On the ground with a bolt coming: stand still and jump straight up over it.
+-- Returns true when it took over the input for this frame.
+local function jumpIncomingBolt(inp)
+    local d = incomingBoltDist(playerX())
+    if d ~= nil and d < 50 and read(AP_STATE) == 0 then
+        inp.left = nil
+        inp.right = nil
+        inp.up = nil
+        if d <= 36 then inp.a = true end
+        return true
+    end
+    return false
+end
+
+-- Forward jump to the right, started when trigger first holds. A jump only goes
+-- forward when the direction was already held before A, so right is pressed one
+-- frame before right+A. Returns true on the frame A is pressed.
+local function forwardJumpRight(trigger)
+    if jumpArmed == nil and trigger then jumpArmed = 0 end
+    if jumpArmed == nil then return false end
+    jumpArmed = jumpArmed + 1
+    input = { right = true }
+    if jumpArmed < 2 then return false end
+    input.a = true
+    jumpArmed = nil
+    return true
 end
 
 -- Vertical tower runner shared by Stage 2 (col 12/3), Stage 5 (col 11/4), Stage 6 (col 12/3).
@@ -273,25 +326,33 @@ emu.addEventCallback(function()
         if not killedEnemy1 and phaseFrame >= 275 and phaseFrame <= 310 and phaseFrame % 8 == 0 then
             input.b = true
         end
-        if phaseFrame == 412 then input.a = true end
-        if phaseFrame == 460 or phaseFrame == 476 then input.b = true end
+        -- Stop in front of the pot enemy (X=448) and shoot it, then walk over its drop.
+        if read(AP_POT_ENEMY) ~= 0 and playerX() >= 428 then
+            input.right = nil
+            if phaseFrame % 8 == 0 then input.b = true end
+        end
+        -- Wait at the edge of the pit (it starts at X=500).
+        if playerX() >= 488 then input.right = nil end
         if read(AP_ENEMY1) == 0 then killedEnemy1 = true end
         if phaseFrame == 530 then
+            jumpArmed = nil
+            prevPlatX = nil
             nextPhase("s1_board_hplat")
         end
     elseif phase == "s1_board_hplat" then
+        -- The jump is ~36 frames long and ~39 px forward, so it leaves while the
+        -- platform (X 500..544, 1 px/frame) is around X=508 moving left; it then
+        -- bounces and is back under the landing point (X~528).
         local px = platX(1)
-        if phaseFrame < 10 then
-            input = { right = true }
-        elseif px >= 502 and px <= 514 and read(AP_STATE) == 0 then
-            input = { right = true, a = true }
+        local movingLeft = prevPlatX ~= nil and px < prevPlatX
+        prevPlatX = px
+        if forwardJumpRight(px >= 506 and px <= 510 and movingLeft and read(AP_STATE) == 0) then
             nextPhase("s1_cross_pit")
         elseif phaseFrame > 160 then
             check(false, 12, "s1 timed out waiting for hplat")
         end
     elseif phase == "s1_cross_pit" then
-        if read(AP_RIDING) == 1 and platX(1) >= 530 then
-            input = { right = true, a = true }
+        if forwardJumpRight(read(AP_RIDING) == 1 and platX(1) >= 530) then
             nextPhase("s1_trigger_boss")
         elseif phaseFrame > 160 then
             check(false, 13, "s1 did not cross pit")
@@ -328,6 +389,8 @@ emu.addEventCallback(function()
         local ok, row, cnt = checkScanlineSpriteLimit()
         check(ok, 16, string.format("horiz boss scanline %d exceeded 8 sprites (%d)", row, cnt))
         local pWorldX = 512 + playerScreenX() + 8
+        -- Hold right for two (delayed) frames so the player turns to face the boss.
+        if phaseFrame <= 2 then input.right = true end
         dodgeBolts(input, pWorldX, 162)
         if phaseFrame % 12 == 1 then input.b = true end
         if read(AP_BOSS_STATE) == 2 then
@@ -347,21 +410,18 @@ emu.addEventCallback(function()
     elseif phase == "s3_run_to_cp" then
         input = { right = true }
         local st = read(AP_STATE)
-        local estX = 48 + walkDist
-        -- Pit 1 at X=128..159: jump at estX=126
-        if estX >= 125 and estX <= 128 and st == 0 then
+        local estX = playerX()
+        -- Pit 1 at X=128..159: the jump leaves ~3 px after the press and carries ~39 px
+        if estX >= 119 and estX <= 121 and st == 0 then
             input.a = true
         -- Enemy 1 at X=200 & Pot enemy at X=384
         elseif read(AP_ENEMY1) ~= 0 and estX >= 164 and estX <= 192 and read(AP_SHOOT_LOCK) == 0 then
             input.b = true
         elseif read(AP_POT_ENEMY) ~= 0 and estX >= 336 and estX <= 376 and read(AP_SHOOT_LOCK) == 0 then
             input.b = true
-        -- Pit 2 at X=416..447: jump at estX=414
-        elseif estX >= 413 and estX <= 416 and st == 0 then
+        -- Pit 2 at X=416..447
+        elseif estX >= 407 and estX <= 409 and st == 0 then
             input.a = true
-        end
-        if st == 1 or (st == 0 and read(AP_SHOOT_LOCK) == 0 and not input.b) then
-            walkDist = walkDist + 1
         end
         if cpReached() then
             prevPlatX = platX(0)
@@ -373,17 +433,15 @@ emu.addEventCallback(function()
         local px = platX(0)
         local movingLeft = px < prevPlatX
         prevPlatX = px
-        if phaseFrame <= 12 then
+        if phaseFrame <= 12 and jumpArmed == nil then
             input = { right = true }
-        elseif movingLeft and px >= 504 and px <= 514 and read(AP_STATE) == 0 then
-            input = { right = true, a = true }
+        elseif forwardJumpRight(phaseFrame > 12 and movingLeft and px >= 504 and px <= 514 and read(AP_STATE) == 0) then
             nextPhase("s3_cross_water")
         elseif phaseFrame > 200 then
             check(false, 21, "s3 timed out waiting for ferry px=" .. px)
         end
     elseif phase == "s3_cross_water" then
-        if read(AP_RIDING) == 0 and platX(0) >= 544 then
-            input = { right = true, a = true }
+        if forwardJumpRight(read(AP_RIDING) == 0 and platX(0) >= 544) then
             nextPhase("s34_trigger_boss")
         elseif phaseFrame > 180 then
             check(false, 22, "s3 did not cross waterway riding=" .. read(AP_RIDING) .. " px=" .. platX(0))
@@ -403,39 +461,32 @@ emu.addEventCallback(function()
         local px = platX(0)
         local movingLeft = px < prevPlatX
         prevPlatX = px
-        if movingLeft and px >= 120 and px <= 130 and read(AP_STATE) == 0 then
-            input = { right = true, a = true }
+        if forwardJumpRight(movingLeft and px >= 120 and px <= 130 and read(AP_STATE) == 0) then
             nextPhase("s4_cross_chasm1")
         elseif phaseFrame > 200 then
             check(false, 24, "s4 timed out waiting for chasm 1 platform px=" .. px)
         end
     elseif phase == "s4_cross_chasm1" then
-        if read(AP_RIDING) == 0 and platX(0) >= 164 then
-            input = { right = true, a = true }
-            walkDist = 0
+        if forwardJumpRight(read(AP_RIDING) == 0 and platX(0) >= 164) then
             nextPhase("s4_mid_bridge")
         elseif phaseFrame > 180 then
             check(false, 25, "s4 did not cross chasm 1 riding=" .. read(AP_RIDING) .. " px=" .. platX(0))
         end
     elseif phase == "s4_mid_bridge" then
         local st = read(AP_STATE)
-        -- Started jump off platform at X~156 -> estX = 156 + walkDist
-        local estX = 156 + walkDist
+        local estX = playerX()
         if read(AP_ENEMY1) ~= 0 and estX >= 248 and st == 0 then
             if phaseFrame % 16 == 1 then input.b = true end
         elseif read(AP_POT_ENEMY) ~= 0 and estX >= 288 and st == 0 then
             if phaseFrame % 16 == 1 then input.b = true end
         else
             input = { right = true }
-            -- Tombstone at X=224: jump at estX=208
+            -- Tombstone at X=224: jump at X=208
             if estX >= 207 and estX <= 210 and st == 0 then
                 input.a = true
-            -- Lava fissure at X=352..383: jump at estX=350
+            -- Lava fissure at X=352..383: jump at X=350
             elseif estX >= 349 and estX <= 352 and st == 0 then
                 input.a = true
-            end
-            if st == 1 or (st == 0 and read(AP_SHOOT_LOCK) == 0) then
-                walkDist = walkDist + 1
             end
         end
         if cpReached() then
@@ -448,17 +499,15 @@ emu.addEventCallback(function()
         local px = platX(2)
         local movingLeft = px < prevPlatX
         prevPlatX = px
-        if phaseFrame <= 12 then
+        if phaseFrame <= 12 and jumpArmed == nil then
             input = { right = true }
-        elseif movingLeft and px >= 504 and px <= 514 and read(AP_STATE) == 0 then
-            input = { right = true, a = true }
+        elseif forwardJumpRight(phaseFrame > 12 and movingLeft and px >= 504 and px <= 514 and read(AP_STATE) == 0) then
             nextPhase("s4_cross_chasm2")
         elseif phaseFrame > 200 then
             check(false, 27, "s4 timed out waiting for chasm 2 platform px=" .. px)
         end
     elseif phase == "s4_cross_chasm2" then
-        if read(AP_RIDING) == 2 and platX(2) >= 544 then
-            input = { right = true, a = true }
+        if forwardJumpRight(read(AP_RIDING) == 2 and platX(2) >= 544) then
             nextPhase("s34_trigger_boss")
         elseif phaseFrame > 180 then
             check(false, 28, "s4 did not cross chasm 2 riding=" .. read(AP_RIDING) .. " px=" .. platX(2))
@@ -583,13 +632,18 @@ emu.addEventCallback(function()
         end
     elseif phase == "v_tier3" then
         local sx = playerScreenX()
-        if sx > vCfg.leftLadX + 2 then
+        if read(AP_STATE) == 2 then
+            input = { up = true }
+            nextPhase("v_climb_boss")
+        elseif read(AP_STATE) ~= 0 then
+            input = {}
+        elseif sx > vCfg.leftLadX + 2 then
             input = { left = true }
         elseif sx < vCfg.leftLadX - 2 then
             input = { right = true }
-        else
+        elseif not jumpIncomingBolt(input) then
+            -- A turret bolt would knock the player off the ladder: let it pass first.
             input = { up = true }
-            if read(AP_STATE) == 2 then nextPhase("v_climb_boss") end
         end
         if phaseFrame > 260 then check(false, 41, "v_tier3 stuck sx=" .. sx) end
     elseif phase == "v_climb_boss" then
@@ -709,7 +763,6 @@ emu.addEventCallback(function()
                 startVerticalStage(0x8d, 2, 0x2c, 192, 48, false, false, "s3")
             elseif stg == 3 then
                 check(bank == 0x8e and readPpu(0x3f01) == 0x21, 71, "Stage 3 bank/pal mismatch")
-                walkDist = 0
                 nextPhase("s3_run_to_cp")
             elseif stg == 4 then
                 check(bank == 0x8f and readPpu(0x3f01) == 0x16, 72, "Stage 4 bank/pal mismatch")

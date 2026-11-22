@@ -33,6 +33,8 @@
 
 `./build.ps1 -Hardware -RevgStage1` は、アーケードの Stage 1 の区間0の地形（横14ページ）を Stage 1 に組み込む。地形と当たりはアーケードのとおりで、絵は仮のもの。敵とボスはまだいない。ビルドには、MAME の ROM から抽出したステージデータが要る。[実マップの規則](docs/stage-design.md#revision-g-の実マップstage-1-の区間0)
 
+このビルドで `python tools/compare-player-trace.py` を実行すると、MAME の `makaimurg` と FC 版に同じ入力を流し、プレイヤーの位置を1回の更新ごとに突き合わせる。[歩きとジャンプ](docs/revision-g-player.md)
+
 [実装と検証のチェックリスト](TODO.md#次の開発マイルストーン)
 
 ## Mesen 用の試験パッケージ

@@ -82,6 +82,32 @@ local function bossX()
     return read(AP_BOSS_X_HI) * 256 + read(AP_BOSS_X_LO)
 end
 
+local BOSS_MIN_X = 684
+local BOSS_MAX_X = 744
+local SHOT_INPUT_DELAY = 1
+
+-- Boss X after n more frames: it steps 1 px every other frame (0.5 px/frame)
+-- and reverses on reaching either end of its patrol.
+local function predictBossX(n)
+    local x = bossX()
+    local dir = read(AP_BOSS_DIR)
+    local step = 0.0
+    for _ = 1, n do
+        step = step + 0.5
+        if step >= 1 then
+            step = step - 1
+            if dir == 0 then
+                x = x - 1
+                if x <= BOSS_MIN_X then dir = 1 end
+            else
+                x = x + 1
+                if x >= BOSS_MAX_X then dir = 0 end
+            end
+        end
+    end
+    return x
+end
+
 local function playerScreenX()
     return read(0x203)
 end
@@ -120,6 +146,20 @@ local function checkScanlineSpriteLimit()
     return true, 0, 0
 end
 
+local function playerX()
+    return read(0x4d) * 256 + read(0x4c)
+end
+
+-- Route to the checkpoint: jump the first pit, hop onto the one-way platform,
+-- shoot enemy 1, jump onto the tombstone (X=416), step off it and shoot the
+-- pot enemy (X=448), then walk to the checkpoint (X=480) and wait there.
+-- Walking is 288/256 px/frame and input is read one frame late, so the
+-- tombstone/pot steps are keyed on the player's position instead of frames.
+local trav = { stage = "walk", t = 0 }
+local function resetTraverse()
+    trav = { stage = "walk", t = 0 }
+end
+
 local function traverseToCheckpoint(pf, killedFlag)
     local inp = { right = true }
     if pf < 140 and playerScreenX() >= 148 and playerScreenX() <= 154 and read(AP_STATE) == 0 then
@@ -131,11 +171,27 @@ local function traverseToCheckpoint(pf, killedFlag)
     if not killedFlag and pf >= 275 and pf <= 310 and pf % 8 == 0 then
         inp.b = true
     end
-    if pf == 412 then
-        inp.a = true
+    if trav.stage == "walk" then
+        -- Right is already held, so this is a forward jump; it lands ~33 px on.
+        if playerX() >= 384 and read(AP_STATE) == 0 then
+            inp.a = true
+            trav.stage = "tomb"
+            trav.t = pf
+        end
+    elseif trav.stage == "tomb" then
+        if read(AP_RIDING) == 0 then
+            trav.stage = "stepoff"
+            trav.t = pf
+        end
+    elseif trav.stage == "stepoff" then
+        local d = pf - trav.t
+        if d > 14 then inp.right = nil end
+        if d == 28 or d == 36 then inp.b = true end
+        if d >= 56 then trav.stage = "cp" end
     end
-    if pf == 460 or pf == 476 then
-        inp.b = true
+    -- Stop at the checkpoint (X=480) short of the pit edge and wait there.
+    if playerX() >= 484 then
+        inp.right = nil
     end
     return inp
 end
@@ -169,6 +225,50 @@ local prevClock = 120
 local clockOneFrame = -1
 local firedSimultaneous = false
 local simultaneousTriggered = false
+local jumpArmed = false
+local BOARD_LO = 502
+local BOARD_HI = 514
+
+-- A forward jump needs the direction held before A (right+A on the same frame
+-- jumps straight up), so hold right for one frame, then press right+A.
+local function forwardJump(ready)
+    if jumpArmed then
+        jumpArmed = false
+        return { right = true, a = true }, true
+    elseif ready then
+        jumpArmed = true
+        return { right = true }, false
+    end
+    return nil, false
+end
+
+-- Walk to the pit edge, then jump right onto the horizontal platform when it is
+-- close enough to land on.
+local function boardHplat(walkFrames, timeout, code, msg, nextName)
+    if phaseFrame < walkFrames then
+        input = { right = true }
+        return
+    end
+    local px = platX(1)
+    local inp, jumped = forwardJump(px >= BOARD_LO and px <= BOARD_HI and read(AP_STATE) == 0)
+    if inp then input = inp end
+    if jumped then
+        nextPhase(nextName)
+    elseif phaseFrame > timeout then
+        check(false, code, msg)
+    end
+end
+
+-- Ride the platform over the pit, then jump right off it onto the far side.
+local function crossPit(code, msg, nextName)
+    local inp, jumped = forwardJump(read(AP_RIDING) == 1 and platX(1) >= 530)
+    if inp then input = inp end
+    if jumped then
+        nextPhase(nextName)
+    elseif phaseFrame > 140 then
+        check(false, code, msg)
+    end
+end
 
 emu.addEventCallback(function()
     emu.setInput(input, 0)
@@ -195,6 +295,7 @@ emu.addEventCallback(function()
         elseif phaseFrame == 20 then
             check(read(AP_BOSS_STATE) == 0 and read(AP_BOSS_LOCK) == 0, 10, "boss state not idle at start")
             killedEnemy1 = false
+            resetTraverse()
             nextPhase("r1_reach_cp")
         end
     elseif phase == "r1_reach_cp" then
@@ -205,22 +306,9 @@ emu.addEventCallback(function()
             nextPhase("r1_board_hplat")
         end
     elseif phase == "r1_board_hplat" then
-        local px = platX(1)
-        if phaseFrame < 10 then
-            input = { right = true }
-        elseif px >= 502 and px <= 514 and read(AP_STATE) == 0 then
-            input = { right = true, a = true }
-            nextPhase("r1_cross_pit")
-        elseif phaseFrame > 140 then
-            check(false, 12, "r1 timed out waiting for hplat")
-        end
+        boardHplat(10, 140, 12, "r1 timed out waiting for hplat", "r1_cross_pit")
     elseif phase == "r1_cross_pit" then
-        if read(AP_RIDING) == 1 and platX(1) >= 530 then
-            input = { right = true, a = true }
-            nextPhase("r1_trigger_boss")
-        elseif phaseFrame > 140 then
-            check(false, 13, "r1 did not cross pit")
-        end
+        crossPit(13, "r1 did not cross pit", "r1_trigger_boss")
     elseif phase == "r1_trigger_boss" then
         if phaseFrame >= 36 then
             input = { right = true }
@@ -280,22 +368,9 @@ emu.addEventCallback(function()
 
     -- Route 2: Re-enter boss arena, chip shield + core HP, defeat boss, collect Key, transition to Stage 2.
     elseif phase == "r2_board_hplat" then
-        local px = platX(1)
-        if phaseFrame < 14 then
-            input = { right = true }
-        elseif px >= 502 and px <= 514 and read(AP_STATE) == 0 then
-            input = { right = true, a = true }
-            nextPhase("r2_cross_pit")
-        elseif phaseFrame > 160 then
-            check(false, 27, "r2 timed out waiting for hplat")
-        end
+        boardHplat(14, 160, 27, "r2 timed out waiting for hplat", "r2_cross_pit")
     elseif phase == "r2_cross_pit" then
-        if read(AP_RIDING) == 1 and platX(1) >= 530 then
-            input = { right = true, a = true }
-            nextPhase("r2_trigger_boss")
-        elseif phaseFrame > 140 then
-            check(false, 28, "r2 did not cross pit")
-        end
+        crossPit(28, "r2 did not cross pit", "r2_trigger_boss")
     elseif phase == "r2_trigger_boss" then
         if phaseFrame >= 36 then
             input = { right = true }
@@ -329,6 +404,9 @@ emu.addEventCallback(function()
         check(ok, 30, string.format("r2 scanline %d exceeded 8 sprites (%d)", row, cnt))
         check(read(AP_ARMOR) > 0, 34, "player died during r2_fight_boss")
         dodgeBossBolts(input)
+        -- A one-frame tap no longer turns the player; keep right held for
+        -- the first frames so the player turns to face the boss.
+        if phaseFrame <= 2 then input.right = true end
         if phaseFrame % 12 == 1 then
             input.b = true
         end
@@ -372,6 +450,7 @@ emu.addEventCallback(function()
         elseif phaseFrame == 40 then
             check(read(0x8000) == 0x8c and lives() == 3 and clock() == 120, 39, "r3 fresh start failed")
             killedEnemy1 = false
+            resetTraverse()
             nextPhase("r3_reach_cp")
         end
     elseif phase == "r3_reach_cp" then
@@ -381,22 +460,9 @@ emu.addEventCallback(function()
             nextPhase("r3_board_hplat")
         end
     elseif phase == "r3_board_hplat" then
-        local px = platX(1)
-        if phaseFrame < 10 then
-            input = { right = true }
-        elseif px >= 502 and px <= 514 and read(AP_STATE) == 0 then
-            input = { right = true, a = true }
-            nextPhase("r3_cross_pit")
-        elseif phaseFrame > 140 then
-            check(false, 40, "r3 timed out waiting for hplat")
-        end
+        boardHplat(10, 140, 40, "r3 timed out waiting for hplat", "r3_cross_pit")
     elseif phase == "r3_cross_pit" then
-        if read(AP_RIDING) == 1 and platX(1) >= 530 then
-            input = { right = true, a = true }
-            nextPhase("r3_trigger_boss")
-        elseif phaseFrame > 140 then
-            check(false, 41, "r3 did not cross pit")
-        end
+        crossPit(41, "r3 did not cross pit", "r3_trigger_boss")
     elseif phase == "r3_trigger_boss" then
         if phaseFrame >= 36 then
             input = { right = true }
@@ -426,6 +492,7 @@ emu.addEventCallback(function()
     elseif phase == "r3_weaken_boss" then
         -- Weaken boss until shield == 0 and HP == 1, firing only when no player shot is active.
         dodgeBossBolts(input)
+        if phaseFrame <= 2 then input.right = true end
         if read(AP_BOSS_SHIELD) == 0 and read(AP_BOSS_HP) == 1 then
             prevClock = clock()
             clockOneFrame = -1
@@ -454,14 +521,15 @@ emu.addEventCallback(function()
 
         -- Fire weapon (Lance=3 px/f, Dagger=4 px/f) so it hits boss (bossX - 14)
         -- on the exact timeout frame (clockOneFrame + 59).
+        -- The boss patrols X=684..744 at 0.5 px/frame and turns at each end;
+        -- the player reads B one frame late, so the shot leaves a frame later.
         if clockOneFrame > 0 and not firedSimultaneous then
             local rem = (clockOneFrame + 59) - frame
             local vx = (read(AP_WEAPON) == 1) and 4 or 3
-            local bDir = read(AP_BOSS_DIR) == 0 and -0.5 or 0.5
-            local predBossX = bossX() + bDir * rem
+            local predBossX = predictBossX(rem)
             local dist = (predBossX - 14) - pWorldX
             local flight = math.floor((dist + vx - 1) / vx)
-            if rem > 0 and rem <= flight then
+            if rem > 0 and rem - SHOT_INPUT_DELAY <= flight then
                 input = { b = true }
                 firedSimultaneous = true
             end

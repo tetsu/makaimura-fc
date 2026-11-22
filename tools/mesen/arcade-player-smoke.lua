@@ -115,16 +115,20 @@ emu.addEventCallback(function()
         end
     elseif phase == "shoot_lock" then
         -- Wait for previous shot to expire, then test 15-frame ground shoot lock.
+        -- The player reads the pad one frame late, so the B pressed on frame 52
+        -- starts the lock two frames later (frame 54 end).
         if phaseFrame == 52 then
             savedX = playerScreenX()
             input = { b = true }
-        elseif phaseFrame >= 53 and phaseFrame <= 62 then
+        elseif phaseFrame == 53 then
+            input = { right = true }
+        elseif phaseFrame >= 54 and phaseFrame <= 63 then
             input = { right = true }
             check(read(AP_SHOOT_LOCK) > 0, 17, "shoot lock ended too early")
             check(playerScreenX() == savedX, 18, "moved during 15f shoot lock")
-        elseif phaseFrame >= 63 and phaseFrame <= 75 then
+        elseif phaseFrame >= 64 and phaseFrame <= 79 then
             input = { right = true }
-        elseif phaseFrame == 76 then
+        elseif phaseFrame == 80 then
             check(playerScreenX() > savedX + 4, 19, "did not resume walking after shoot lock")
             nextPhase("air_lock")
         end
@@ -179,8 +183,12 @@ emu.addEventCallback(function()
         end
     elseif phase == "cross_seam_to_ladder" then
         -- Walk right across the X=256 nametable seam onto col 17 ladder (X=272..287).
-        if phaseFrame <= 36 then
+        -- Walking is 288/256 px/frame, so stop holding right earlier to end on the
+        -- ladder (world X ~281) instead of walking past it.
+        if phaseFrame <= 28 then
             input = { right = true }
+        elseif phaseFrame <= 36 then
+            -- Coast to a stop (input is read one frame late).
         elseif phaseFrame == 37 then
             -- Now past col 16, dropped to floor at col 17 (Y=176) or still descending.
             nextPhase("climb_ladder")

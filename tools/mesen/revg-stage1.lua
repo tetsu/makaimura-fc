@@ -21,7 +21,7 @@ local TOMBS = {[FLOOR] = {256, 416, 528, 1264, 1520}, [HILL] = {768, 864, 960}}
 -- Left edges of the 32 px pits after the lake.
 local PITS = {1952, 2016, 2464, 2784}
 local LADDER_X = 712            -- Centre of the first ladder's left column (44)
-local LAKE_EDGE = 1636          -- The right foot stays on column 102
+local LAKE_STOP = 1628          -- Stand back from the lake edge (column 103 is water)
 local RAFT_BOARD = 1712         -- Raft X, heading left, that meets a jump from the edge
 local RAFT_LEAVE = 1772         -- Raft X, heading right, to jump to the far bank
 local CHECKPOINT_X, GOAL_X = 1920, 3440
@@ -31,6 +31,9 @@ local phase = "boot"
 local input = {}
 local clearFrame
 local rendered = false
+local climbing = false
+local airborne = false
+local jumpFrame
 
 local function read(addr)
     return emu.read(addr, emu.memType.nesMemory)
@@ -99,8 +102,10 @@ emu.addEventCallback(function()
             phase = "ladder"
         end
     elseif phase == "ladder" then
+        -- The player reads the controller one frame late, so the climb starts a frame later.
         input = {up = true}
-        if state == STATE_GROUND then
+        climbing = climbing or state == STATE_LADDER
+        if climbing and state == STATE_GROUND then
             if not check(x == LADDER_X and feet == HILL, "top of the first hill ladder") then return end
             phase = "hill"
         end
@@ -111,25 +116,27 @@ emu.addEventCallback(function()
             phase = "lake_approach"
         end
     elseif phase == "lake_approach" then
-        input = {right = x < LAKE_EDGE, a = onGround and jumpWindow(x, TOMBS[FLOOR], 16, 14)}
-        if x == LAKE_EDGE and onGround and raftLeft and raftX == RAFT_BOARD then
-            input = {right = true, a = true}
+        input = {right = x < LAKE_STOP, a = onGround and jumpWindow(x, TOMBS[FLOOR], 16, 14)}
+        if x >= LAKE_STOP and onGround and raftLeft and raftX == RAFT_BOARD then
+            jumpFrame = frame + 2
             phase = "board"
         end
     elseif phase == "board" then
-        input = {right = true}
-        if onGround then
+        -- A jump only goes forward once the direction has been held for two updates.
+        input = {right = true, a = frame == jumpFrame}
+        airborne = airborne or not onGround
+        if airborne and onGround then
             if not check(feet == 218 and math.abs(x - raftX) <= 12, "landing on the raft") then return end
             phase = "raft"
         end
     elseif phase == "raft" then
         if not check(feet == 218, "fell off the raft") then return end
         if onGround and not raftLeft and raftX >= RAFT_LEAVE then
-            input = {right = true, a = true}
+            jumpFrame = frame + 2
             phase = "far_bank"
         end
     elseif phase == "far_bank" then
-        input = {right = true}
+        input = {right = true, a = frame == jumpFrame}
         if onGround and feet == FLOOR then
             if not check(x >= 1792, "far bank of the lake") then return end
             phase = "checkpoint"
@@ -154,7 +161,7 @@ emu.addEventCallback(function()
             phase = "forest"
         end
     elseif phase == "forest" then
-        -- A running jump covers 33 px, so take off with the right foot (X + 4) at the edge.
+        -- Take off with the right foot (X + 4) still on the edge.
         input = {right = true, a = onGround and jumpWindow(x, PITS, 5, 4)}
         if camera >= 2304 and camera < 2432 and onGround and not rendered then
             -- Past page 8 the renderer needs bit 8 of the tile column: pit 2464 shows sky,

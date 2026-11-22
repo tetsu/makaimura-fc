@@ -50,6 +50,27 @@ local function playerScreenX()
     return read(0x203)
 end
 
+local function playerX()
+    return read(0x4d) * 256 + read(0x4c)
+end
+
+-- Checkpoint route progress (tombstone -> pot enemy -> checkpoint).
+local trav = { stage = "walk", t = 0 }
+
+-- A forward jump needs the direction held before A (right+A on the same frame
+-- jumps straight up), so hold right for one frame, then press right+A.
+local jumpArmed = false
+local function forwardJump(ready)
+    if jumpArmed then
+        jumpArmed = false
+        return { right = true, a = true }, true
+    elseif ready then
+        jumpArmed = true
+        return { right = true }, false
+    end
+    return nil, false
+end
+
 local function countEnemies()
     local n = 0
     for i = 0, 3 do
@@ -115,12 +136,29 @@ emu.addEventCallback(function()
             input.b = true
         end
         if read(0x6018) == 0 then killedEnemy1 = true end
-        -- Jump onto tombstone at phaseFrame == 412, then shoot pot enemy after stepping off.
-        if phaseFrame == 412 then
-            input.a = true
+        -- Jump onto the tombstone (X=416), then shoot the pot enemy (X=448) after
+        -- stepping off. Walking is 288/256 px/frame and input is read one frame
+        -- late, so these steps are keyed on position instead of fixed frames.
+        if trav.stage == "walk" then
+            -- Right is already held, so this is a forward jump; it lands ~33 px on.
+            if playerX() >= 384 and read(AP_STATE) == 0 then
+                input.a = true
+                trav.stage = "tomb"
+            end
+        elseif trav.stage == "tomb" then
+            if read(AP_RIDING) == 0 then
+                trav.stage = "stepoff"
+                trav.t = phaseFrame
+            end
+        elseif trav.stage == "stepoff" then
+            local d = phaseFrame - trav.t
+            if d > 14 then input.right = nil end
+            if d == 28 or d == 36 then input.b = true end
+            if d >= 56 then trav.stage = "cp" end
         end
-        if phaseFrame == 460 or phaseFrame == 476 then
-            input.b = true
+        -- Stop at the checkpoint (X=480) short of the pit edge and wait there.
+        if playerX() >= 484 then
+            input.right = nil
         end
         if phaseFrame == 530 then
             check(read(AP_ARMOR) >= 1 and read(AP_STATE) == 0, 11, "did not reach checkpoint cleanly")
@@ -130,15 +168,19 @@ emu.addEventCallback(function()
         local px = platX(1)
         if phaseFrame < 10 then
             input = { right = true }
-        elseif px >= 502 and px <= 514 and read(AP_STATE) == 0 then
-            input = { right = true, a = true }
-            nextPhase("cross_to_page2")
-        elseif phaseFrame > 140 then
-            check(false, 11, "timed out waiting for horizontal platform")
+        else
+            local inp, jumped = forwardJump(px >= 502 and px <= 514 and read(AP_STATE) == 0)
+            if inp then input = inp end
+            if jumped then
+                nextPhase("cross_to_page2")
+            elseif phaseFrame > 140 then
+                check(false, 11, "timed out waiting for horizontal platform")
+            end
         end
     elseif phase == "cross_to_page2" then
-        if read(AP_RIDING) == 1 and platX(1) >= 530 then
-            input = { right = true, a = true }
+        local inp, jumped = forwardJump(read(AP_RIDING) == 1 and platX(1) >= 530)
+        if inp then input = inp end
+        if jumped then
             nextPhase("enter_page2")
         elseif phaseFrame > 140 then
             check(false, 12, "did not cross pit to page 2")
@@ -204,8 +246,14 @@ emu.addEventCallback(function()
         end
     elseif phase == "kill_zombie_and_resume" then
         -- Fire right to destroy an approaching zombie, then verify wait timer resumes and spawns a replacement.
+        -- The player walked left in step_back_page2 and a one-frame right tap no
+        -- longer turns it (a direction must be held two frames), so hold right
+        -- briefly to face right first.
+        if phaseFrame <= 2 then
+            input.right = true
+        end
         if phaseFrame % 12 == 1 then
-            input = { b = true }
+            input.b = true
         end
         local cap = rankCap[read(AP_RANK)]
         if not sawZombieKilled and read(SCHED_ZOMBIES) < cap then

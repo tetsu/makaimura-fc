@@ -30,6 +30,18 @@ local finalTitle = {0x07, 0x0a, 0x0e, 0x02, 0x0c, 0, 0x04, 0x0c, 0x06, 0x02, 0x1
 local sequence = emu.getRomInfo().name:find("-course-sequence", 1, true) ~= nil
 local scrollStart
 local sawFirstEnemy = false
+local jumpFrame, leftGround
+
+-- A jump only goes forward once right has been held for two updates, and the player
+-- reads the controller one frame late. Hold right from now and press A two frames later.
+local function startForwardJump()
+    jumpFrame, leftGround = frame + 2, false
+end
+
+local function forwardJumpInput(state)
+    leftGround = leftGround or state == 1
+    return {right = not leftGround, a = frame == jumpFrame}
+end
 
 local function read(addr)
     return emu.read(addr, emu.memType.nesMemory)
@@ -113,13 +125,15 @@ emu.addEventCallback(function()
     elseif phase == "approach" then
         if x < 62 then
             input = {right = true}
-        elseif platformX == 122 and read(HORIZONTAL_PHASE) == 1 then
-            -- Meet the platform on its return path.
-            input = {right = true, a = true}
+        elseif platformX == 116 and read(HORIZONTAL_PHASE) == 0 then
+            -- The jump comes down about 32 frames later, when the platform has turned at
+            -- X 124 and come back to about X 100.
+            startForwardJump()
             phase = "land_horizontal"
         end
     elseif phase == "land_horizontal" then
-        if riding == 0 then
+        input = forwardJumpInput(state)
+        if riding == 0 and leftGround then
             if not check(state == 0 and y == 176, "horizontal platform landing") then return end
             phase = "ride_horizontal"
         end
@@ -127,10 +141,11 @@ emu.addEventCallback(function()
         if not check(riding == 0 and y == 176, "lost horizontal ride") then return end
         if x >= 115 and read(HORIZONTAL_PHASE) == 0 then
             -- The lift will be rising from its lower end when the jump descends.
-            input = {right = true, a = true}
+            startForwardJump()
             phase = "land_lift"
         end
     elseif phase == "land_lift" then
+        input = forwardJumpInput(state)
         if riding == 1 then
             if not check(state == 0 and y == liftY, "lift landing") then return end
             phase = "ride_lift"
@@ -138,17 +153,21 @@ emu.addEventCallback(function()
     elseif phase == "ride_lift" then
         if not check(riding == 1 and y == liftY, "lost vertical ride") then return end
         if y <= 140 then
-            input = {right = true, a = true}
+            startForwardJump()
             phase = "shelf"
         end
     elseif phase == "shelf" then
+        input = forwardJumpInput(state)
         if state == 0 and riding == 0xff then
-            if not check(y == 144 and x >= 160 and x < 192, "landing on ladder shelf") then return end
+            -- The arcade jump carries past the ladder; the shelf continues to its right.
+            if not check(y == 144 and x >= 160 and x < 208, "landing on ladder shelf") then return end
             phase = "ladder"
         end
     elseif phase == "ladder" then
-        if state == 2 or (x >= 176 and x < 192) then
+        if state == 2 or (x >= 178 and x < 190) then
             input = {up = true}
+        elseif x >= 190 then
+            input = {left = true}
         else
             input = {right = true}
         end
@@ -202,11 +221,13 @@ emu.addEventCallback(function()
         end
         -- With two zombies at most, one rises past the pit soon after the last is shot.
         -- Shoot a close zombie quickly and wait at the pit edge while one is close.
-        -- Firing more often than every 18 frames otherwise keeps the player standing.
+        -- The walk is 288/256 px per frame and the player reads the pad a frame late, so
+        -- wait in a window before the pit (it ends at X 575 or 576) instead of at one X.
         local zombie, any = enemiesAhead(x)
         local tick = frame - scrollStart
-        input = {right = x ~= 575 or not zombie, b = (zombie and tick % 8 == 0) or (any and tick % 18 == 0),
-            a = x == 575 and state == 0 and not zombie}
+        local atPit = x >= 569 and x <= 576
+        input = {right = not atPit or not zombie, b = (zombie and tick % 8 == 0) or (any and tick % 12 == 0),
+            a = atPit and state == 0 and not zombie}
         if read(SCENE) == 5 then
             local score = readWord(SCORE)
             local expectedLives = score >= 20 and 3 or 2

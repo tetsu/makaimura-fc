@@ -66,6 +66,10 @@ local function playerScreenY()
     return read(0x200)
 end
 
+local function playerX()
+    return read(0x4d) * 256 + read(0x4c)
+end
+
 local function platX(slot)
     return read(PLAT_X_HI + slot) * 256 + read(PLAT_X_LO + slot)
 end
@@ -127,7 +131,25 @@ local function dodgeBolts(inp, pWorldX, lowThresh)
     return false
 end
 
+-- Distance to the nearest enemy bolt coming at the player from the right at a
+-- height that hits a standing player (nil when there is none).
+local function boltBehindDx(pWorldX)
+    local best = nil
+    for i = 0, 1 do
+        if read(EB_ACTIVE + i) ~= 0 then
+            local dx = read(EB_X_HI + i) * 256 + read(EB_X_LO + i) - pWorldX
+            local dy = read(0x4e) - read(EB_Y + i)
+            if dx > 0 and dy >= 0 and dy < 16 and (best == nil or dx < best) then best = dx end
+        end
+    end
+    return best
+end
+
 local killedS1Enemy1 = false
+local hplatArmed = nil
+local hplatPrevX = nil
+local jumpOffArmed = false
+local offLadderAt = nil
 local sawExtend = false
 local sawPage0 = false
 
@@ -168,26 +190,48 @@ emu.addEventCallback(function()
         if not killedS1Enemy1 and phaseFrame >= 275 and phaseFrame <= 310 and phaseFrame % 8 == 0 then
             input.b = true
         end
-        if phaseFrame == 412 then input.a = true end
-        if phaseFrame == 460 or phaseFrame == 476 then input.b = true end
+        -- Stop in front of the pot enemy (X=448) and shoot it, then walk over its drop.
+        if read(AP_POT_ENEMY) ~= 0 and playerX() >= 428 then
+            input.right = nil
+            if phaseFrame % 8 == 0 then input.b = true end
+        end
+        -- Wait at the edge of the pit (it starts at X=500).
+        if playerX() >= 488 then input.right = nil end
         if read(AP_ENEMY1) == 0 then killedS1Enemy1 = true end
         if phaseFrame == 530 then
+            hplatArmed = nil
+            hplatPrevX = nil
             nextPhase("s1_board_hplat")
         end
     elseif phase == "s1_board_hplat" then
+        -- The jump is ~36 frames long and ~39 px forward, so it leaves while the
+        -- platform (X 500..544, 1 px/frame) is around X=508 moving left; it then
+        -- bounces and is back under the landing point (X~528).
         local px = platX(1)
-        if phaseFrame < 10 then
+        local movingLeft = hplatPrevX ~= nil and px < hplatPrevX
+        hplatPrevX = px
+        if hplatArmed == nil and px >= 506 and px <= 510 and movingLeft and read(AP_STATE) == 0 then
+            hplatArmed = 0
+        end
+        if hplatArmed ~= nil then
+            -- Right must already be held before A, or the jump goes straight up.
+            hplatArmed = hplatArmed + 1
             input = { right = true }
-        elseif px >= 502 and px <= 514 and read(AP_STATE) == 0 then
-            input = { right = true, a = true }
-            nextPhase("s1_cross_pit")
+            if hplatArmed == 2 then
+                input.a = true
+                jumpOffArmed = false
+                nextPhase("s1_cross_pit")
+            end
         elseif phaseFrame > 140 then
             check(false, 12, "s1 timed out waiting for hplat")
         end
     elseif phase == "s1_cross_pit" then
-        if read(AP_RIDING) == 1 and platX(1) >= 530 then
+        if jumpOffArmed then
             input = { right = true, a = true }
             nextPhase("s1_trigger_boss")
+        elseif read(AP_RIDING) == 1 and platX(1) >= 530 then
+            input = { right = true }
+            jumpOffArmed = true
         elseif phaseFrame > 140 then
             check(false, 13, "s1 did not cross pit")
         end
@@ -219,6 +263,8 @@ emu.addEventCallback(function()
         end
     elseif phase == "s1_fight_boss" then
         local pWorldX = 512 + playerScreenX() + 8
+        -- Hold right for two (delayed) frames so the player turns to face the boss.
+        if phaseFrame <= 2 then input.right = true end
         dodgeBolts(input, pWorldX, 162)
         if phaseFrame % 12 == 1 then input.b = true end
         if read(AP_BOSS_STATE) == 2 then
@@ -323,7 +369,10 @@ emu.addEventCallback(function()
     elseif phase == "s2_climb_across_page" then
         input = { up = true }
         if read(AP_PLAYER_Y_HI) == 0 then sawPage0 = true end
-        if read(AP_STATE) == 0 and phaseFrame > 20 then
+        -- The checkpoint is marked on the frame the player steps off the ladder;
+        -- give the HUD a frame to show it.
+        if read(AP_STATE) == 0 and phaseFrame > 20 and offLadderAt == nil then offLadderAt = phaseFrame end
+        if offLadderAt ~= nil and phaseFrame >= offLadderAt + 2 then
             check(sawPage0, 31, "did not cross vertical page 1 -> page 0")
             check(cpReached(), 32, "stage 2 vertical checkpoint (Y<=208) not marked")
             nextPhase("s2_tier3_to_left_ladder")
@@ -334,13 +383,20 @@ emu.addEventCallback(function()
     -- Stage 2 Tier 3 (Y=208): walk left to col 3 (X=56), climb to top boss arena (Y=144)
     elseif phase == "s2_tier3_to_left_ladder" then
         local sx = playerScreenX()
-        if sx > 52 then
+        -- The turret's bolts chase the player from the right at feet-9 and would knock
+        -- the player off the ladder: stop, jump straight up over them, then go on.
+        local bdx = boltBehindDx(playerX())
+        if read(AP_STATE) == 2 then
+            input = { up = true }
+            nextPhase("s2_climb_to_boss")
+        elseif bdx and bdx < 50 and read(AP_STATE) == 0 then
+            if bdx <= 36 then input.a = true end
+        elseif read(AP_STATE) ~= 0 then
+            input = {}
+        elseif sx > 52 then
             input = { left = true }
         else
             input = { up = true }
-            if read(AP_STATE) == 2 then
-                nextPhase("s2_climb_to_boss")
-            end
         end
         if phaseFrame > 260 then
             check(false, 34, "s2 tier 3 did not reach left ladder")
@@ -372,7 +428,8 @@ emu.addEventCallback(function()
         local ok, row, cnt = checkScanlineSpriteLimit()
         check(ok, 38, string.format("stage 2 boss scanline %d exceeded 8 sprites (%d)", row, cnt))
         local pWorldX = playerScreenX() + 8
-        if phaseFrame == 1 then
+        if phaseFrame <= 2 then
+            -- Two (delayed) frames of right turn the player to face the boss.
             input = { right = true }
         else
             dodgeBolts(input, pWorldX, 130)

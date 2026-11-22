@@ -200,6 +200,21 @@ ap_bounce_back: .res 1          ; $60CF: 1 when Stage 6 bounced back to Stage 5
 ap_oam_phase: .res 1
 sched_turrets: .res sd_sched_pages
 ap_prio_phase: .res 1           ; start of the priority block, 0..ap_prio_count-1
+; Walking and jumping follow the arcade player record ($0500-$052F, see
+; docs/revision-g-player.md). Fractions keep the arcade's sense: ap_y_frac is the fraction
+; of the arcade height (up is positive), so player_feet = constant - arcade integer Y.
+ap_x_frac: .res 1               ; arcade $0508
+ap_y_frac: .res 1               ; arcade $050B
+ap_vx: .res 3                   ; arcade $0517-$0519: integer, fraction high, fraction low
+ap_vy: .res 3                   ; arcade $051B-$051D: up while rising, down while falling
+ap_move_dir: .res 1             ; arcade $050E: 0 none, 1 right, 2 left
+ap_jump_phase: .res 1           ; arcade $0504 in the jump: 0 start, 1 rise, 2 fall
+ap_steps: .res 1
+; The arcade acts on the controller one update after reading it ($6772 fills $46 for the
+; next play update), so the player reads the pad of the previous frame.
+ap_pad_next: .res 1
+ap_pad: .res 1                  ; arcade $004B
+ap_pressed: .res 1              ; arcade $004B & ~$004C
 
 .segment "BANK3"
     .byte bank_tag_base + 3
@@ -243,6 +258,13 @@ ap_init_stage:
     sta ap_crouch
     sta ap_shoot_lock
     sta ap_air_dir
+    sta ap_move_dir
+    sta ap_jump_phase
+    sta ap_pad
+    sta ap_pad_next
+    sta ap_pressed
+    sta ap_x_frac
+    sta ap_y_frac
     sta ap_kb_dir
     sta ap_kb_step
     sta ranged_active
@@ -260,6 +282,7 @@ ap_init_stage:
     sta ap_boss_y_hi
     sta ap_key_collected
     inc campaign_hud_dirty
+    jsr ap_reset_velocity
 
     ; Load 16-bit player Y from stage descriptor (start or checkpoint).
     lda checkpoint_reached
@@ -685,6 +708,15 @@ ap_map_enemy_bank:
     jmp select_bank2
 
 ap_update_frame:
+    lda ap_pad
+    eor #$ff
+    sta ap_tmp0
+    lda ap_pad_next
+    sta ap_pad
+    and ap_tmp0
+    sta ap_pressed
+    lda pad
+    sta ap_pad_next
     lda player_hit
     beq @alive
     jmp @camera_and_submit
@@ -952,14 +984,14 @@ ap_carry_player_on_platform:
 
 ; --- Ground state: walk, crouch, ladder entry, shoot lock, jump ---
 ap_step_ground:
-    lda pad
+    lda ap_pad
     and #$08                    ; Up
     beq @check_ladder_down
     jsr ap_try_enter_ladder_up
     bcc @check_ladder_down
     rts
 @check_ladder_down:
-    lda pad
+    lda ap_pad
     and #$04                    ; Down
     beq @not_crouching
     jsr ap_try_enter_ladder_down
@@ -968,103 +1000,246 @@ ap_step_ground:
 @enter_crouch:
     lda #1
     sta ap_crouch
-    jmp @check_ground_jump
+    jmp @check_ground_support
 @not_crouching:
     lda #0
     sta ap_crouch
-@check_ground_jump:
-    lda ap_crouch
-    bne @check_ground_walk
-    lda pressed
-    and #$80
-    beq @check_ground_walk
-    lda #0
-    sta ap_air_dir
-    lda #$ff
-    sta ap_riding_plat
-    lda ap_shoot_lock
-    bne @begin_air_jump
-    lda pad
-    and #3
-    cmp #1
-    beq @lock_right
-    cmp #2
-    beq @lock_left
-    bne @begin_air_jump
-@lock_right:
-    lda #0
-    sta player_left
-    lda #1
-    sta ap_air_dir
-    bne @begin_air_jump
-@lock_left:
-    lda #1
-    sta player_left
-    lda #2
-    sta ap_air_dir
-@begin_air_jump:
-    lda #ap_state_air
-    sta ap_state
-    lda #0
-    sta jump_step
-    jmp ap_step_air_vertical
-
-@check_ground_walk:
-    lda ap_crouch
-    bne @check_ground_support
+    ; Arcade order ($8FDF): direction ($9233), walk ($9265), ground ($9034), jump ($907B).
+    jsr ap_update_move_dir
+    bcs @check_ground_support
     lda ap_shoot_lock
     bne @check_ground_support
-    lda pad
-    and #3
-    beq @check_ground_support
-    cmp #3
-    beq @check_ground_support
-    cmp #1
-    bne @walk_left
-    lda #0
-    sta player_left
-    jsr ap_move_right_1px
-    jmp @check_ground_support
-@walk_left:
-    lda #1
-    sta player_left
-    jsr ap_move_left_1px
+    jsr ap_walk_step
 
 @check_ground_support:
     jsr ap_check_support
-    bcs @ground_done
+    bcs @check_ground_jump
+    jmp ap_begin_fall
+@check_ground_jump:
+    lda ap_crouch
+    bne @ground_done
+    lda ap_pressed
+    and #$80
+    beq @ground_done
+    ; The jump keeps the walking direction. A direction pressed with the jump in the
+    ; same update has not been held for two updates yet, so that jump goes straight up.
+    lda ap_move_dir
+    sta ap_air_dir
+    lda #$ff
+    sta ap_riding_plat
     lda #ap_state_air
     sta ap_state
+    lda #0
+    sta ap_jump_phase
+@ground_done:
+    rts
+
+; Arcade $9233: a direction counts once it is held in this update and the previous one,
+; left before right.
+; Returns C set when the player must not walk in this update.
+ap_update_move_dir:
+    jsr ap_held_dir
+    beq @no_dir
+    cmp ap_move_dir
+    beq @same_dir
+    ; A new direction turns the player and walks in the same update (CLRB at $9263).
+    sta ap_move_dir
+    jsr ap_face_dir
+@same_dir:
+    clc
+    rts
+@no_dir:
+    sta ap_move_dir
+    sec
+    rts
+
+; A = 2 when left is held for two updates, else 1 for right, else 0 (Z set).
+ap_held_dir:
+    lda ap_pressed
+    eor #$ff
+    and ap_pad
+    tax
+    and #$02
+    bne @held_left
+    txa
+    and #$01
+    rts
+@held_left:
+    lda #2
+    rts
+
+; A = 1 (right) or 2 (left).
+ap_face_dir:
+    sec
+    sbc #1
+    sta player_left
+    rts
+
+; Arcade $92DA with the walk table $93B6: 288/256 px per update.
+ap_walk_speed_frac = $20
+ap_walk_step:
+    lda ap_move_dir
+    cmp #1
+    bne @walk_left
+    lda ap_x_frac
+    clc
+    adc #ap_walk_speed_frac
+    sta ap_x_frac
+    bcc :+
+    jsr ap_move_right_1px
+:
+    jmp ap_move_right_1px
+@walk_left:
+    lda ap_x_frac
+    sec
+    sbc #ap_walk_speed_frac
+    sta ap_x_frac
+    bcs :+
+    jsr ap_move_left_1px
+:
+    jmp ap_move_left_1px
+
+; Arcade $93C2, copied into the record on landing ($953E) and at the start ($8F6B).
+ap_reset_velocity:
+    lda #0
+    sta ap_vx
+    sta ap_vx+2
+    sta ap_vy+2
+    lda #$80
+    sta ap_vx+1
+    lda #4
+    sta ap_vy
+    lda #$40
+    sta ap_vy+1
+    rts
+
+; Walking off an edge (arcade $9055) falls straight down at the reset speed.
+ap_begin_fall:
+    lda #ap_state_air
+    sta ap_state
+    lda #2
+    sta ap_jump_phase
     lda #0
     sta ap_air_dir
     sta ap_crouch
     lda #$ff
     sta ap_riding_plat
-    lda #jump_fall
-    sta jump_step
-@ground_done:
+    jmp ap_reset_velocity
+
+; --- Air state: arcade jump ($93CA, $942B rise, $946A fall, $952D landing) ---
+ap_jump_vx_accel = $0fa0        ; $93BA: added while rising, taken off while falling
+ap_jump_gravity = $3d90
+ap_jump_vy_max = 5
+ap_step_air:
+    lda ap_jump_phase
+    bne @air_moving
+    ; The update after the press only starts the jump ($9415).
+    inc ap_jump_phase
+    rts
+@air_moving:
+    ; Only the facing follows the controller in the air ($9572).
+    jsr ap_held_dir
+    beq :+
+    jsr ap_face_dir
+:
+    jsr ap_air_move_x
+    lda ap_jump_phase
+    cmp #1
+    beq @air_rising
+    jmp ap_air_fall
+
+@air_rising:
+    ; Height += vy ($94B0): feet go up by the integer part and the fraction's carry.
+    lda ap_y_frac
+    clc
+    adc ap_vy+1
+    sta ap_y_frac
+    lda #0
+    adc ap_vy
+    eor #$ff
+    clc
+    adc #1
+    jsr ap_add_player_y
+    jsr ap_air_ceiling
+    bcs @air_rise_done
+    ; vx += accel, vy -= gravity ($94EA). The rise ends when vy is below the gravity.
+    lda ap_vx+2
+    clc
+    adc #<ap_jump_vx_accel
+    sta ap_vx+2
+    lda ap_vx+1
+    adc #>ap_jump_vx_accel
+    sta ap_vx+1
+    bcc :+
+    inc ap_vx
+:
+    lda ap_vy+2
+    sec
+    sbc #<ap_jump_gravity
+    sta ap_vy+2
+    lda ap_vy+1
+    sbc #>ap_jump_gravity
+    sta ap_vy+1
+    bcs :+
+    dec ap_vy
+:
+    lda ap_vy
+    bne @air_rise_done
+    lda ap_vy+1
+    cmp #>ap_jump_gravity
+    bcs @air_rise_done
+    lda #2
+    sta ap_jump_phase
+@air_rise_done:
     rts
 
-; --- Air state: fixed horizontal velocity, ceiling, landing ---
-ap_step_air:
-    lda ap_air_dir
-    cmp #1
-    bne @air_not_right
-    jsr ap_move_right_1px
-    jmp ap_step_air_vertical
-@air_not_right:
-    cmp #2
-    bne ap_step_air_vertical
-    jsr ap_move_left_1px
+; The head hits a solid cell while rising: start falling from below it.
+; The arcade rise has no ceiling test; section 0 has no ceilings.
+ap_air_ceiling:
+    lda player_feet
+    sec
+    sbc #player_height
+    sta ap_probe_y
+    lda ap_player_y_hi
+    sbc #0
+    sta ap_probe_y_hi
+    bmi @no_ceiling
+    lda player_x
+    sta ap_probe_x
+    lda player_x+1
+    sta ap_probe_x+1
+    jsr ap_tile_type_at
+    cmp #tile_type_solid
+    bne @no_ceiling
+    lda ap_probe_y
+    and #$f0
+    clc
+    adc #16 + player_height
+    sta player_feet
+    lda ap_probe_y_hi
+    adc #0
+    sta ap_player_y_hi
+    lda #2
+    sta ap_jump_phase
+    sec
+    rts
+@no_ceiling:
+    clc
+    rts
 
-ap_step_air_vertical:
-    ldx jump_step
-    lda jump_delta,x
-    bmi @air_rising
+ap_air_fall:
+    ; Height -= vy ($94BD): feet go down by the integer part and the fraction's borrow.
+    lda ap_y_frac
+    sec
+    sbc ap_vy+1
+    sta ap_y_frac
+    lda ap_vy
+    bcs :+
+    adc #1                      ; borrow from the fraction (C is clear here)
+:
     jsr ap_add_player_y
-    jsr ap_advance_jump_step
     jsr ap_check_support
-    bcc @air_done
+    bcc @air_fall_accel
     lda ap_tile_row_top
     sta player_feet
     lda ap_tile_row_top_hi
@@ -1075,48 +1250,70 @@ ap_step_air_vertical:
     sta jump_step
     lda #0
     sta ap_air_dir
-@air_done:
-    rts
-
-@air_rising:
-    jsr ap_add_player_y
-    lda player_feet
+    sta ap_move_dir
+    jmp ap_reset_velocity
+@air_fall_accel:
+    ; $950C keeps vx when its 16-bit fraction would turn negative.
+    lda ap_vx+2
     sec
-    sbc #player_height
-    sta ap_probe_y
-    lda ap_player_y_hi
-    sbc #0
-    sta ap_probe_y_hi
-    bmi @air_advance_rise
-    lda player_x
-    sta ap_probe_x
-    lda player_x+1
-    sta ap_probe_x+1
-    jsr ap_tile_type_at
-    cmp #tile_type_solid
-    bne @air_advance_rise
-    lda ap_probe_y
-    and #$f0
-    clc
-    adc #16 + player_height
-    sta player_feet
-    lda ap_probe_y_hi
-    adc #0
-    sta ap_player_y_hi
-    lda #jump_fall
-    sta jump_step
-    rts
-@air_advance_rise:
-    jmp ap_advance_jump_step
-
-ap_advance_jump_step:
-    ldx jump_step
-    inx
-    cpx #jump_length
-    bcc :+
-    dex
+    sbc #<ap_jump_vx_accel
+    tax
+    lda ap_vx+1
+    sbc #>ap_jump_vx_accel
+    bmi :+
+    sta ap_vx+1
+    stx ap_vx+2
 :
-    stx jump_step
+    lda ap_vy
+    cmp #ap_jump_vy_max
+    bcs @air_fall_done
+    lda ap_vy+2
+    clc
+    adc #<ap_jump_gravity
+    sta ap_vy+2
+    lda ap_vy+1
+    adc #>ap_jump_gravity
+    sta ap_vy+1
+    bcc @air_fall_done
+    inc ap_vy
+@air_fall_done:
+    rts
+
+; X += vx toward ap_air_dir ($94CA right, $94A3 left), one pixel at a time for the walls.
+ap_air_move_x:
+    lda ap_air_dir
+    beq @air_x_done
+    cmp #1
+    bne @air_x_left
+    lda ap_x_frac
+    clc
+    adc ap_vx+1
+    sta ap_x_frac
+    lda ap_vx
+    adc #0
+    sta ap_steps
+    beq @air_x_done
+:
+    jsr ap_move_right_1px
+    dec ap_steps
+    bne :-
+@air_x_done:
+    rts
+@air_x_left:
+    lda ap_x_frac
+    sec
+    sbc ap_vx+1
+    sta ap_x_frac
+    lda ap_vx
+    bcs :+
+    adc #1                      ; borrow from the fraction (C is clear here)
+:
+    sta ap_steps
+    beq @air_x_done
+:
+    jsr ap_move_left_1px
+    dec ap_steps
+    bne :-
     rts
 
 ; --- Ladder state: vertical climbing only (16-bit Y safe) ---
@@ -1125,10 +1322,10 @@ ap_step_ladder:
     sta ap_crouch
     lda #$ff
     sta ap_riding_plat
-    lda pad
+    lda ap_pad
     and #$08
     bne @climb_up
-    lda pad
+    lda ap_pad
     and #$04
     bne @climb_down
     rts
@@ -1183,13 +1380,7 @@ ap_step_ladder:
 @check_still_ladder:
     cmp #tile_type_ladder
     beq @ladder_done
-    lda #ap_state_air
-    sta ap_state
-    lda #0
-    sta ap_air_dir
-    lda #jump_fall
-    sta jump_step
-    rts
+    jmp ap_begin_fall
 
 ap_try_enter_ladder_up:
     lda player_x
@@ -1278,13 +1469,7 @@ ap_step_knockback:
 @kb_finish:
     jsr ap_check_support
     bcs @kb_land
-    lda #ap_state_air
-    sta ap_state
-    lda #0
-    sta ap_air_dir
-    lda #jump_fall
-    sta jump_step
-    rts
+    jmp ap_begin_fall
 @kb_land:
     lda ap_tile_row_top
     sta player_feet
@@ -1782,7 +1967,7 @@ ap_try_spawn_shot:
     bne :+
     rts
 :
-    lda pressed
+    lda ap_pressed
     and #$40
     bne :+
     rts

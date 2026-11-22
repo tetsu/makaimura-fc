@@ -61,6 +61,10 @@ local function playerScreenX()
     return read(0x203)
 end
 
+local function playerX()
+    return read(0x4d) * 256 + read(0x4c)
+end
+
 -- Monitor VRC7 $9010 / $9030 writes for strict hardware wait-cycle compliance.
 local lastRegSelectCycle = -1000
 local lastDataWriteCycle = -1000
@@ -100,6 +104,9 @@ local startTicks = 0
 local sawShotSe = false
 local sawDamagePreempt = false
 local sawDamageRestore = false
+local hplatArmed = nil
+local hplatPrevX = nil
+local jumpOffArmed = false
 
 emu.addEventCallback(function()
     emu.setInput(input, 0)
@@ -199,29 +206,47 @@ emu.addEventCallback(function()
         if read(0x6018) ~= 0 and phaseFrame >= 275 and phaseFrame <= 310 and phaseFrame % 8 == 0 then
             input.b = true
         end
-        if phaseFrame == 412 then
-            input.a = true
+        -- Stop in front of the pot enemy (X=448) and shoot it, then walk over its drop.
+        if read(0x601C) ~= 0 and playerX() >= 428 then
+            input.right = nil
+            if phaseFrame % 8 == 0 then input.b = true end
         end
-        if phaseFrame == 460 or phaseFrame == 476 then
-            input.b = true
-        end
+        -- Wait at the edge of the pit (it starts at X=500).
+        if playerX() >= 488 then input.right = nil end
         if phaseFrame == 530 then
+            hplatArmed = nil
+            hplatPrevX = nil
             nextPhase("board_hplat")
         end
     elseif phase == "board_hplat" then
+        -- The jump is ~36 frames long and ~39 px forward, so it leaves while the
+        -- platform (X 500..544, 1 px/frame) is around X=508 moving left; it then
+        -- bounces and is back under the landing point (X~528).
         local px = platX(1)
-        if phaseFrame < 10 then
+        local movingLeft = hplatPrevX ~= nil and px < hplatPrevX
+        hplatPrevX = px
+        if hplatArmed == nil and px >= 506 and px <= 510 and movingLeft and read(AP_STATE) == 0 then
+            hplatArmed = 0
+        end
+        if hplatArmed ~= nil then
+            -- Right must already be held before A, or the jump goes straight up.
+            hplatArmed = hplatArmed + 1
             input = { right = true }
-        elseif px >= 502 and px <= 514 and read(AP_STATE) == 0 then
-            input = { right = true, a = true }
-            nextPhase("cross_pit")
+            if hplatArmed == 2 then
+                input.a = true
+                jumpOffArmed = false
+                nextPhase("cross_pit")
+            end
         elseif phaseFrame > 140 then
             check(false, 20, "timed out waiting for hplat")
         end
     elseif phase == "cross_pit" then
-        if read(AP_RIDING) == 1 and platX(1) >= 530 then
+        if jumpOffArmed then
             input = { right = true, a = true }
             nextPhase("trigger_boss")
+        elseif read(AP_RIDING) == 1 and platX(1) >= 530 then
+            input = { right = true }
+            jumpOffArmed = true
         elseif phaseFrame > 140 then
             check(false, 21, "did not cross pit")
         end
@@ -256,6 +281,8 @@ emu.addEventCallback(function()
     elseif phase == "fight_boss" then
         -- Dodge bolts and defeat boss.
         local pWorldX = 512 + playerScreenX() + 8
+        -- Hold right for two (delayed) frames so the player turns to face the boss.
+        if phaseFrame <= 2 then input.right = true end
         for i = 0, 1 do
             if read(0x6095 + i) ~= 0 then
                 local bx = read(0x6099 + i) * 256 + read(0x6097 + i)

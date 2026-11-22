@@ -57,6 +57,10 @@ local function playerScreenX()
     return read(0x203)
 end
 
+local function playerWorldX()
+    return read(0x4d) * 256 + read(0x4c)
+end
+
 local function playerScreenY()
     return read(0x200)
 end
@@ -69,6 +73,10 @@ local vCarryStartY = 0
 local sawVCarryMove = false
 local sawThreeDaggers = false
 local killedEnemy1 = false
+local jumpPrimed = false
+local prevPlatX = 0
+-- Platform X (heading left) at which the player primes the jump onto it.
+local HPLAT_BOARD_X = 520
 
 emu.addEventCallback(function()
     emu.setInput(input, 0)
@@ -126,7 +134,12 @@ emu.addEventCallback(function()
             killedEnemy1 = true
         end
         -- Wait until camera+player reaches right before tombstone (X=416).
-        -- When camera X ~ 220, screen X ~ 180 -> player world X ~ 400.
+        -- The tombstone only blocks from above, so stop at world X ~385 instead of
+        -- walking past it (walking is 288/256 px/frame; input is read one frame late).
+        -- ~385 is also the take-off point whose forward jump lands on the tombstone.
+        if playerWorldX() >= 384 then
+            input.right = nil
+        end
         if phaseFrame == 410 then
             check(killedEnemy1, 14, "did not clear enemy 1")
             check(read(AP_ARMOR) >= 1 and read(AP_STATE) == 0, 15, "player died before tombstone")
@@ -143,9 +156,13 @@ emu.addEventCallback(function()
         end
     elseif phase == "ride_tombstone" then
         -- Jump right onto tombstone (X=416, Y=160) -> ap_riding_plat == 0.
+        -- A jump only goes forward if right was already held before A, so hold
+        -- right first; the 40 px / ~35 frame jump lands about 33 px further on.
         if phaseFrame == 1 then
+            input = { right = true }
+        elseif phaseFrame == 2 then
             input = { right = true, a = true }
-        elseif phaseFrame <= 35 then
+        elseif phaseFrame <= 45 then
             if read(AP_RIDING) == 0 then
                 nextPhase("kill_pot_and_get_torch")
             end
@@ -183,25 +200,38 @@ emu.addEventCallback(function()
         end
     elseif phase == "approach_hplat" then
         -- Walk right to edge of pit (col 30, X~490) and jump onto horizontal platform (slot 1, X=500..544).
+        -- A forward jump needs right held before A, so press right one frame, then right+A.
+        -- The jump flies ~33 px in ~37 frames, so leave while the platform heads left
+        -- and it is back under the player (+/-12 px) when the jump comes down.
         local px = platX(1)
+        local movingLeft = px < prevPlatX
+        prevPlatX = px
         if phaseFrame < 40 then
             input = { right = true }
-        elseif px >= 502 and px <= 514 and read(AP_STATE) == 0 then
+        elseif jumpPrimed then
+            jumpPrimed = false
             input = { right = true, a = true }
             nextPhase("ride_hplat_across_512")
+        elseif movingLeft and px == HPLAT_BOARD_X and read(AP_STATE) == 0 then
+            input = { right = true }
+            jumpPrimed = true
         elseif phaseFrame > 160 then
             check(false, 23, "timed out waiting for horizontal platform")
         end
     elseif phase == "ride_hplat_across_512" then
         -- Stand still while carried across X=512 page boundary (page 1 -> page 2).
-        if read(AP_RIDING) == 1 then
+        if jumpPrimed then
+            jumpPrimed = false
+            input = { right = true, a = true }
+            nextPhase("reach_vplat")
+        elseif read(AP_RIDING) == 1 then
             local px = platX(1)
             if px < 512 then sawPage1Carry = true end
             if px >= 512 then sawPage2Carry = true end
             if sawPage1Carry and sawPage2Carry and px >= 530 then
-                -- Jump right onto landing bank (col 34, X>=544).
-                input = { right = true, a = true }
-                nextPhase("reach_vplat")
+                -- Jump right onto landing bank (col 34, X>=544): right first, then right+A.
+                input = { right = true }
+                jumpPrimed = true
             end
         end
         check(read(AP_ARMOR) >= 1, 24, "fell into pit while riding horizontal platform")
