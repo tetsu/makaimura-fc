@@ -59,14 +59,16 @@ def make_trial(path, areas, bank):
     if (width, height) != (48, 15):
         raise ValueError("trial must have 48 columns and 15 rows")
     solid = {stage_map.TILES["ledge"], stage_map.TILES["rock"]}
-    floors = [next((row * 16 for row, tile in enumerate(column) if tile in solid), 240)
+    floors = [next((row * 16 for row, tile in enumerate(column[:height]) if tile in solid), None)
               for column in columns]
-    if any(not 48 <= floor <= 224 for floor in floors):
-        raise ValueError("each trial column must have a solid floor at Y=48..224")
+    if any(floor is not None and not 48 <= floor <= 224 for floor in floors):
+        raise ValueError("solid trial floors must be at Y=48..224")
     bounded = stage_map.int_in_range
     start = bounded(trial["start_x"], 16, 239, "trial.start_x")
     checkpoint = bounded(trial["checkpoint_x"], start + 16, width * 16 - 32, "trial.checkpoint_x")
     goal = bounded(trial["goal_x"], checkpoint + 16, width * 16 - 8, "trial.goal_x")
+    if floors[start // 16] is None:
+        raise ValueError("trial.start_x must be on a solid floor")
     camera_max = width // 16 - 1
     camera_x = checkpoint // 256
 
@@ -74,8 +76,10 @@ def make_trial(path, areas, bank):
         column = x // 16
         floor = floors[column]
         if field not in trial:
+            if floor is None:
+                raise ValueError(f"trial.{field} is required at X={x} without a solid floor")
             return floor
-        feet = bounded(trial[field], 16, floor, f"trial.{field}")
+        feet = bounded(trial[field], 16, floor if floor is not None else 224, f"trial.{field}")
         if feet != floor and (feet % 16 or columns[column][feet // 16] != stage_map.TILES["oneway"]):
             raise ValueError(f"trial.{field} must be the top of a one-way platform or the solid floor at X={x}")
         return feet
@@ -143,8 +147,11 @@ def make_trial(path, areas, bank):
                 field = f"trial.enemies.{kind}"
                 x, y = stage_map.enemy_position(enemies[kind], field, width, height)
                 bounded(x, min_x, width * 16 - 8, f"{field}.x")
-                if y != floors[x // 16]:
-                    raise ValueError(f"{field}.y must equal the floor at x={x} (Y={floors[x // 16]})")
+                floor = floors[x // 16]
+                if floor is None:
+                    raise ValueError(f"{field}.x must be on a solid floor")
+                if y != floor:
+                    raise ValueError(f"{field}.y must equal the floor at x={x} (Y={floor})")
             lines.append(f"    .word {x}")
             lines.append(f"    .byte {y}")
     else:

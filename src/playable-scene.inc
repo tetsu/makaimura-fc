@@ -684,7 +684,7 @@ show_course_clear:
 
 follow_both_axes:
     ; Follow the player's feet toward scanline 160 by at most one pixel.
-    ; Floors in this scene end at Y=208, so the camera stays on page zero.
+    ; Trial pits end at Y=240, so the camera still stays on page zero.
     sta pan_directions
     sec
     lda player_feet
@@ -855,8 +855,13 @@ trial_cell_at_y:
     lsr a
     lsr a
     lsr a
+    cmp stage_height_rows
+    bcs @outside
     tay
     lda (map_ptr),y
+    rts
+@outside:
+    lda #mt_sky
     rts
 .endif
 move_vertically:
@@ -1069,6 +1074,14 @@ check_trial_hazard:
     bcs @done
     ldy player_feet
     beq @done
+    ; A column with no floor stops vertical movement at the map bottom.
+    tya
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    cmp stage_height_rows
+    bcs @hit
     ; Sample the last pixel above the feet at the player's center X.
     dey
     tya
@@ -1087,6 +1100,7 @@ check_trial_hazard:
     jsr read_map_cell
     cmp #mt_hazard
     bne @done
+@hit:
     lda #1
     sta player_hit
 @done:

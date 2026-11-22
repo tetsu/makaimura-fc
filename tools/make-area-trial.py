@@ -142,6 +142,14 @@ def main():
         "goal_x": 176, "goal_y": 112, "enemies": {},
     })
 
+    pit_tiles = [row.copy() for row in tiles]
+    for row in range(11, 15):
+        pit_tiles[row][8] = "sky"  # X=128..143, open to the bottom.
+    write_json(output / "pit.json", {
+        **stage, "tiles": pit_tiles, "start_x": 32, "checkpoint_x": 96, "goal_x": 176,
+        "enemies": {},
+    })
+
     # The raised floor spans X=96..319 at Y=144. The enemy on the
     # lower floor forces a retry after crossing the elevated checkpoint.
     for column in range(6, 20):
