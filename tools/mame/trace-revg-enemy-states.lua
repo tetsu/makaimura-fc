@@ -7,12 +7,19 @@
 -- The player holds right and jumps every 64 frames (REVG_STATES_STILL=1 stands still instead,
 -- REVG_STATES_SEED=<n> moves at random as in log-revg-sound-sources.lua) and is kept
 -- invulnerable with the hit timer $AD. REVG_STATES_FIRE=1 fires every 8 frames (default no fire,
--- so enemies live through their whole cycle).
+-- so enemies live through their whole cycle). REVG_STATES_RANK=<n> sets the difficulty counter $61
+-- when the section is chosen, so $9A starts at n when the section loads (rows: 0-15, 16-31, 32-47,
+-- 48-63).
 -- Output lines (t counts frames of play; positions are the slot's X -$0A and Y -$07 words, Y up):
 --   spawn,<t>,slot=,type=,variant=,state=,x=,y=,px=,py=
 --   state,<t>,slot=,type=,variant=,from=<ssss.bb>,to=<ssss.bb>,frames=,dx=,dy=,x=,y=,px=,py=[,hp=]
 --   free,<t>,slot=,type=,variant=,state=,frames=,dx=,dy=,x=,y=
 --   shot,<t>,slot=,type=,x=,y=,dx16=,dy16=  (enemy projectile, its type, and how far it went in 16 frames)
+--   hp,<t>,slot=,type=,hp=,state=  (hit points changed)
+--   weapon,<t>,slot=,state=<ssss.bb>,x=,y=  (player weapon slot $0540 + n * $40 changed to a $02xx state)
+--   weapon-free,<t>,slot=,state=,frames=,dx=,dy=  (that weapon slot freed: time and movement since its last $02xx state)
+--   sound,<t>,<request>  (sound requests)
+--   rank,<t>,<$9A word>  (at the start of play)
 -- "ssss.bb" is the state word -$0D/-$0C and the step -$0B.
 local machine = manager.machine
 local cpu = machine.devices[":maincpu"]
@@ -23,6 +30,7 @@ local frames = tonumber(os.getenv("REVG_STATES_FRAMES") or "3600")
 local still = os.getenv("REVG_STATES_STILL") == "1"
 local seed = tonumber(os.getenv("REVG_STATES_SEED") or "")
 local firing = os.getenv("REVG_STATES_FIRE") == "1"
+local rank = tonumber(os.getenv("REVG_STATES_RANK") or "")
 local types
 for value in (os.getenv("REVG_STATES_TYPES") or ""):gmatch("%x+") do
     types = types or {}
@@ -69,7 +77,13 @@ if page then
     end)
 end
 
-local enemies, shots = {}, {}
+local enemies, shots, weapons = {}, {}, {}
+
+revg_states_sound = mem:install_write_tap(0x0140, 0x017f, "sound queue", function(_, value)
+    local pc = cpu.state.PC.value
+    if pc < 0x7778 or pc > 0x777a or not playing_at or value == 0xff then return end
+    print(string.format("sound,%d,%02x", frame - playing_at, value))
+end)
 
 local function state_of(x)
     return string.format("%04x.%02x", word(x - 0x0d), mem:read_u8(x - 0x0b))
@@ -103,7 +117,11 @@ local function track_enemies(t)
                     t, x, kind, e.variant, e.state, state, t - e.since, px - e.sx, py - e.sy, px, py, player(), hp))
                 e.state, e.since, e.sx, e.sy = state, t, px, py
             end
-            e.x, e.y = px, py
+            local hp = hp_offset[kind] and mem:read_u8(x + hp_offset[kind])
+            if hp and e.hp and hp ~= e.hp then
+                print(string.format("hp,%d,slot=%04x,type=%02x,hp=%d,state=%s", t, x, kind, hp, state))
+            end
+            e.x, e.y, e.hp = px, py, hp
         end
     end
 end
@@ -125,6 +143,30 @@ local function track_shots(t)
     end
 end
 
+local function track_weapons(t)
+    for i = 0, 3 do
+        local x = 0x0540 + i * 0x40
+        local w = weapons[i]
+        local state = mem:read_u8(x - 0x10) ~= 0 and state_of(x) or nil
+        if w and state ~= w.state then
+            if not state then
+                print(string.format("weapon-free,%d,slot=%04x,state=%s,frames=%d,dx=%d,dy=%d", t, x, w.state,
+                    t - w.since, w.x - w.sx, w.y - w.sy))
+                weapons[i], w = nil, nil
+            elseif state:sub(1, 2) ~= "02" and state:sub(1, 2) ~= "03" then
+                weapons[i], w = nil, nil
+            end
+        end
+        if state and state:sub(1, 2) == "02" and (not w or state ~= w.state) then
+            local px, py = signed(word(x - 0x0a)), signed(word(x - 0x07))
+            print(string.format("weapon,%d,slot=%04x,state=%s,x=%d,y=%d", t, x, state, px, py))
+            w = { state = state, since = t, sx = px, sy = py }
+            weapons[i] = w
+        end
+        if w then w.x, w.y = signed(word(x - 0x0a)), signed(word(x - 0x07)) end
+    end
+end
+
 revg_states_frame = emu.add_machine_frame_notifier(function()
     frame = frame + 1
     coin:set_value(frame >= 400 and frame < 404 and 1 or 0)
@@ -133,12 +175,14 @@ revg_states_frame = emu.add_machine_frame_notifier(function()
         and mem:read_u8(0x0b) == 0 and mem:read_u8(0x0e) == 0 then
         selected = true
         mem:write_u8(0x72, section)
+        if rank then mem:write_u8(0x61, rank) end
     end
     if selected and not playing_at and mem:read_u8(0x05) == 1 and mem:read_u8(0x08) == 1
         and mem:read_u8(0x0b) == 1 and mem:read_u8(0x0e) == 0 then playing_at = frame end
     assert(frame < 3000 + frames, "Play did not start")
     if not playing_at then return end
     local t = frame - playing_at
+    if t == 0 then print(string.format("rank,0,%04x", word(0x9a))) end
     mem:write_u8(0xad, 0x20)
     if seed then
         if t % 16 == 0 then
@@ -154,6 +198,7 @@ revg_states_frame = emu.add_machine_frame_notifier(function()
     fire:set_value(firing and t % 8 < 2 and 1 or 0)
     track_enemies(t)
     track_shots(t)
+    track_weapons(t)
     if t >= frames then
         print(string.format("end,%d,%s", t, player()))
         machine:exit()
