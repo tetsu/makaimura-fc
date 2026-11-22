@@ -522,6 +522,25 @@ check_course_progress:
     cmp stage_cp_x_lo
     bcc :+
 checkpoint_passed:
+.ifdef NES_AREA_TRIAL
+    cmp_trial_bank
+    bcs mark_checkpoint
+    lda trial_exact_checkpoint
+    beq mark_checkpoint
+    lda player_x+1
+    cmp stage_cp_x_hi
+    bne check_goal
+    lda player_x
+    cmp stage_cp_x_lo
+    bne check_goal
+    lda player_feet
+    cmp stage_cp_feet
+    bne check_goal
+    lda jump_step
+    cmp #$ff
+    bne check_goal
+mark_checkpoint:
+.endif
 .if PRG_ROM_UNITS = 32
     ldx campaign_stage
     beq checkpoint_marked
@@ -532,6 +551,7 @@ checkpoint_marked:
 .endif
     lda #1
     sta checkpoint_reached
+check_goal:
     lda player_x+1
     cmp stage_goal_x_hi
     bne :+

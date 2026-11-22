@@ -48,8 +48,9 @@ def make_trial(path, areas, bank):
     stage_map = import_module("convert-stage-map")
     trial = json.loads(path.read_text(encoding="utf-8-sig"))
     fields = {"area", "tiles", "regions", "start_x", "checkpoint_x", "goal_x"}
-    if not isinstance(trial, dict) or not fields <= trial.keys() <= fields | {"player_poses", "enemies"}:
-        raise ValueError(f"trial must define {', '.join(sorted(fields))} and may define player_poses or enemies")
+    optional = {"player_poses", "enemies", "checkpoint_y", "goal_y"}
+    if not isinstance(trial, dict) or not fields <= trial.keys() <= fields | optional:
+        raise ValueError(f"trial must define {', '.join(sorted(fields))} and may define {', '.join(sorted(optional))}")
     name = trial["area"]
     if not isinstance(name, str) or name not in areas:
         raise ValueError("trial.area must name an area from the manifest")
@@ -68,7 +69,19 @@ def make_trial(path, areas, bank):
     goal = bounded(trial["goal_x"], checkpoint + 16, width * 16 - 8, "trial.goal_x")
     camera_max = width // 16 - 1
     camera_x = checkpoint // 256
-    checkpoint_feet = floors[checkpoint // 16]
+
+    def marker_feet(field, x):
+        column = x // 16
+        floor = floors[column]
+        if field not in trial:
+            return floor
+        feet = bounded(trial[field], 16, floor, f"trial.{field}")
+        if feet != floor and (feet % 16 or columns[column][feet // 16] != stage_map.TILES["oneway"]):
+            raise ValueError(f"trial.{field} must be the top of a one-way platform or the solid floor at X={x}")
+        return feet
+
+    checkpoint_feet = marker_feet("checkpoint_y", checkpoint)
+    goal_feet = marker_feet("goal_y", goal)
     camera_y = max(0, checkpoint_feet - 160)
     regions = trial["regions"]
     if not isinstance(regions, dict) or regions.keys() != stage_map.TILES.keys():
@@ -80,7 +93,7 @@ def make_trial(path, areas, bank):
         "trial_bank_start:",
         f"    .byte bank_tag_base + {bank}",
         f"    stage_header {width}, {height}, {camera_max}, 1, {start}, {checkpoint}, "
-        f"{checkpoint_feet}, {camera_x}, {camera_y}, {goal}, {floors[goal // 16]}, trial_map, trial_palettes",
+        f"{checkpoint_feet}, {camera_x}, {camera_y}, {goal}, {goal_feet}, trial_map, trial_palettes",
         "trial_area_index:",
         f"    .byte {list(areas).index(name)}",
         "trial_region_offsets:",
@@ -137,6 +150,8 @@ def make_trial(path, areas, bank):
     else:
         lines.append("    .res 6, 0")
     lines.extend([
+        "trial_exact_checkpoint:",
+        f"    .byte {int('checkpoint_y' in trial)}",
         '    .res $100 - (* - trial_bank_start), $ff',
         stage_map.convert(stage, "trial").rstrip(),
         ".endscope",
@@ -263,7 +278,7 @@ def make_include(areas, trials):
             lines.extend(course)
         # The runtime addresses must match in every switchable course bank.
         for label in ("trial_area_index", "trial_region_offsets", "trial_player_pose_addresses",
-                      "trial_has_enemies", "trial_enemy_positions"):
+                      "trial_has_enemies", "trial_enemy_positions", "trial_exact_checkpoint"):
             lines.append(f"{label} = trial_bank_{TRIAL_BANK}::{label}")
             for bank in range(TRIAL_BANK + 1, TRIAL_BANK + len(trials)):
                 lines.append(f'    .assert {label} = trial_bank_{bank}::{label}, lderror, "Trial layout mismatch"')
