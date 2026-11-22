@@ -107,7 +107,10 @@ emu.addEventCallback(function()
             input = { down = true, b = true }
         elseif phaseFrame == 10 then
             check(playerScreenX() == savedX, 15, "moved while crouching")
-            check(read(0x210) ~= 0xf8, 16, "crouch shot did not spawn")
+            -- The shot is in the priority block (slots 4-12), whose start moves each frame.
+            local shot = false
+            for slot = 4, 12 do shot = shot or read(0x200 + slot * 4) ~= 0xf8 end
+            check(shot, 16, "crouch shot did not spawn")
             nextPhase("shoot_lock")
         end
     elseif phase == "shoot_lock" then

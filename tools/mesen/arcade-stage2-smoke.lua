@@ -358,8 +358,12 @@ emu.addEventCallback(function()
     -- Stage 2 Boss Fight: verify <= 8 sprites/scanline, dodge bolts, defeat boss, collect key
     elseif phase == "s2_fight_boss" then
         if phaseFrame == 1 then
-            local headLeft = read(0x201 + 11 * 4)
-            local headRight = read(0x201 + 12 * 4)
+            -- The head pair (tiles $77 and $79) is in the priority block, slots 4-12.
+            local headLeft, headRight = 0, 0
+            for s = 4, 12 do
+                local tile = read(0x201 + s * 4)
+                if tile == 0x77 then headLeft = tile elseif tile == 0x79 then headRight = tile end
+            end
             check(headLeft % 2 == 1 and headRight % 2 == 1
                 and readPpu(0x1000 + (headLeft & 0xfe) * 16) == 0x20
                 and readPpu(0x1000 + (headRight & 0xfe) * 16) == 0x04,

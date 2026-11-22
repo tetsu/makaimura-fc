@@ -25,9 +25,19 @@ ap_max_items = 4
 ap_max_enemies = 4
 ap_max_ebolts = 2
 
-; OAM slots 0..8 are reserved for the player and projectiles, 11..14 for
-; the boss. Each rotating group reserves two adjacent slots for a sprite pair.
-ap_oam_first = 15
+; OAM slots 0..3 hold the player. Slots 4..12 are the priority block: three
+; player shots, two enemy bolts and the boss's two pairs, drawn in that order
+; from a start slot that moves by one each frame and wraps inside the block, so
+; each of them is the last one in turn when a line holds more than eight.
+; Each rotating group after the block reserves two adjacent slots for a pair.
+; docs/revision-g-sprites.md (the FC thinning rule) explains the order.
+ap_prio_first = 4
+ap_prio_shots = 0
+ap_prio_ebolts = ap_prio_shots + ap_max_shots
+ap_prio_boss = ap_prio_ebolts + ap_max_ebolts
+ap_prio_count = ap_prio_boss + 4
+ap_prio_end = ap_prio_first + ap_prio_count
+ap_oam_first = ap_prio_end
 ap_oam_fixed_enemy = 0
 ap_oam_pot_enemy = ap_oam_fixed_enemy + 2
 ap_oam_enemies = ap_oam_pot_enemy + 2
@@ -36,6 +46,7 @@ ap_oam_items = ap_oam_platforms + ap_max_plats
 ap_oam_groups = ap_oam_items + ap_max_items
 ap_oam_end = ap_oam_first + ap_oam_groups * 2
 .assert ap_oam_end < 64, error, "Arcade OAM clear loop requires fewer than 64 slots"
+.assert ap_oam_groups .mod 7 <> 0, error, "The rotation step 7 must be coprime with the group count"
 
 en_none = 0
 en_zombie = 1
@@ -188,6 +199,7 @@ ap_loop: .res 1                 ; $60CE: 0 = Loop 1, 1 = Loop 2
 ap_bounce_back: .res 1          ; $60CF: 1 when Stage 6 bounced back to Stage 5
 ap_oam_phase: .res 1
 sched_turrets: .res sd_sched_pages
+ap_prio_phase: .res 1           ; start of the priority block, 0..ap_prio_count-1
 
 .segment "BANK3"
     .byte bank_tag_base + 3
@@ -226,6 +238,7 @@ ap_init_stage:
     sta ap_riding_plat
     lda #0
     sta ap_oam_phase
+    sta ap_prio_phase
     sta ap_invuln
     sta ap_crouch
     sta ap_shoot_lock
@@ -2396,6 +2409,55 @@ ap_set_oam_group:
     sta draw_slot
     rts
 
+; A = logical slot in the priority block. Set draw_slot to the slot it takes
+; this frame, preserving X and Y.
+ap_set_prio_slot:
+    clc
+    adc ap_prio_phase
+    cmp #ap_prio_count
+    bcc :+
+    sbc #ap_prio_count
+:
+    clc
+    adc #ap_prio_first
+    asl a
+    asl a
+    sta draw_slot
+    rts
+
+; emit_sprite for the priority block: a pair that starts in its last slot
+; continues at its first.
+ap_prio_emit:
+    lda draw_slot
+    cmp #ap_prio_end * 4
+    bcc :+
+    sbc #ap_prio_count * 4
+    sta draw_slot
+:
+    jmp emit_sprite
+
+; draw_pair for the priority block (A/X = world X).
+ap_prio_pair:
+    jsr set_sprite_x
+    sec
+    lda draw_x
+    sbc #8
+    sta draw_x
+    bcs :+
+    dec draw_x+1
+:
+    jsr ap_prio_emit
+    clc
+    lda draw_x
+    adc #8
+    sta draw_x
+    bcc :+
+    inc draw_x+1
+:
+    inc draw_tile
+    inc draw_tile
+    jmp ap_prio_emit
+
 ; A is zero for idle, or 1/9 for the first/second walking pose.
 ap_draw_player:
     sta ap_tmp1
@@ -2561,6 +2623,15 @@ ap_draw_sprites:
 :
     sta ap_oam_phase
 
+    ; The priority block starts one slot later each frame.
+    ldx ap_prio_phase
+    inx
+    cpx #ap_prio_count
+    bcc :+
+    ldx #0
+:
+    stx ap_prio_phase
+
     ; Slots 0-1 (bottom) and 2-3 (top): keep both halves ahead of other actors.
     lda #0
     sta draw_slot
@@ -2640,13 +2711,15 @@ ap_draw_sprites:
     jsr draw_pair
 
 @draw_shots:
-    ; Slots 4-6: Player shot pool (slot 4 = $210 preserved for compatibility)
-    lda #4 * 4
-    sta draw_slot
+    ; Player shots: logical slots 0-2 of the priority block.
     ldy #0
 @draw_shot_loop:
     lda ps_active,y
-    beq @skip_shot_draw
+    beq @next_shot_draw
+    tya
+    clc
+    adc #ap_prio_shots
+    jsr ap_set_prio_slot
     sty ap_loop_idx
     ldx ps_active,y
     cpx #2
@@ -2677,24 +2750,20 @@ ap_draw_sprites:
     jsr set_sprite_x
     jsr emit_sprite
     ldy ap_loop_idx
-    jmp @next_shot_draw
-@skip_shot_draw:
-    lda draw_slot
-    clc
-    adc #4
-    sta draw_slot
 @next_shot_draw:
     iny
     cpy #ap_max_shots
     bne @draw_shot_loop
 
-    ; Slots 7-8: High-priority enemy bolts (arcade glowing fireball)
-    lda #7 * 4
-    sta draw_slot
+    ; Enemy bolts (arcade glowing fireball): logical slots 3-4.
     ldy #0
 @draw_ebolt_loop:
     lda eb_active,y
-    beq @skip_ebolt_draw
+    beq @next_ebolt_draw
+    tya
+    clc
+    adc #ap_prio_ebolts
+    jsr ap_set_prio_slot
     sty ap_loop_idx
     lda #1
     sta draw_palette
@@ -2710,12 +2779,6 @@ ap_draw_sprites:
     jsr set_sprite_x
     jsr emit_sprite
     ldy ap_loop_idx
-    jmp @next_ebolt_draw
-@skip_ebolt_draw:
-    lda draw_slot
-    clc
-    adc #4
-    sta draw_slot
 @next_ebolt_draw:
     iny
     cpy #ap_max_ebolts
@@ -2805,7 +2868,7 @@ ap_draw_sprites:
     beq :+
     jmp @draw_pool_en_loop
 :
-    ; Slots 11-14: remain ahead of rotating groups during the boss battle.
+    ; Boss: logical slots 5-8, ahead of the rotating groups.
     lda ap_boss_state
     cmp #boss_active
     bne @draw_plats
@@ -2888,7 +2951,9 @@ ap_weapon_vx_neg:    .byte $fd, $fc, $fe, $fd
 ap_weapon_vy_init:   .byte 0, 0, $fc, 0
 ap_weapon_life:      .byte 48, 48, 56, 40
 
-ap_rank_zombie_cap:  .byte 2, 2, 3, 3
+; Two at every rank: the arcade allows three only in the first difficulty row,
+; and a third zombie on the ground line is what overflows sixteen FC sprites.
+ap_rank_zombie_cap:  .byte 2, 2, 2, 2
 ap_rank_spawn_wait:  .byte 48, 36, 28, 20
 
 ap_kb_delta:
@@ -3584,8 +3649,8 @@ ap_shot_check_boss:
 ; Draw 16x32 Unicorn Cyclops boss in OAM slots 11-14 (4 sprites):
 ; Head/torso ($77/$79) + Legs/armor ($7b/$7d); max scanline = 8 sprites.
 ap_draw_boss:
-    lda #11 * 4
-    sta draw_slot
+    lda #ap_prio_boss
+    jsr ap_set_prio_slot
     lda #3
     ldx ap_boss_flash
     beq :+
@@ -3600,8 +3665,10 @@ ap_draw_boss:
     jsr ap_set_sprite_y_off
     lda ap_boss_x_lo
     ldx ap_boss_x_hi
-    jsr draw_pair
+    jsr ap_prio_pair
 
+    lda #ap_prio_boss + 2
+    jsr ap_set_prio_slot
     lda #3
     ldx ap_boss_shield_hp
     beq :+
@@ -3620,7 +3687,7 @@ ap_draw_boss:
     jsr ap_set_sprite_y_off
     lda ap_boss_x_lo
     ldx ap_boss_x_hi
-    jmp draw_pair
+    jmp ap_prio_pair
 
 ; Weapon projectile sprite/palette lookup tables (0=Lance, 1=Dagger, 2=Torch, 3=Shield)
 ap_shot_tile_tbl:

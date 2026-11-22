@@ -238,11 +238,17 @@ emu.addEventCallback(function()
     elseif phase == "r1_verify_lock_and_die" then
         local ok, row, cnt = checkScanlineSpriteLimit()
         check(ok, 18, string.format("scanline %d exceeded 8 sprites (%d)", row, cnt))
-        -- Verify 4 boss sprites (16x32 head+body) are visible in OAM slots 11-14 ($22C..$238).
+        -- Verify 4 boss sprites (16x32 head+body, tiles $77-$7D) are visible in the
+        -- priority block, OAM slots 4-12, whose start moves by one slot each frame.
         if phaseFrame == 2 then
-            for s = 11, 14 do
-                check(read(0x200 + s * 4) < 0xef, 19, "boss OAM sprite missing")
+            local boss = 0
+            for s = 4, 12 do
+                local tile = read(0x201 + s * 4)
+                if read(0x200 + s * 4) < 0xef and tile >= 0x77 and tile <= 0x7d and tile % 2 == 1 then
+                    boss = boss + 1
+                end
             end
+            check(boss == 4, 19, "boss OAM sprite missing")
         end
         if countBolts() >= 1 then sawBossBolt = true end
         if phaseFrame <= 90 then

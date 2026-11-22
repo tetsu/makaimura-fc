@@ -66,7 +66,8 @@ local function countBolts()
     return n
 end
 
-local rankCap = { [0] = 2, [1] = 2, [2] = 3, [3] = 3 }
+-- Two zombies at every rank (docs/revision-g-sprites.md, the FC thinning rule).
+local rankCap = { [0] = 2, [1] = 2, [2] = 2, [3] = 2 }
 local killedEnemy1 = false
 local sawTurret = false
 local sawBolt = false
@@ -168,8 +169,9 @@ emu.addEventCallback(function()
         check(bolts <= 2, 14, "enemy bolt pool exceeded 2")
         if bolts >= 1 then
             sawBolt = true
-            if read(0x21c) ~= 0xf8 or read(0x220) ~= 0xf8 then
-                sawBoltOam = true
+            -- Bolts (tile $0F) are in the priority block, slots 4-12, ahead of the rotating groups.
+            for slot = 4, 12 do
+                if read(0x200 + slot * 4) ~= 0xf8 and read(0x201 + slot * 4) == 0x0f then sawBoltOam = true end
             end
         end
         local cap = rankCap[read(AP_RANK)]
