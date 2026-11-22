@@ -4,7 +4,8 @@
 -- Standing shots pass over the tombstone's hit box. The player is kept invulnerable with the hit
 -- timer $AD while shooting, and not afterwards.
 -- Logs the tombstone hit counter (+$0A), the scheduler slot $0770, the magician's enemy slot,
--- enemy projectiles, the player state, sprite and $DF, and sound requests.
+-- enemy projectiles, the active flags of the four player weapon slots, the player state, sprite
+-- and $DF, and sound requests.
 -- REVG_MAGICIAN_FRAMES sets the play length (default 1500).
 -- REVG_MAGICIAN_SHIELD=1 keeps the player invulnerable again once the spell has hit, to measure how
 -- long the transformation lasts without enemy contact.
@@ -29,6 +30,12 @@ end
 
 local coin, start = field(":SYSTEM", 0x40), field(":SYSTEM", 0x01)
 local fire, down = field(":P1", 0x10), field(":P1", 0x04)
+local right, jump = field(":P1", 0x01), field(":P1", 0x20)
+-- REVG_MAGICIAN_CONTROL=1 drives the transformed player, counted from the frame the player
+-- state becomes $0400: right is held for frames 40-135, jump is pressed at 160 and 240, fire
+-- at 200, 208 and 216.
+local control = os.getenv("REVG_MAGICIAN_CONTROL") == "1"
+local hit_at
 local frame, selected, playing_at = 0, false, nil
 local tombstone, magician, appeared
 local last = {}
@@ -74,11 +81,14 @@ local function log_changes(t)
     end
     values.magician = magician and string.format("%04x state=%04x%02x x=%d y=%d", magician, word(magician - 0x0d),
         mem:read_u8(magician - 0x0b), word(magician - 0x0a), word(magician - 0x07)) or "-"
+    local weapons = {}
+    for i = 0, 3 do weapons[#weapons + 1] = string.format("%02x", mem:read_u8(0x0530 + i * 0x40)) end
+    values.weapons = table.concat(weapons, " ")
     values.spell = spell and string.format("active=%02x type=%02x state=%04x x=%d y=%d", mem:read_u8(spell - 0x10),
         mem:read_u8(spell + 5), word(spell - 0x0d), word(spell - 0x0a), word(spell - 0x07)) or "-"
     -- Leave out the blank sprite $A4AB that blinks while the player is invulnerable.
     if word(0x0513) == 0xa4ab then values.player = last.player end
-    for _, key in ipairs({ "tomb", "sched", "limit", "magician", "spell", "player" }) do
+    for _, key in ipairs({ "tomb", "sched", "limit", "magician", "spell", "weapons", "player" }) do
         if last[key] ~= values[key] then
             print(string.format("state,%d,%s,%s", t, key, values[key]))
             last[key] = values[key]
@@ -110,9 +120,21 @@ revg_magician_frame = emu.add_machine_frame_notifier(function()
     -- Fire until the magician appears, then hold still.
     if magician then appeared = true end
     local shooting = not appeared
-    fire:set_value(shooting and t % 8 < 2 and 1 or 0)
+    if word(0x0503) == 0x0400 and not spell_hit then
+        spell_hit = true
+        hit_at = t
+        print(string.format("transformed,%d", t))
+    end
+    local c = control and hit_at and t - hit_at
+    local function pressed(...)
+        for _, at in ipairs({ ... }) do
+            if c and c >= at and c < at + 2 then return true end
+        end
+    end
+    fire:set_value((shooting and t % 8 < 2 or pressed(200, 208, 216)) and 1 or 0)
     down:set_value(shooting and 1 or 0)
-    if word(0x0503) == 0x0400 then spell_hit = true end
+    right:set_value(c and c >= 40 and c < 136 and 1 or 0)
+    jump:set_value(pressed(160, 240) and 1 or 0)
     if shooting or shield and spell_hit then mem:write_u8(0xad, 0x20) end
     if t >= 0 then log_changes(t) end
     if snaps[t] then machine.screens[":screen"]:snapshot(string.format("magician-%d.png", t)) end
