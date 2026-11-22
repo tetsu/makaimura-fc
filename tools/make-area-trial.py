@@ -150,6 +150,15 @@ def main():
         "enemies": {},
     })
 
+    platform_tiles = [row.copy() for row in tiles]
+    for row in range(11, 15):
+        platform_tiles[row][7:11] = ["sky"] * 4  # X=112..175.
+    write_json(output / "platform.json", {
+        **stage, "area": "steps", "tiles": platform_tiles, "player_poses": steps_poses,
+        "start_x": 32, "checkpoint_x": 80, "goal_x": 192, "enemies": {},
+        "moving_platform": {"left_x": 119, "right_x": 176, "y": 160},
+    })
+
     # The raised floor spans X=96..319 at Y=144. The enemy on the
     # lower floor forces a retry after crossing the elevated checkpoint.
     for column in range(6, 20):

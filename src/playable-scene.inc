@@ -54,6 +54,9 @@ checkpoint_tile_x: .res 1
 .ifdef NES_AREA_TRIAL
 .segment "BSS"
 trial_climbing: .res 1
+trial_platform_x: .res 2
+trial_platform_leftward: .res 1
+trial_platform_tick: .res 1
 .endif
 
 .segment "OAM"
@@ -374,6 +377,7 @@ setup_game_sprites:
 .ifdef NES_AREA_TRIAL
     jsr check_trial_bank
     bcs :+
+    jsr init_trial_platform
     lda trial_player_pose_addresses+1
     beq :+
     jsr load_trial_player_banked
@@ -796,6 +800,7 @@ floor_height:
 move_trial_player:
     jsr check_trial_bank
     bcs @walk
+    jsr move_trial_platform
     lda pad
     and #$0c
     cmp #$08
@@ -863,6 +868,132 @@ trial_cell_at_y:
 @outside:
     lda #mt_sky
     rts
+
+init_trial_platform:
+    lda trial_platform_y
+    beq @done
+    lda trial_platform_left
+    sta trial_platform_x
+    lda trial_platform_left+1
+    sta trial_platform_x+1
+    lda #0
+    sta trial_platform_leftward
+    sta trial_platform_tick
+    lda #>(chr_sprite_address + CHR_SPRITE_BYTES)
+    sta $2006
+    lda #<(chr_sprite_address + CHR_SPRITE_BYTES)
+    sta $2006
+    lda #<trial_platform_patterns
+    sta chr_source
+    lda #>trial_platform_patterns
+    sta chr_source+1
+    ldx #0
+    lda #TRIAL_PLATFORM_PATTERN_BYTES
+    jmp upload_chr_patterns
+@done:
+    rts
+
+move_trial_platform:
+    lda trial_platform_y
+    beq @done
+    lda trial_platform_tick
+    eor #1
+    sta trial_platform_tick
+    bne @done
+    lda trial_platform_x
+    ldx trial_platform_x+1
+    cmp trial_platform_left
+    bne @check_right
+    cpx trial_platform_left+1
+    bne @check_right
+    lda #0
+    sta trial_platform_leftward
+    beq @right
+@check_right:
+    cmp trial_platform_right
+    bne @move
+    cpx trial_platform_right+1
+    bne @move
+    lda #1
+    sta trial_platform_leftward
+@move:
+    lda trial_platform_leftward
+    beq @right
+    jsr trial_platform_has_rider
+    lda trial_platform_x
+    bne :+
+    dec trial_platform_x+1
+:
+    dec trial_platform_x
+    bcc @done
+    lda player_x
+    bne :+
+    dec player_x+1
+:
+    dec player_x
+    rts
+@right:
+    jsr trial_platform_has_rider
+    inc trial_platform_x
+    bne :+
+    inc trial_platform_x+1
+:
+    bcc @done
+    inc player_x
+    bne @done
+    inc player_x+1
+@done:
+    rts
+
+trial_platform_has_rider:
+    lda trial_climbing
+    bne trial_platform_no_rider
+    lda jump_step
+    bpl trial_platform_no_rider
+    lda player_feet
+    cmp trial_platform_y
+    bne trial_platform_no_rider
+    ; Test the old footprint before moving either the platform or the rider.
+trial_platform_covers_player:
+    require_x_window player_x, trial_platform_x, 8, 16, trial_platform_no_rider
+    sec
+    rts
+trial_platform_no_rider:
+    clc
+    rts
+
+draw_trial_platform:
+    jsr check_trial_bank
+    bcs @done
+    lda #$f8
+    sta sprites+crowd_end
+    sta sprites+crowd_end+4
+    lda trial_platform_y
+    beq @done
+    sec
+    sbc #1
+    jsr set_sprite_y
+    lda #crowd_end
+    sta draw_slot
+    lda #3
+    sta draw_palette
+    lda #(CHR_SPRITE_BYTES / chr_tile_bytes) | 1
+    sta draw_tile
+    lda trial_platform_x
+    ldx trial_platform_x+1
+    jmp draw_pair
+@done:
+    rts
+
+trial_platform_patterns:
+    ; Two original 8x16 pieces. Only the top four rows are opaque.
+    .byte $7f, $ff, $80, $7f, 0, 0, 0, 0
+    .byte $7f, $80, $ff, $00, 0, 0, 0, 0
+    .res 16, 0
+    .byte $fe, $ff, $01, $fe, 0, 0, 0, 0
+    .byte $fe, $01, $ff, $00, 0, 0, 0, 0
+    .res 16, 0
+TRIAL_PLATFORM_PATTERN_BYTES = * - trial_platform_patterns
 .endif
 move_vertically:
 .ifdef NES_AREA_TRIAL
@@ -921,7 +1052,7 @@ land:
 .ifdef NES_AREA_TRIAL
 find_trial_support:
     jsr check_trial_bank
-    bcs @done
+    bcs @no_platform
     ; Horizontal movement already set map_ptr for the final player column.
     ; A step moves at most 4 px, so only the first tile top at or below
     ; the current feet can catch the player this frame.
@@ -930,7 +1061,7 @@ find_trial_support:
     adc #15
     and #$f0
     cmp ground
-    bcs @done
+    bcs @platform
     tax
     lsr a
     lsr a
@@ -941,17 +1072,28 @@ find_trial_support:
     cmp #mt_oneway
     beq @support
     cmp #mt_ladder
-    bne @done
+    bne @platform
     ; The top of a continuous ladder supports a player like a one-way tile.
     tya
     beq @support
     dey
     lda (map_ptr),y
     cmp #mt_ladder
-    beq @done
+    beq @platform
 @support:
     stx ground
-@done:
+@platform:
+    lda trial_platform_y
+    beq @no_platform
+    cmp player_feet
+    bcc @no_platform
+    cmp ground
+    bcs @no_platform
+    jsr trial_platform_covers_player
+    bcc @no_platform
+    lda trial_platform_y
+    sta ground
+@no_platform:
     rts
 .segment "CODE"
 .endif
@@ -1193,6 +1335,9 @@ draw_sprites:
     dex
     dex
     bpl :-
+.ifdef NES_AREA_TRIAL
+    jsr draw_trial_platform
+.endif
     lda #0
     sta draw_slot
 .ifdef NES_AREA_TRIAL
