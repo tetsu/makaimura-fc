@@ -444,9 +444,31 @@ PLANS = [
 BOSS_PLAN = ("unicorn fight: unicorn and player", unicorn_and_player, {})
 
 
+# Arcade lines (first, end) the FC playfield could show: 208 lines below the 32 px HUD, or the
+# 200 of them a TV shows when it hides the bottom 8 lines.
+CROPS = [(0, 208), (8, 216), (16, 224), (16, 216), (24, 224)]
+CROP_POOLS = ("player", "weapon", "enemy", "enemyshot", "support")
+
+
+def cut_pools(objects, first, end):
+    """(pools with a sprite partly outside the lines, pools with an object wholly outside)."""
+    partly, wholly = set(), set()
+    for item, sprites in objects:
+        tops = [top for top, _, n in sprites if n and -16 < top < 224]
+        if item["pool"] not in CROP_POOLS or not tops:
+            continue
+        top, bottom = max(min(tops), 0), min(max(tops) + 16, 224)
+        if top < first or bottom > end:
+            partly.add(item["pool"])
+        if bottom <= first or top >= end:
+            wholly.add(item["pool"])
+    return partly, wholly
+
+
 def load(args, rom):
     """Count objects and sprites per frame and per scanline, for the FC thinning rule (TODO C-2)."""
     frames = mismatched = special = gaps = skipped = 0
+    crops = {crop: ({}, {}) for crop in CROPS}
     max_type, max_pool, on_screen = {}, {}, {}
     used = 0
     plans = {name: {} for name, _, _ in PLANS + [BOSS_PLAN]}
@@ -479,6 +501,10 @@ def load(args, rom):
                 max_pool[key] = max(max_pool.get(key, 0), value)
             enemies = counts_pool.get("enemy", 0)
             on_screen[enemies] = on_screen.get(enemies, 0) + 1
+            for crop, (partly, wholly) in crops.items():
+                for counts, pools in zip((partly, wholly), cut_pools(objects, *crop)):
+                    for pool in pools:
+                        counts[pool] = counts.get(pool, 0) + 1
             for name, keep, options in PLANS:
                 value = busiest(objects, keep, **options)
                 plans[name][value] = plans[name].get(value, 0) + 1
@@ -512,6 +538,11 @@ def load(args, rom):
               + f"  max {max(histogram, default=0)}" + (f" ({total} lists)" if name == BOSS_PLAN[0] else ""))
     for value, log, t, objects in sorted(worst, reverse=True)[:args.top]:
         print(f"  {value:2d} with gravestones in BG and 16 px weapons: {log} t={t}: {objects}")
+    print("lists with an object cut by the FC playfield (partly / wholly outside), arcade lines shown:")
+    for (first, end), (partly, wholly) in crops.items():
+        print(f"  {first:3d}-{end - 1:3d}: " + ", ".join(
+            f"{pool} {share(partly.get(pool, 0), frames)} / {share(wholly.get(pool, 0), frames)}"
+            for pool in CROP_POOLS))
     return 0
 
 

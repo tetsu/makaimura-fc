@@ -312,7 +312,7 @@ python tools/mame/extract-revg-sprites.py check build/revg-sprites/logs/s0-walk.
 python tools/mame/extract-revg-sprites.py dump 'build/revg-sprites/logs/*.log'
 ```
 
-[区間0の描画量](#区間0の描画量と-fc-の間引き規則)は、`REVG_SPRITES_LOAD=1` を付けた試行のログを `load` で数える。撃たない試行には `REVG_SPRITES_NOFIRE=1` を付ける。
+[区間0の描画量](#区間0の描画量と-fc-の間引き規則)は、`REVG_SPRITES_LOAD=1` を付けた試行のログを `load` で数える。最後の表は [FC での表示範囲](revision-g-stage-data.md#fc-での表示範囲)で使った。撃たない試行には `REVG_SPRITES_NOFIRE=1` を付ける。
 
 ```powershell
 $env:REVG_SPRITES_SECTION = '0'
