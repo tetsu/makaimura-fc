@@ -164,7 +164,7 @@ python tools/convert-stage-map.py stage.json build/stage.inc --prefix test_stage
 
 #### 通常ゲームモードの足場コース
 
-`-Hardware -PlatformCourse` で、[自作マップの JSON](../tools/fixtures/platform-course.json) を変換し、通常のゲームモードの Stage 1（PRG Bank 12）に組み込む。開始・復帰・ゴールの座標は [ステージヘッダ](../src/platform-course.inc) で指定する。
+`-Hardware -PlatformCourse` で、[自作マップの JSON](../tools/fixtures/platform-course.json) を変換し、通常のゲームモードの Stage 1（PRG Bank 12）に組み込む。開始・復帰・ゴールの座標は [ステージヘッダ](../src/original-course.inc) で指定する。
 
 ```powershell
 ./build.ps1 -Hardware -PlatformCourse
@@ -174,6 +174,19 @@ python tools/convert-stage-map.py stage.json build/stage.inc --prefix test_stage
 1行目が出力する `build/vrc7a-test-512k-platform-course.nes` を Mesen で開き、タイトルで **START** を押す。左の床から横足場、縦足場と飛び移り、右の棚からはしごを登る。上段の右端で `COURSE CLEAR` が表示される。穴に落ちた後は **START** で再開する。
 
 自動試験はコントローラー入力で一度落下し、チェックポイント座標、残機、両足場の初期位置を確認してから、足場の乗り継ぎ、はしご昇降、クリア表示まで進む。`-UseBuiltRoms` を省略すると、試験コマンドが ROM もビルドする。
+
+#### 通常ゲームモードの横スクロールコース
+
+`-Hardware -ScrollCourse` では、[横48列の自作マップ](../tools/fixtures/scroll-course.json) を同じステージバンクに組み込む。カメラのページ番号0〜2に別々の出現グループを割り当て、ページ1と2に砲台を置く。
+
+```powershell
+./build.ps1 -Hardware -ScrollCourse
+./tools/test-mesen.ps1 -ScrollCourse -UseBuiltRoms
+```
+
+`build/vrc7a-test-512k-scroll-course.nes` を Mesen で開き、タイトルで **START** を押す。右へ進みながら **B** で敵を攻撃し、床の穴を **A** で飛び越える。穴に落ちた後は **START** で途中からやり直せる。右端付近のゴールで `COURSE CLEAR` が表示される。
+
+自動試験はコントローラー入力でページ切り替えと敵の出現を確認し、穴に落ちてからワールド X=416、カメラ X=256 へ復帰する。敵の枠が初期化されて砲台とゾンビが再出現し、穴を越えて最後のグループを出現させ、クリア画面まで到達する。`-UseBuiltRoms` を省略すると ROM もビルドする。
 
 ---
 

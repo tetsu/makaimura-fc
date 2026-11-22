@@ -3,7 +3,8 @@ param(
     [switch]$Hardware,
     [string]$AreaManifest = '',
     [string[]]$AreaTrial = @(),
-    [switch]$PlatformCourse
+    [switch]$PlatformCourse,
+    [switch]$ScrollCourse
 )
 $ErrorActionPreference = 'Stop'
 if ($AreaManifest -and !$Hardware) {
@@ -12,8 +13,12 @@ if ($AreaManifest -and !$Hardware) {
 if ($AreaTrial -and !$AreaManifest) {
     throw '-AreaTrial requires -AreaManifest.'
 }
-if ($PlatformCourse -and !$Hardware) {
-    throw '-PlatformCourse requires -Hardware.'
+if ($PlatformCourse -and $ScrollCourse) {
+    throw 'Choose one game-mode course.'
+}
+$courseName = if ($PlatformCourse) { 'platform-course' } elseif ($ScrollCourse) { 'scroll-course' }
+if ($courseName -and !$Hardware) {
+    throw 'Game-mode courses require -Hardware.'
 }
 
 if (!$Cc65Bin -and !(Get-Command ca65 -ErrorAction SilentlyContinue)) {
@@ -58,14 +63,15 @@ if ($AreaManifest) {
     }
     $configPath = Join-Path $areaDir 'nes-areas.cfg'
 }
-if ($PlatformCourse) {
+if ($courseName) {
     $stageConverter = Join-Path $PSScriptRoot 'tools/convert-stage-map.py'
-    $courseJson = Join-Path $PSScriptRoot 'tools/fixtures/platform-course.json'
-    $courseInclude = Join-Path $buildDir 'platform-course-map.inc'
-    & python $stageConverter $courseJson $courseInclude --prefix platform_course
-    if ($LASTEXITCODE -ne 0) { throw "Platform course conversion failed with code $LASTEXITCODE" }
-    $basename += '-platform-course'
-    $assembleOptions += @('-D', 'PLATFORM_COURSE=1', '-I', $buildDir)
+    $courseJson = Join-Path $PSScriptRoot "tools/fixtures/$courseName.json"
+    $courseInclude = Join-Path $buildDir "$courseName-map.inc"
+    & python $stageConverter $courseJson $courseInclude --prefix course
+    if ($LASTEXITCODE -ne 0) { throw "$courseName conversion failed with code $LASTEXITCODE" }
+    $basename += "-$courseName"
+    $assembleOptions += @('-D', 'ORIGINAL_COURSE=1', '-I', $buildDir)
+    if ($ScrollCourse) { $assembleOptions += @('-D', 'SCROLL_COURSE=1') }
 }
 $object = Join-Path $buildDir "$basename.o"
 $rom = Join-Path $buildDir "$basename.nes"
