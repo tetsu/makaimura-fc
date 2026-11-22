@@ -9,6 +9,8 @@ Frames below $6000 are read from bank 4, which $F6E4 selects before the list is 
                  compare the sprite layer drawn from sprite RAM with the MAME snapshots
   dump LOG...    follow every logged frame pointer to its animation, and write sprites.json and
                  one PNG sheet per pool, type and shape
+  load LOG...    count the objects and sprites of every list a REVG_SPRITES_LOAD=1 log recorded, and
+                 the FC 8x16 sprites on the busiest line under each thinning plan (TODO C-2)
 """
 
 import argparse
@@ -319,9 +321,204 @@ def dump(args, rom):
     return 0
 
 
+def parse_load(path):
+    """The load lines of a REVG_SPRITES_LOAD=1 log."""
+    raw = Path(path).read_bytes()
+    text = raw.decode("utf-16") if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else raw.decode("utf-8-sig")
+    for line in text.splitlines():
+        if not line.startswith("load,"):
+            continue
+        parts = line.split(",")
+        fields = dict(item.split("=", 1) for item in parts[2:] if "=" in item)
+        objects = []
+        for item in fields["objs"].split():
+            pool, kind, shape, pointer, x, y_low = item.split(":")
+            objects.append({"pool": pool, "type": int(kind, 16), "shape": int(shape),
+                            "ptr": int(pointer, 16), "x": int(x), "y": int(y_low)})
+        yield {"t": int(parts[1]), "cam_x": int(fields["cam"]), "cam_y": int(parts[3]),
+               "builder": int(fields["builder"], 16), "budget": int(fields["budget"]),
+               "free": int(fields["free"]), "difficulty": int(fields["difficulty"], 16), "objects": objects}
+
+
+def half_opaque(rom, code, flip_x):
+    """Whether the left and the right 8-pixel half of a sprite, as drawn, have an opaque pen."""
+    pens = rom.tile(code)
+    left = any(pens[y][x] != 15 for y in range(16) for x in range(8))
+    right = any(pens[y][x] != 15 for y in range(16) for x in range(8, 16))
+    return (right, left) if flip_x else (left, right)
+
+
+def placed(rom, frame):
+    """The drawn objects with their on-screen sprites, as (object, [(top, column, FC sprites)]).
+
+    The arcade sprite is 16x16. On the FC each one becomes two 8x16 sprites, one for each 8-pixel half,
+    and a half with no opaque pen needs no FC sprite. Objects that do not fit the budget are dropped,
+    as $F6F2 drops them."""
+    budget, result = 0x40, []
+    for item in frame["objects"]:
+        dx, dy, columns, rows = SHAPES[item["shape"]]
+        if budget < columns * rows:
+            continue
+        budget -= columns * rows
+        data = rom.frame(item["ptr"], item["shape"])
+        left = (dx + item["x"] - frame["cam_x"]) & 0x1FF
+        bottom = (dy + item["y"] - frame["cam_y"]) & 0xFF
+        sprites = []
+        for index, code in enumerate(data["codes"]):
+            column, row = divmod(index, rows)
+            sx = (left + 16 * column) & 0x1FF
+            sy = (-bottom - 16 * (row + 1)) & 0xFF
+            x = (sx & 0xFF) - 0x100 * (sx >> 8)  # MAME: the low byte, minus 256 when the high bit is set
+            if -16 < x < 256:
+                halves = sum(opaque and -8 < hx < 256
+                             for opaque, hx in zip(half_opaque(rom, code, data["flip_x"]), (x, x + 8)))
+                sprites.append((sy - 16, column, halves))
+        result.append((item, sprites))
+    return result, budget
+
+
+GRAVESTONE = 0x01  # support type of the gravestones and rocks
+UNICORN, ZOMBIE = 0x08, 0x0B
+
+
+def is_gravestone(item):
+    return item["pool"] == "support" and item["type"] == GRAVESTONE
+
+
+def plan_sprites(item, sprites, narrow_weapons):
+    """(top, FC sprites) of an object; a narrow weapon keeps only its first 16-pixel column."""
+    if narrow_weapons and item["pool"] == "weapon":
+        return [(top, min(n, 2)) for top, column, n in sprites if column == 0]
+    return [(top, n) for top, _, n in sprites]
+
+
+def busiest(objects, keep, narrow_weapons=False, zombies=None, enemies=None):
+    """FC sprites on the busiest line, counting the objects keep() accepts."""
+    lines, zombie_count, enemy_count = [0] * 224, 0, 0
+    for item, sprites in objects:
+        if item["pool"] == "enemy" and sprites:
+            zombie_count += item["type"] == ZOMBIE
+            enemy_count += 1
+            if (zombies is not None and item["type"] == ZOMBIE and zombie_count > zombies) or \
+                    (enemies is not None and enemy_count > enemies):
+                continue
+        if not keep(item):
+            continue
+        for top, n in plan_sprites(item, sprites, narrow_weapons):
+            for line in range(max(top, 0), min(top + 16, 224)):
+                lines[line] += n
+    return max(lines)
+
+
+def everything(item):
+    return True
+
+
+def not_gravestone(item):
+    return not is_gravestone(item)
+
+
+def player_only(item):
+    return item["pool"] == "player"
+
+
+def player_and_shots(item):
+    return item["pool"] in ("player", "weapon", "enemyshot")
+
+
+def unicorn_and_player(item):
+    return item["pool"] == "player" or (item["pool"] == "enemy" and item["type"] == UNICORN)
+
+
+# Each plan keeps the changes of the plans above it (TODO C-2).
+PLANS = [
+    ("as on the arcade", everything, {}),
+    ("gravestones and rocks in BG", not_gravestone, {}),
+    ("+ weapons 16 px wide", not_gravestone, {"narrow_weapons": True}),
+    ("+ at most 2 zombies", not_gravestone, {"narrow_weapons": True, "zombies": 2}),
+    ("+ at most 4 enemies on screen", not_gravestone, {"narrow_weapons": True, "zombies": 2, "enemies": 4}),
+    ("drawn first: the player", player_only, {}),
+    ("drawn first: player, 16 px weapons, enemy shots", player_and_shots, {"narrow_weapons": True}),
+    ("drawn first: player, arcade weapons, enemy shots", player_and_shots, {}),
+]
+BOSS_PLAN = ("unicorn fight: unicorn and player", unicorn_and_player, {})
+
+
+def load(args, rom):
+    """Count objects and sprites per frame and per scanline, for the FC thinning rule (TODO C-2)."""
+    frames = mismatched = special = gaps = skipped = 0
+    max_type, max_pool, on_screen = {}, {}, {}
+    used = 0
+    plans = {name: {} for name, _, _ in PLANS + [BOSS_PLAN]}
+    boss_frames = 0
+    worst = []
+    for log in args.logs:
+        last = None
+        for frame in parse_load(log):
+            if last is not None:
+                gaps += frame["t"] - last - 1
+            last = frame["t"]
+            if frame["builder"] != NORMAL_BUILDER:
+                special += 1  # $714E draws a few objects in its own order after the boss
+                continue
+            frames += 1
+            objects, budget = placed(rom, frame)
+            mismatched += budget != frame["budget"]
+            skipped += len(objects) < len(frame["objects"])
+            used = max(used, 40 - frame["free"])
+            counts_type, counts_pool = {}, {}
+            for item, sprites in objects:
+                if not sprites:
+                    continue
+                counts_pool[item["pool"]] = counts_pool.get(item["pool"], 0) + 1
+                if item["pool"] == "enemy":
+                    counts_type[item["type"]] = counts_type.get(item["type"], 0) + 1
+            for key, value in counts_type.items():
+                max_type[key] = max(max_type.get(key, 0), value)
+            for key, value in counts_pool.items():
+                max_pool[key] = max(max_pool.get(key, 0), value)
+            enemies = counts_pool.get("enemy", 0)
+            on_screen[enemies] = on_screen.get(enemies, 0) + 1
+            for name, keep, options in PLANS:
+                value = busiest(objects, keep, **options)
+                plans[name][value] = plans[name].get(value, 0) + 1
+                if name == PLANS[2][0]:
+                    worst.append((value, Path(log).stem, frame["t"], " ".join(
+                        f"{i['pool']}:{i['type']:02x}" for i, s in objects
+                        if s and i["pool"] != "player" and not is_gravestone(i))))
+            if counts_type.get(UNICORN):
+                boss_frames += 1
+                name, keep, options = BOSS_PLAN
+                value = busiest(objects, keep, **options)
+                plans[name][value] = plans[name].get(value, 0) + 1
+
+    def share(count, total):
+        return f"{100 * count / total:.1f}%" if total else "-"
+
+    print(f"{frames} lists built by $F6F2 ({special} lists of special scenes skipped, "
+          f"{gaps} frames without a new list); {mismatched} budgets differ from the rebuilt lists")
+    print(f"enemy slots in use at most: {used}; lists with an object left out: {skipped}")
+    print("most objects on screen at once, by pool:", ", ".join(f"{k} {v}" for k, v in sorted(max_pool.items())))
+    print("most enemies on screen at once, by type:",
+          ", ".join(f"${k:02X} {v}" for k, v in sorted(max_type.items())))
+    print("enemies on screen:", ", ".join(f"{k}: {share(v, frames)}" for k, v in sorted(on_screen.items())))
+    print("FC 8x16 sprites on the busiest line:")
+    for name, histogram in plans.items():
+        total = boss_frames if name == BOSS_PLAN[0] else frames
+        bins = [sum(c for v, c in histogram.items() if low <= v <= high)
+                for low, high in ((0, 8), (9, 16), (17, 24), (25, 999))]
+        print(f"  {name:50s} " + " ".join(f"{label} {share(b, total):>6s}" for label, b in
+                                        zip(("<=8", "9-16", "17-24", ">24"), bins))
+              + f"  max {max(histogram, default=0)}" + (f" ({total} lists)" if name == BOSS_PLAN[0] else ""))
+    for value, log, t, objects in sorted(worst, reverse=True)[:args.top]:
+        print(f"  {value:2d} with gravestones in BG and 16 px weapons: {log} t={t}: {objects}")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["check", "dump"])
+    parser.add_argument("command", choices=["check", "dump", "load"])
+    parser.add_argument("--top", type=int, default=10, help="load: how many of the busiest frames to list")
     parser.add_argument("logs", nargs="+", type=Path)
     parser.add_argument("--rom", type=Path, default=Path("reference/makaimurg.zip"))
     parser.add_argument("--snap", type=Path, help="directory of the snapshots REVG_SPRITES_SNAP=1 saved")
@@ -332,7 +529,7 @@ def main():
     args.logs = [Path(name) for log in args.logs
                  for name in (sorted(glob.glob(str(log))) if glob.has_magic(str(log)) else [str(log)])]
     rom = Rom(args.rom)
-    return check(args, rom) if args.command == "check" else dump(args, rom)
+    return {"check": check, "dump": dump, "load": load}[args.command](args, rom)
 
 
 if __name__ == "__main__":

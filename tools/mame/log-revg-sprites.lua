@@ -7,7 +7,8 @@
 -- 64 frames and fires every 8 frames, kept invulnerable by the hit timer $AD.
 -- REVG_SPRITES_SEED=<n> instead picks a random direction and jump every 16 frames from a fixed
 -- pseudo-random sequence. REVG_SPRITES_HITS=1 lets enemies hit. REVG_SPRITES_STILL=1 stands still.
--- REVG_SPRITES_WEAPON=<n> sets the weapon $73 when play starts.
+-- REVG_SPRITES_WEAPON=<n> sets the weapon $73 when play starts. REVG_SPRITES_NOFIRE=1 never fires, so
+-- enemies stay on screen.
 -- REVG_SPRITES_PASSIVE=1 only logs while another script plays: an -autoboot_script that runs
 -- dofile("tools/mame/measure-revg-magician.lua") and then dofile("tools/mame/log-revg-sprites.lua").
 -- The other options are then ignored.
@@ -16,6 +17,9 @@
 -- Output lines:
 --   frame,<t>,pool=<name>,state=<ssss>,section=<$72>,type=<tt>,variant=<vv>,shape=<s>,ptr=<pppp>
 --     printed once for each new (pool, section, type, variant, shape, frame pointer)
+-- REVG_SPRITES_LOAD=1 prints the drawn objects of every frame, for the load subcommand:
+--   load,<t>,cam=<camera x>,<camera y low>,builder=<bbbb>,budget=<n>,free=<free enemy slots $93>,
+--     difficulty=<$9A>,objs=<pool:type:shape:ptr:x:ylow ...>
 --   check,<t>,cam=<camera x>,<camera y low>,builder=<return address of $F6E4>,budget=<n>,
 --     objs=<pool:shape:ptr:x:ylow ...>,
 --     ram=<hex of sprite RAM $1E00-$1FFF>,pal=<$39xx $38xx byte pairs of colours $40-$7F>
@@ -32,6 +36,8 @@ local weapon = tonumber(os.getenv("REVG_SPRITES_WEAPON") or "")
 local check = tonumber(os.getenv("REVG_SPRITES_CHECK") or "")
 local snap = os.getenv("REVG_SPRITES_SNAP") == "1"
 local passive = os.getenv("REVG_SPRITES_PASSIVE") == "1"
+local load = os.getenv("REVG_SPRITES_LOAD") == "1"
+local hold_fire = os.getenv("REVG_SPRITES_NOFIRE") == "1"
 local snap_from
 
 -- The pools in the order $F6F2 draws them.
@@ -92,7 +98,7 @@ end
 
 -- $F6E4 sets the sprite budget <$29. Its return address tells which list is built: $F6F4 for $F6F2, which
 -- draws every pool; $714E, $7257, $792D and $7D4D draw a few objects in their own order for special scenes.
-local check_due, builder = false, 0
+local check_due, builder, built_at = false, 0, nil
 revg_sprites_start = mem:install_write_tap(0x0029, 0x0029, "sprite budget set", function()
     local pc = cpu.state.PC.value
     if pc >= 0xf6ef and pc <= 0xf6f1 then builder = mem:read_u16(cpu.state.S.value) end
@@ -101,7 +107,9 @@ end)
 -- $F70F reads the sprite budget <$29 once every object has been drawn.
 revg_sprites_built = mem:install_read_tap(0x0029, 0x0029, "sprite budget", function()
     local pc = cpu.state.PC.value
-    if pc < 0xf70f or pc > 0xf711 or not playing_at then return end
+    -- The loop at $F70F reads the budget once for each entry it hides; act on the first read only.
+    if pc < 0xf70f or pc > 0xf711 or not playing_at or built_at == frame then return end
+    built_at = frame
     local t = frame - playing_at
     local cam_x, cam_y = word(0x9c), mem:read_u8(0x9f)
     for _, pool in ipairs(pools) do
@@ -114,6 +122,17 @@ revg_sprites_built = mem:install_read_tap(0x0029, 0x0029, "sprite budget", funct
                 print(string.format("frame,%d,pool=%s,state=%04x,%s", t, pool_name, word(x - 0x0d), rest))
             end
         end
+    end
+    if load then
+        local objs = {}
+        for _, pool in ipairs(pools) do
+            for _, x in ipairs(drawn(pool)) do
+                objs[#objs + 1] = string.format("%s:%02x:%d:%04x:%d:%d", pool.name, mem:read_u8(x + 5),
+                    mem:read_u8(x - 1), word(x + 3), word(x - 0x0a), mem:read_u8(x - 0x06))
+            end
+        end
+        print(string.format("load,%d,cam=%d,%d,builder=%04x,budget=%d,free=%d,difficulty=%02x,objs=%s", t, cam_x,
+            cam_y, builder, mem:read_u8(0x29), mem:read_u8(0x93), mem:read_u8(0x9a), table.concat(objs, " ")))
     end
     if check_due then
         check_due = false
@@ -175,7 +194,7 @@ revg_sprites_frame = emu.add_machine_frame_notifier(function()
         right:set_value(still and 0 or 1)
         jump:set_value(not still and t % 64 < 4 and 1 or 0)
     end
-    fire:set_value(t % 8 < 2 and 1 or 0)
+    fire:set_value(not hold_fire and t % 8 < 2 and 1 or 0)
     if t >= frames then
         print(string.format("end,%d,player_x=%d", t, word(0x0506)))
         machine:exit()
