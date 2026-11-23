@@ -338,9 +338,11 @@ same_scene:
     jsr begin_arcade_game
     jmp audio_tick
 :
-    ; After a death the arcade puts the player back by itself: the restart position is
-    ; set 423 frames after the death starts ($6D26, docs/revision-g.md, the pit). The
-    ; FC restarts there as if Start were pressed.
+    ; After a death the arcade puts the player back by itself: 121 frames after the
+    ; death ends ($90) the screen goes to the map with "PLAYER ONE READY", and the
+    ; restart position is set 423 frames after it ($6D26, docs/revision-g.md, the pit).
+    ; The FC has no map screen, so it restarts at the point the arcade leaves the
+    ; play screen, as if Start were pressed.
     lda arcade_mode
     beq @no_auto_restart
     lda scene
@@ -357,10 +359,10 @@ same_scene:
     inc death_timer+1
 :
     lda death_timer+1
-    cmp #>423
+    cmp #>121
     bcc @no_auto_restart
     lda death_timer
-    cmp #<423
+    cmp #<121
     bcc @no_auto_restart
     lda #0
     sta death_timer

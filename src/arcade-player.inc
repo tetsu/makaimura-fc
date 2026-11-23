@@ -258,12 +258,16 @@ ap_init_stage:
     sta ap_state
     lda #ap_armor_full
     sta ap_armor
+.ifndef REVG_STAGE1
     lda campaign_stage
     cmp #arcade_stage_count
     beq @keep_stage7_weapon
     lda #ap_weapon_lance
     sta ap_weapon
 @keep_stage7_weapon:
+.endif
+    ; (The game build keeps the weapon through a death, as the arcade does; a new game
+    ; starts with the lance, start_arcade_stage.)
     lda #$ff
     sta ap_riding_plat
     lda #0
@@ -2607,6 +2611,17 @@ ap_check_hazard:
 @fatal_hazard:
     lda #1
     sta player_hit
+.ifdef REVG_STAGE1
+    ; $F6BE: the miss song, unless Arthur is already dying (it started then).
+    lda ap_state
+    cmp #ap_state_knockback
+    bne :+
+    lda ap_kb_dying
+    bne @hazard_done
+:
+    jmp ap_miss_song
+@hazard_done:
+.endif
     rts
 
 ; --- Tile lookup helper: (ap_probe_x, ap_probe_y_hi:ap_probe_y) -> A = tile_type_* ---
@@ -3426,8 +3441,7 @@ ap_hit_toward:
     sta ap_armor
     lda ap_kb_dying
     beq :+
-    lda #snd_se_death
-    jmp call_bank8_play_se
+    jmp ap_miss_song            ; $9A12
 :
     lda #snd_se_damage
     jmp call_bank8_play_se
@@ -3453,8 +3467,20 @@ ap_time_up:
     sta ap_kb_step
     lda #ap_armor_naked
     sta ap_armor
+    jmp ap_miss_song            ; $EC81
 @time_up_done:
     rts
+
+; $9A12, $EC81, $F6E0: the miss song $31, or the game over song $2F for the last life
+; ($9A17). (The FC takes the life away when the death ends.)
+ap_miss_song:
+    lda campaign_lives
+    cmp #2
+    lda #snd_song_miss
+    bcs :+
+    lda #snd_song_gameover
+:
+    jmp call_bank8_play_song
 .endif
     lda #snd_se_damage
     jsr call_bank8_play_se

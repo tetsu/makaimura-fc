@@ -75,6 +75,8 @@ EXTRA_ANIMATIONS = [(0x5B0C, 1), (0x5B20, 2), (0x5B32, 0), (0x5B4E, 0)]
 STATIC_FRAMES = [(0x798E, 3), (0x971E, 3), (0x7AD5, 1), (0x7AD8, 1), (0x7ADB, 1), (0x7B26, 1),
                  (0xA4AB, 4), (0x4E59, 4), (0x4E64, 4), (0x4E6F, 4), (0x4E7A, 4), (0x4E98, 4),
                  (0x4EB6, 4)]
+# Arthur's cheer after taking the key ($7374, set by the key sequence for 60 frames).
+STATIC_FRAMES += [(0x7374, 3)]
 # The walks Arthur uses in the opening, naked and armoured, as animations.
 EXTRA_ANIMATIONS += [(0x95F2, 3), (0x9596, 3)]
 

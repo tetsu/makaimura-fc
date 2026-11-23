@@ -611,11 +611,14 @@ course_finished:
 
 .if PRG_ROM_UNITS = 32
 show_game_over:
+.ifndef REVG_STAGE1
     lda arcade_mode
     beq :+
     lda #snd_song_gameover
     jsr call_bank8_play_song
 :
+.endif
+    ; (The game build sends the game over song when the last death starts, ap_miss_song.)
     lda #game_over_scene
     bne show_result
 show_course_clear:

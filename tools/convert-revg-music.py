@@ -63,6 +63,7 @@ SONGS = [
     ("gameover", [(0, 0x2F)], False),
     ("stage3", [(0, 0x30), (1, 0x33)], True),     # sections 2-3
     ("stage5", [(0, 0x30), (1, 0x29)], True),     # sections 4-5
+    ("miss", [(0, 0x31)], False),                 # Arthur dies with lives left
 ]
 
 # The VRC7 built-in patches (the 2019 die dump, as in Mesen's MesenCore.dll).
@@ -128,8 +129,10 @@ def opll_operator(op, sustained):
     return flags, ar << 4 | dr, op["sl"] << 4 | rr
 
 
-def convert_voice(voice):
-    """An OPLL custom patch (8 bytes) and the VRC7 volume for an OPN voice."""
+def convert_voice(voice, harmonic=False):
+    """An OPLL custom patch (8 bytes) and the VRC7 volume for an OPN voice.
+
+    harmonic: for a custom patch, put a modulator below the carrier on a whole multiple."""
     car = voice.ops[S4]
     mods = S4_MODULATORS[voice.alg]
     sustained = car["sr"] == 0
@@ -164,6 +167,15 @@ def convert_voice(voice):
         tl = max(0, min(63, tl))
     else:
         mod, tl, fb = dict(car, tl=63), 63, 0
+    # A modulator below the carrier (the lead voice 6: S3 x0.5 into S4 x2) puts the
+    # spectrum on a grid of its own frequency. The arcade modulates lightly, so the
+    # carrier's pitch is heard; the OPLL copy, driven far harder (above), was heard two
+    # octaves down, with the band above 800 Hz 6-10 dB short of MAME's. The modulator
+    # takes the nearest whole multiple of the carrier instead. (The built-in patches are
+    # matched on the voice as it is: they have such ratios of their own.)
+    ratio = OPN_MUL[mod["mul"]] / OPN_MUL[car["mul"]]
+    if harmonic and ratio < 1:
+        mod = dict(mod, mul=OPN_MUL.index(OPN_MUL[car["mul"]] * max(1, round(ratio))))
     mf, mad, msr = opll_operator(mod, mod["sr"] == 0)
     cf, cad, csr = opll_operator(car, sustained)
     patch = bytes([mf, cf, tl, fb, mad, cad, msr, csr])
@@ -466,13 +478,14 @@ def main():
             custom = None
             for voice in voices:
                 opn = OpnVoice(rom[decoder.VOICES + 32 * voice:decoder.VOICES + 32 * voice + 25])
-                patch, volume = convert_voice(opn)
-                # Balance: the VRC7's two-operator voices make the low parts boom and the
-                # high parts thin, so the melody lost to the bass. Bass voices (sounding
-                # mostly below C3) go 6 dB down, the others 3 dB up.
+                patch, volume = convert_voice(opn, harmonic=custom is None)
+                # Balance: bass voices (sounding mostly below C3) go 3 dB down. With the
+                # lead at its own pitch (harmonic, above) this puts the stage song's
+                # octave bands within about 3 dB of a MAME recording from 100 Hz to 3 kHz;
+                # the 6 dB cut and 3 dB lift used before were for the lead sounding low.
                 heard = sorted(pitches.get((layer, voice), [60]))
                 sounding = heard[len(heard) // 2] + 12 * math.log2(OPN_MUL[opn.ops[S4]["mul"]])
-                volume = min(15, volume + 2) if sounding < 48 else max(0, volume - 1)
+                volume = min(15, volume + 1) if sounding < 48 else volume
                 # Headroom: with several channels at volume 0 the VRC7 output clipped
                 # (heard as crackle), so every voice goes 6 dB down from there.
                 volume = min(15, volume + 2)

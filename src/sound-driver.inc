@@ -14,7 +14,8 @@ snd_song_clear    = 4   ; $3B: after the key is taken
 snd_song_gameover = 5   ; $2F
 snd_song_stage3   = 6   ; $30 then $33: sections 2-3
 snd_song_stage5   = 7   ; $30 then $29: sections 4-5
-snd_song_max      = 7
+snd_song_miss     = 8   ; $31: a death with lives left
+snd_song_max      = 8
 
 snd_se_none       = 0
 snd_se_shot      = 1
