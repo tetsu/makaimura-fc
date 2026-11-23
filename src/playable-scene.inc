@@ -100,6 +100,10 @@ campaign_stage_count = 2
 arcade_stage_count = 7
 .ifdef COURSE_SEQUENCE
 original_course_count = 2
+.elseif .defined(REVG_STAGE1)
+; Only Stage 1 uses the real arcade map so far. Its clear returns to the title instead of
+; going on to the prototype Stage 2 (TODO C-1a).
+original_course_count = 1
 .endif
 
 start_arcade_stage:
@@ -127,7 +131,7 @@ is_final_clear:
     rts
 @check_arcade_final:
     lda campaign_stage
-.ifdef COURSE_SEQUENCE
+.if .defined(COURSE_SEQUENCE) .or .defined(REVG_STAGE1)
     cmp #original_course_count
     rts
 .else
@@ -152,8 +156,8 @@ next_campaign_stage:
     jsr blank_display
     jmp show_sound_screen
 @arcade_next:
-.ifdef COURSE_SEQUENCE
-    ; The authored sequence ends after the second course.
+.if .defined(COURSE_SEQUENCE) .or .defined(REVG_STAGE1)
+    ; The authored sequence ends after the second course, the real game after Stage 1.
     jsr is_final_clear
     bcc @advance_stage
     jsr blank_display

@@ -1,8 +1,11 @@
 -- Stage 1 with the real Revision G section 0 layout (-RevgStage1).
 -- Drive the route with controller input only: jump the tombstones, climb the first hill
 -- ladder, cross the lake on the raft, miss once after the checkpoint and restart there,
--- jump the forest pits and reach the goal before the gate. Positions come from
--- build/revg-section0-map.inc (tools/convert-revg-section.py).
+-- jump the forest pits, beat the placeholder boss at the gate, take the key and return
+-- to the title. Positions come from build/revg-section0-map.inc
+-- (tools/convert-revg-section.py). Right+START skips the opening and the map, which
+-- revg-boot-flow.lua checks. Like the MAME traces, the test keeps the zombies out: it
+-- holds the live-zombie count at the cap so the scheduler places none.
 local SCENE = 0x07
 local LIVES = 0x15
 local CAMERA_X = 0x25
@@ -13,6 +16,13 @@ local AP_STATE = 0x6010
 local PLAT_X_LO = 0x6042
 local PLAT_X_HI = 0x6046
 local PLAT_PHASE = 0x605a
+local SCHED_ZOMBIES_LIVE = 0x6077   -- sched_zombies_live in src/arcade-player.inc
+local ZOMBIE_CAP = 2
+local EB_ACTIVE, EB_X_LO, EB_X_HI, EB_Y = 0x6095, 0x6097, 0x6099, 0x609b
+local BOSS_STATE, BOSS_HP = 0x60a1, 0x60a3
+local KEY_COLLECTED = 0x60ab
+local BOSS_ACTIVE, BOSS_DEFEATED = 1, 2
+local TITLE, CLEAR = 7, 5
 
 local STATE_GROUND, STATE_LADDER, STATE_MISS = 0, 2, 4
 local FLOOR, HILL = 192, 112
@@ -24,7 +34,9 @@ local LADDER_X = 712            -- Centre of the first ladder's left column (44)
 local LAKE_STOP = 1628          -- Stand back from the lake edge (column 103 is water)
 local RAFT_BOARD = 1712         -- Raft X, heading left, that meets a jump from the edge
 local RAFT_LEAVE = 1772         -- Raft X, heading right, to jump to the far bank
-local CHECKPOINT_X, GOAL_X = 1920, 3440
+local CHECKPOINT_X = 1920
+local BOSS_TRIGGER_X, BOSS_HP_START, CAMERA_END = 3392, 10, 3328
+local LOW_BOLT_Y = 183              -- Boss feet 192 - 9: hits a standing or crouching player
 
 local frame = 0
 local phase = "boot"
@@ -34,6 +46,8 @@ local rendered = false
 local climbing = false
 local airborne = false
 local jumpFrame
+local bossFrame
+local sawBolt = false
 
 local function read(addr)
     return emu.read(addr, emu.memType.nesMemory)
@@ -70,9 +84,22 @@ emu.addEventCallback(function()
     emu.setInput(input, 0)
 end, emu.eventType.inputPolled)
 
+-- True when a low boss bolt is close enough that a straight jump now clears it.
+local function lowBoltAhead(x)
+    for i = 0, 1 do
+        if read(EB_ACTIVE + i) ~= 0 then
+            sawBolt = true
+            local dx = read(EB_X_LO + i) + 256 * read(EB_X_HI + i) - x
+            if read(EB_Y + i) == LOW_BOLT_Y and dx > 0 and dx < 40 then return true end
+        end
+    end
+    return false
+end
+
 emu.addEventCallback(function()
     frame = frame + 1
     input = {}
+    emu.write(SCHED_ZOMBIES_LIVE, ZOMBIE_CAP, emu.memType.nesMemory)
     if not check(frame < 5000, "route timed out") then return end
 
     local x = readWord(PLAYER_X)
@@ -86,7 +113,7 @@ emu.addEventCallback(function()
 
     if phase == "boot" then
         if frame == 128 then
-            input = {start = true}
+            input = {start = true, right = true}
             phase = "start"
         end
     elseif phase == "start" then
@@ -170,13 +197,34 @@ emu.addEventCallback(function()
                     "forest pit at X 2464 not drawn") then return end
             rendered = true
         end
-        if read(SCENE) == 5 then
-            if not check(rendered and x == GOAL_X and feet == FLOOR and read(LIVES) == 2, "goal before the gate") then return end
+        if read(BOSS_STATE) == BOSS_ACTIVE then
+            if not check(rendered and x >= BOSS_TRIGGER_X and read(BOSS_HP) == BOSS_HP_START,
+                    "boss starts at the gate") then return end
+            bossFrame = frame
+            phase = "boss"
+        end
+    elseif phase == "boss" then
+        -- Stand still facing the boss, shoot every 12 frames and jump the low bolts.
+        if not check(frame < bossFrame + 900, "boss not beaten") then return end
+        input = {b = frame % 12 == 0, a = onGround and lowBoltAhead(x)}
+        if read(BOSS_STATE) == BOSS_DEFEATED then
+            if not check(sawBolt and camera == CAMERA_END, "boss bolts and the camera at the end") then return end
+            phase = "key"
+        end
+    elseif phase == "key" then
+        input = {right = true}
+        if read(SCENE) == CLEAR then
+            if not check(read(KEY_COLLECTED) == 1 and read(LIVES) == 2, "clear after taking the key") then return end
             clearFrame = frame
             phase = "clear"
         end
-    elseif phase == "clear" and frame == clearFrame + 4 then
-        print(string.format("PASS: real section 0 layout, ladder, raft, checkpoint restart, goal (frame %d)", frame))
-        emu.stop(0)
+    elseif phase == "clear" then
+        if frame == clearFrame + 20 then
+            input = {start = true}
+        elseif frame == clearFrame + 30 then
+            if not check(read(SCENE) == TITLE, "START after the clear returns to the title") then return end
+            print(string.format("PASS: real section 0 layout, ladder, raft, checkpoint restart, boss, key, title (frame %d)", frame))
+            emu.stop(0)
+        end
     end
 end, emu.eventType.endFrame)

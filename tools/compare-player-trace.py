@@ -52,9 +52,12 @@ emu.addEventCallback(function() emu.setInput(input, 0) end, emu.eventType.inputP
 emu.addEventCallback(function()
     frame = frame + 1
     input = {}
+    -- Keep the zombies out, as MAME does with $93: hold the live count at the cap.
+    emu.write(0x6077, 2, cpu)
     if frame > 4000 then print("timeout") emu.stop(2) return end
     if step == nil then
-        if frame == 128 then input = {start = true} end
+        -- Right+START skips the opening and the map.
+        if frame == 128 then input = {start = true, right = true} end
         -- Stage 1 is running with the player standing and the raft placed.
         if frame > 128 and read(0x07) == 4 and read(0x8000) == 0x8c and read(0x6010) == 0
                 and read(0x6042) ~= 0 then

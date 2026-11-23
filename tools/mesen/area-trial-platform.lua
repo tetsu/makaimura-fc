@@ -2,7 +2,7 @@ local cpu, ppu = emu.memType.nesMemory, emu.memType.nesPpuDebug
 local frame, nextInput = 0, {}
 local step = "select"
 local lastPlatform, riderOffset
-local jumped, landed, nextCourseAt
+local jumped, landed, startAt, nextCourseAt
 local leftEnd, rightEnd = 119, 176
 local floorY = 143
 
@@ -100,12 +100,16 @@ emu.addEventCallback(function()
         if x >= 176 and y == floorY then landed = true end
         if emu.read(0x218a, ppu) == 0x04 then
             check(jumped and landed, "player did not jump off and land on the far bank")
-            nextInput.start = true
-            nextCourseAt = frame + 32
+            -- The clear text appears while the screen is still being drawn, and a START
+            -- pressed before the display is back on is not read. Wait a few frames.
+            startAt = frame + 4
+            nextCourseAt = startAt + 32
             step = "next course"
         else
             nextInput.right = true
         end
+    elseif step == "next course" and frame == startAt then
+        nextInput.start = true
     elseif step == "next course" and frame == nextCourseAt then
         check(emu.read(0x8000, cpu) == 0xbe and x == 32, "next course did not start")
         check(platformY == 0xf8 and emu.read(0x244, cpu) == 0xf8,

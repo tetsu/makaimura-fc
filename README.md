@@ -31,7 +31,13 @@
 
 512 KiB 版を `./build.ps1 -Hardware -CourseSequence` でビルドすると、足場とはしごを使う自作コースから、敵が出現する横3ページの自作コースへ続けて遊べる。Mesen でスコアと残機の引き継ぎから最終クリア後の再スタートまで確認した。[操作と自動試験](docs/stage-design.md#通常ゲームモードの2コース連続プレイ) · [開発タスク](TODO.md)
 
-`./build.ps1 -Hardware -RevgStage1` は、アーケードの Stage 1 の区間0の地形（横14ページ）を Stage 1 に組み込む。地形と当たりはアーケードのとおりで、絵は仮のもの。敵とボスはまだいない。ビルドには、MAME の ROM から抽出したステージデータが要る。[実マップの規則](docs/stage-design.md#revision-g-の実マップstage-1-の区間0)
+`./build.ps1 -Hardware -RevgStage1` は、アーケードの Stage 1 の区間0の地形（横14ページ）を Stage 1 に組み込む。地形と当たりはアーケードのとおりで、絵は仮のもの。ビルドには、MAME の ROM から抽出したステージデータが要る。[実マップの規則](docs/stage-design.md#revision-g-の実マップstage-1-の区間0)
+
+できた `build/vrc7a-test-512k-revg-stage1.nes` を開くと、電源投入からアーケードの流れで遊べる。
+- タイトルで **START** を押すと、開始の演出と地図（どちらも仮の文字だけ）を経て Stage 1 が始まる。演出と地図は **START** で飛ばせる。
+- 敵は仮のゾンビ、門の前のボスは仮の一角獣（10発で倒れる）。鍵を取ると `STAGE1 CLEAR` になり、**START** でタイトルに戻る。
+- 残機がなくなると `GAME OVER` になり、**START** でタイトルに戻る。
+- タイトルで **Right+START** を押すと演出と地図を飛ばす（自動試験用）。**SELECT** で試験メニューに入る。
 
 このビルドで `python tools/compare-player-trace.py` を実行すると、MAME の `makaimurg` と FC 版に同じ入力を流し、プレイヤーの位置を1回の更新ごとに突き合わせる。[歩きとジャンプ](docs/revision-g-player.md)
 

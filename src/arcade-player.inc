@@ -450,9 +450,11 @@ ap_init_stage:
     sta sched_wait
     sta sched_zombies_live
     sta ap_turret_spawned
-    .repeat sd_sched_pages, page
-        sta sched_turrets + page
-    .endrepeat
+    ldx #sd_sched_pages - 1
+:
+    sta sched_turrets,x
+    dex
+    bpl :-
     ldx #ap_max_enemies - 1
 :
     sta en_type,x
@@ -830,6 +832,13 @@ ap_update_frame:
 @camera_and_submit:
     lda ap_boss_lock
     beq @unlock_camera
+    lda sd_flags
+    and #sd_flag_boss_follow
+    beq @locked_camera
+    lda #1                     ; Scroll on to the end of the stage, then stay there.
+    jsr ap_pan_camera
+    jmp submit_frame
+@locked_camera:
     jsr ap_update_cam_y
     jsr draw_sprites
     jmp submit_frame
@@ -853,13 +862,14 @@ ap_follow_camera:
     cpy #64
     bcc @cam_left
     lda #0
-    beq @cam_x_ready
+    beq ap_pan_camera
 @cam_right:
     lda #1
-    bne @cam_x_ready
+    bne ap_pan_camera
 @cam_left:
     lda #2
-@cam_x_ready:
+; A = horizontal pan direction (0 none, 1 right, 2 left). The vertical axis follows the player.
+ap_pan_camera:
     sta pan_directions
 
     ; Vertical axis: follow 16-bit player_y toward screen Y = 160

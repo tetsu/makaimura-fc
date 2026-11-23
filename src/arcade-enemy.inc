@@ -392,6 +392,16 @@ ap_update_scheduler:
     sta en_x_lo,x
     iny
     lda (ap_sched_ptr),y
+    bpl @zombie_x_ready
+    and #$7f                       ; Relative to the camera, as in the arcade ($EAEC).
+    sta en_x_hi,x
+    lda en_x_lo,x
+    clc
+    adc camera_low
+    sta en_x_lo,x
+    lda en_x_hi,x
+    adc camera_high
+@zombie_x_ready:
     sta en_x_hi,x
     iny
     lda (ap_sched_ptr),y

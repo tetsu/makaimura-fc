@@ -46,9 +46,11 @@ if ($RevgStage1) {
         $rom = (& $buildScript -Hardware -RevgStage1 -Cc65Bin $Cc65Bin)[0]
     }
     if (!(Test-Path -LiteralPath $rom -PathType Leaf)) { throw "ROM not found: $rom." }
-    $exitCode = Invoke-MesenSuite (Join-Path $PSScriptRoot 'mesen/revg-stage1.lua') $rom
-    if ($exitCode -ne 0) { throw "revg-stage1 failed with code $exitCode. See $logDir." }
-    Write-Host 'revg-stage1 passed.'
+    foreach ($suiteName in 'revg-boot-flow', 'revg-stage1') {
+        $exitCode = Invoke-MesenSuite (Join-Path $PSScriptRoot "mesen/$suiteName.lua") $rom
+        if ($exitCode -ne 0) { throw "$suiteName failed with code $exitCode. See $logDir." }
+        Write-Host "$suiteName passed."
+    }
     return
 }
 if ($PlatformCourse -or $ScrollCourse -or $CourseSequence) {

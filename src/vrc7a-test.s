@@ -128,6 +128,10 @@ sprite_view_scene = 10
 .ifdef NES_AREA_ART
 area_view_scene = 11
 .endif
+.ifdef REVG_STAGE1
+opening_scene = 12              ; Scenes from here on run in Bank 2 (frontend.inc).
+map_scene = 13
+.endif
 .endif
 
 .segment "CODE"
@@ -295,10 +299,23 @@ same_scene:
     jsr update_stage_view
     jmp main
 :
+.ifdef REVG_STAGE1
+    cmp #opening_scene
+    bcc :+
+    jsr update_frontend_scene
+    jmp main
+:
+.endif
 .endif
     lda pressed
     and #$10            ; Start: enter or restart the playable scene.
+.ifdef REVG_STAGE1
+    bne :+
+    jmp dispatch_scene
+:
+.else
     beq dispatch_scene
+.endif
 .if PRG_ROM_UNITS = 32
     lda campaign_stage
     beq check_campaign_start
@@ -336,18 +353,25 @@ check_campaign_start:
     and #$01            ; Hold Right and press Start to enter Bank 3 arcade mode.
     beq start_pressed
 @begin_arcade:
-    lda #1
-    sta arcade_mode
-    sta campaign_stage
-    lda #campaign_initial_lives
-    sta campaign_lives
-    jsr start_arcade_stage
+    jsr begin_arcade_game
     jmp audio_tick
 @title_start:
     lda pad
     and #$08            ; Hold Up and press Start on the title for legacy campaign.
     bne @begin_campaign
+.ifdef REVG_STAGE1
+    lda pad
+    and #$01            ; Right+START skips the opening and the map (Mesen tests).
+    bne @begin_arcade
+    lda #snd_song_title ; The arcade starts the opening music after 1P START.
+    jsr call_bank8_play_song
+    lda #opening_scene
+    jsr show_frontend_scene
+    jsr call_bank8_audio_tick
+    jmp main
+.else
     jmp @begin_arcade
+.endif
 @begin_campaign:
     lda #0
     sta arcade_mode
@@ -944,153 +968,41 @@ show_title_screen:
     jsr draw_title_screen
     jmp enable_static_screen
 
-draw_title_screen:
-    lda #>chr_background_address
-    sta $2006
-    lda #<chr_background_address
-    sta $2006
-    lda #<glyphs
-    sta chr_source
-    lda #>glyphs
-    sta chr_source+1
-    ldx #>CHR_BACKGROUND_BYTES
-    lda #<CHR_BACKGROUND_BYTES
-    jsr upload_chr_patterns
-    ; Upload authentic Makaimura graveyard/ground BG tiles to $0400 from BANK10
-    lda prg_bank0
+begin_arcade_game:
+    lda #1
+    sta arcade_mode
+    sta campaign_stage
+    lda #campaign_initial_lives
+    sta campaign_lives
+    jmp start_arcade_stage
+
+.ifdef REVG_STAGE1
+; A = opening_scene or map_scene.
+show_frontend_scene:
     pha
-    lda #arcade_gfx_bank
-    jsr select_bank0
-    lda #>arcade_bg_chr_vram
-    sta $2006
-    lda #<arcade_bg_chr_vram
-    sta $2006
-    lda #<arcade_bg_chr_data
-    sta chr_source
-    lda #>arcade_bg_chr_data
-    sta chr_source+1
-    ldx #>arcade_bg_chr_bytes
-    lda #<arcade_bg_chr_bytes
-    jsr upload_chr_patterns
+    jsr blank_display
     pla
-    jsr select_bank0
-    jsr clear_screen
-    ; Title palettes: 0=white text, 1=gold/crimson banner, 2=grass/earth, 3=graveyard fence/cross
-    lda #$3f
-    sta $2006
-    lda #0
-    sta $2006
-    ldx #0
-:
-    lda title_palette,x
-    sta $2007
-    inx
-    cpx #16
-    bne :-
-    ; Draw title text lines
-    ldy #0
-@next_title_line:
-    lda title_addr_hi,y
-    sta $2006
-    lda title_addr_lo,y
-    sta $2006
-    ldx title_text_start,y
-:
-    lda title_screen_text,x
+    sta scene
+    lda #2
+    jsr select_bank2
+    jsr fe_draw_scene
+    jmp enable_static_screen
+
+update_frontend_scene:
+    jsr wait_terrain_frame
+    lda #2
+    jsr select_bank2
+    jsr fe_tick
+    beq @tick
     cmp #$ff
-    beq :+
-    sta $2007
-    inx
-    bne :-
-:
-    iny
-    cpy #title_line_count
-    bne @next_title_line
-    ; Draw authentic Makaimura graveyard silhouette across rows 22-23 ($22C0..$22FF)
-    lda #$22
-    sta $2006
-    lda #$c0
-    sta $2006
-    ldx #0
-@title_grave_top:
-    lda title_grave_row_top,x
-    sta $2007
-    inx
-    cpx #32
-    bne @title_grave_top
-    ldx #0
-@title_grave_bot:
-    lda title_grave_row_bot,x
-    sta $2007
-    inx
-    cpx #32
-    bne @title_grave_bot
-    ; Draw authentic grassy ground across rows 24-25 ($2300..$233F)
-    lda #$23
-    sta $2006
-    lda #$00
-    sta $2006
-    ldx #16
-:
-    lda #$40
-    sta $2007
-    lda #$41
-    sta $2007
-    dex
-    bne :-
-    ldx #16
-:
-    lda #$42
-    sta $2007
-    lda #$43
-    sta $2007
-    dex
-    bne :-
-    ; Draw authentic soil across rows 26-27 ($2340..$237F)
-    ldx #16
-:
-    lda #$44
-    sta $2007
-    lda #$45
-    sta $2007
-    dex
-    bne :-
-    ldx #16
-:
-    lda #$46
-    sta $2007
-    lda #$47
-    sta $2007
-    dex
-    bne :-
-    ; Attribute table: palette 1 (gold) for banner rows 4..11, palette 3 (graveyard) for rows 20..23, palette 2 (grass/earth) for rows 24..27
-    lda #$23
-    sta $2006
-    lda #$c8
-    sta $2006
-    lda #$55
-    ldx #16
-:
-    sta $2007
-    dex
-    bne :-
-    lda #$23
-    sta $2006
-    lda #$e8
-    sta $2006
-    lda #$ff
-    ldx #8
-:
-    sta $2007
-    dex
-    bne :-
-    lda #$aa
-    ldx #8
-:
-    sta $2007
-    dex
-    bne :-
-    rts
+    beq @start
+    jsr show_frontend_scene
+    jmp @tick
+@start:
+    jsr begin_arcade_game
+@tick:
+    jmp call_bank8_audio_tick
+.endif
 .endif
 
 clear_screen:
@@ -1121,7 +1033,11 @@ clear_screen:
 clear_title: .byte $04, $0f, $14, $11, $12, $06, $00, $04, $0c, $06, $02, $11 ; COURSE CLEAR
 clear_title_length = * - clear_title
 .if PRG_ROM_UNITS = 32
+.ifdef REVG_STAGE1
+final_title: .byte $12, $13, $02, $08, $06, campaign_zero + 1, $00, $04, $0c, $06, $02, $11 ; STAGE1 CLEAR
+.else
 final_title: .byte $07, $0a, $0e, $02, $0c, $00, $04, $0c, $06, $02, $11, $00 ; FINAL CLEAR
+.endif
 game_over_title: .byte $08, $02, $0d, $06, $00, $0f, $15, $06, $11, $00, $00, $00 ; GAME OVER
 .endif
 clear_prompt: .byte $12, $13, $02, $11, $13, $00, $10, $0c, $02, $17 ; START PLAY
@@ -1139,39 +1055,6 @@ stage_view_menu: .byte $14, $10, $18, $02, 0, $12, $13, $02, $08, $06, 0, $15, $
 stage_view_menu_length = * - stage_view_menu
 sound_test_menu: .byte $05, $0f, $16, $0e, $17, $02, $00, $12, $0f, $14, $0e, $05, $00, $13, $06, $12, $13 ; DOWN+A SOUND TEST
 sound_test_menu_length = * - sound_test_menu
-title_palette:
-    .byte $0f, $30, $16, $28
-    .byte $0f, $28, $16, $30
-    .byte $0f, $07, $17, $1a
-    .byte $0f, $00, $10, $1a
-title_addr_hi: .byte $20, $21, $21, $22, $22, $22
-title_addr_lo: .byte $ca, $09, $aa, $08, $48, $88
-title_line_count = * - title_addr_hi
-title_text_start:
-    .byte 0
-    .byte title_line2 - title_screen_text
-    .byte title_line3 - title_screen_text
-    .byte title_line4 - title_screen_text
-    .byte title_line5 - title_screen_text
-    .byte title_line6 - title_screen_text
-title_screen_text:
-    .byte $0d, $02, $0b, $02, $0a, $0d, $14, $11, $02, $00, $07, $04, $ff ; MAKAIMURA FC
-title_line2:
-    .byte $15, $11, $04, $01, $02, $00, $06, $05, $0a, $13, $0a, $0f, $0e, $ff ; VRC7A EDITION
-title_line3:
-    .byte $10, $11, $06, $12, $12, $00, $12, $13, $02, $11, $13, $ff ; PRESS START
-title_line4:
-    .byte $12, $06, $0c, $06, $04, $13, $00, $13, $06, $12, $13, $00, $0d, $06, $0e, $14, $ff ; SELECT TEST MENU
-title_line5:
-    .byte $02, $00, $19, $14, $0d, $10, $00, $00, $03, $00, $02, $13, $13, $02, $04, $0b, $ff ; A JUMP  B ATTACK
-title_line6:
-    .byte $01, $00, $12, $13, $02, $08, $06, $12, $00, $1a, $00, $0c, $0f, $0f, $10, $12, $ff ; 7 STAGES 2 LOOPS
-title_grave_row_top:
-    .byte $48, $49, $4c, $4d, $48, $49, $50, $51, $48, $49, $54, $55, $48, $49, $4c, $4d
-    .byte $48, $49, $50, $51, $48, $49, $54, $55, $48, $49, $4c, $4d, $48, $49, $50, $51
-title_grave_row_bot:
-    .byte $4a, $4b, $4e, $4f, $4a, $4b, $52, $53, $4a, $4b, $56, $57, $4a, $4b, $4e, $4f
-    .byte $4a, $4b, $52, $53, $4a, $4b, $56, $57, $4a, $4b, $4e, $4f, $4a, $4b, $52, $53
 .endif
 clear_menu: .byte $12, $06, $0c, $06, $04, $13, $00, $0d, $06, $0e, $14 ; SELECT MENU
 clear_menu_length = * - clear_menu
@@ -1292,6 +1175,10 @@ pan_data_x_hi: .res 1
 goal_tile_x_hi: .res 1
 checkpoint_tile_x_hi: .res 1
 pan_row_start: .res 1            ; First ring column of a prepared row
+
+.if PRG_ROM_UNITS = 32
+.include "frontend.inc"
+.endif
 
 .segment "VECTORS"
 .word terrain_nmi, reset, hud_irq

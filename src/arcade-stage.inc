@@ -9,6 +9,7 @@ sd_flag_vertical    = $01
 sd_flag_has_boss    = $02
 sd_flag_start_page1 = $04
 sd_flag_sched_table = $08
+sd_flag_boss_follow = $10   ; The camera keeps following the player once the boss locks the arena.
 
 ; Fixed descriptor addresses in the $8000 stage window (59 bytes: $8080..$80BA)
 sd_base          = $8080
@@ -50,11 +51,13 @@ sd_boss_y        = sd_base + 54
 sd_boss_hp       = sd_base + 56
 sd_boss_shield   = sd_base + 57
 sd_boss_fire_per = sd_base + 58
-; Optional pointer to 9-byte records (page, turret X/Y, zombie X/Y).
+; Optional pointer to 9-byte records (page, turret X/Y, zombie X/Y), one per scroll page.
+; A zombie X with bit 15 set is relative to the camera: X = camera X + (X & $7fff).
 sd_sched_table_ptr = sd_base + 59
 sd_sched_stride  = 9
-sd_sched_pages   = 3
-.assert (sd_sched_pages - 1) * sd_sched_stride < sd_sched_page - sd_base, error, "Scheduler record offsets must distinguish table and legacy records"
+sd_sched_pages   = 14       ; Section 0 of the arcade map is 14 pages wide.
+.assert (sd_sched_page - sd_base) .mod sd_sched_stride <> 0, error, "Scheduler record offsets must distinguish table and legacy records"
+.assert (sd_sched_pages - 1) * sd_sched_stride < 256, error, "Scheduler table too long for Y indexing"
 
 ; Stage 1 constants (kept for clarity and regression compatibility)
 arcade_enemy_x = 312

@@ -50,6 +50,8 @@ course_desc:
 
 .if course_is_scroll
     .include "scroll-course-map.inc"
+    ; tools/convert-stage-map.py writes 3 pages; the scheduler reads sd_sched_pages.
+    .res (::sd_sched_pages - 3) * ::sd_sched_stride, $ff
 .else
     .include "platform-course-map.inc"
     .ifdef COURSE_SEQUENCE
