@@ -699,6 +699,8 @@ pan_map_tile:
     beq @pan_arc_grass
     cmp #mt_dirt
     beq @pan_arc_dirt
+    cmp #mt_floor_top
+    bcs @pan_arc_grass
     lda #mt_tomb_bg
 @pan_deco_range:
     ; mt_cross(7)..mt_castle(14) -> base tile $4C, $50, ..., $68

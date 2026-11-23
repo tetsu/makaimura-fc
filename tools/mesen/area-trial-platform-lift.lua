@@ -1,7 +1,7 @@
 -- Take a vertical mover to a ledge beyond jump height from the floor.
 local cpu, ppu = emu.memType.nesMemory, emu.memType.nesPpuDebug
 local frame, nextInput, step = 0, {}, "boot"
-local splitY, previousLift, riderX, resumeFrame
+local splitY, previousLift, riderX
 local liftX, topY, bottomY = 96, 104, 160
 local floorY, ledgeY = 176, 112
 
@@ -55,12 +55,10 @@ emu.addEventCallback(function()
         check(playerY + 16 - liftY == floorY - bottomY,
             "retry did not restore the lift to its bottom stop")
         step = "approach"
-        resumeFrame = frame
         return
     end
-    -- The split resumes one or two frames after the reset OAM, depending on whether the
-    -- redraw ends inside vertical blank (enable_screen polls $2002 for the next one).
-    if not cameraY and resumeFrame and frame <= resumeFrame + 2 then return end
+    -- The split is back from the first frame after the reset (enable_terrain waits for
+    -- the NMI that starts it).
     check(cameraY, "missing playfield scroll")
     local feet = playerY + 17 + cameraY
     local lift = liftY + 1 + cameraY

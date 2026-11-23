@@ -10,6 +10,11 @@ FC rows follow docs/revision-g-stage-data.md: FC y = camera Y + 255 - Y, so with
 camera Y 0 the FC row is the arcade row counted from the top. The player's feet
 stand at arcade Y = tile bottom + ground height + 18 (start and checkpoint Y 64 on
 the height-14 floor), which is FC feet 16 * row - 2 - height.
+
+A floor tile of height h ($448E) holds the feet from that surface down to the tile's
+in-tile height 0, which is FC cell row - 1 from offset 14 - h to 14 ($8B0A). The cell
+says where the surface is: mt_floor for height 14 (offset 0), mt_floor_top + offset - 1
+for the lower ones (the forest bumps and the 1 px step before the lake).
 """
 
 import argparse
@@ -27,11 +32,16 @@ MT_LADDER = 5
 MT_FLOOR = 15           # one-way floor drawn as grass
 MT_DIRT = 16            # no collision, drawn as dirt
 MT_TOMB = 17            # drawn as a tombstone; the box is in the tombstone table
+MT_FLOOR_TOP = 18       # one-way floors whose surface is 1..14 px into the cell
+FULL_HEIGHT = 14        # the height that puts the surface at the top of the FC cell
 
 
-def floor_row(arcade_row, height):
-    """FC map row whose top is the standing line, rounded to the 16 px grid."""
-    return round((16 * arcade_row - 2 - height) / 16)
+def floor_cell(height):
+    """Metatile of a floor of this arcade height in the FC row above its tile."""
+    if not 0 < height <= FULL_HEIGHT:
+        raise ValueError(f"floor height {height} does not fit one FC cell")
+    top = FULL_HEIGHT - height
+    return MT_FLOOR if top == 0 else MT_FLOOR_TOP + top - 1
 
 
 def convert(tiles, collision, supports):
@@ -44,7 +54,8 @@ def convert(tiles, collision, supports):
                 continue
             height = collision["ground"][code]
             if height:
-                floors.setdefault(col, set()).add(floor_row(row, height))
+                # The surface is in the FC row above the tile (feet 16 * row - 2 - height).
+                floors.setdefault(col, {})[row - 1] = floor_cell(height)
             if collision["ladder"][code]:
                 # A ladder tile sits one row lower than the floor its top serves.
                 cells[col][row - 1] = MT_LADDER
@@ -54,9 +65,9 @@ def convert(tiles, collision, supports):
         if not rows:
             pits.append(col)
             continue
-        for row in rows:
+        for row, cell in rows.items():
             if cells[col][row] != MT_LADDER:
-                cells[col][row] = MT_FLOOR
+                cells[col][row] = cell
         for row in range(max(rows) + 1, ROWS):
             cells[col][row] = MT_DIRT
     tombs = []

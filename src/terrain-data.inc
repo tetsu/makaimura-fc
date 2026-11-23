@@ -27,6 +27,10 @@ mt_castle = 14
 mt_floor = 15       ; one-way floor, drawn as grass
 mt_dirt = 16        ; no collision, drawn as dirt
 mt_tomb = 17        ; tombstone art; its box is revg_tomb_* (ap_tomb_box)
+; One-way floors whose surface is 1..14 px below the cell top (mt_floor_top + offset - 1),
+; for arcade floor heights 13..0 (ap_probe_foot). Drawn as grass.
+mt_floor_top = 18
+mt_floor_last = mt_floor_top + 13
 .endif
 
 ; Metatile collision attribute bits (bits 2-4 select terrain type).
@@ -313,6 +317,9 @@ metatile_attr:
     .byte tile_type_oneway  ; mt_floor
     .byte tile_type_air     ; mt_dirt
     .byte tile_type_air     ; mt_tomb
+    .repeat mt_floor_last - mt_floor_top + 1
+    .byte tile_type_oneway  ; mt_floor_top..mt_floor_last
+    .endrepeat
 .endif
 
 cliff_gravel = (terrain_tiles - glyphs) / 16

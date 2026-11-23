@@ -117,14 +117,22 @@ emu.addEventCallback(function()
             input = {start = true}
         end
     elseif phase == "retry" then
+        -- With the screen off, the restart sets the player a frame or two before it clears
+        -- the enemies, and the first update after it can already spawn the page's turret.
+        -- So the pool must be seen empty at some point before the screen comes back on.
         if ready and state == 0 then
-            if not check(x == 416 and read(PLAYER_FEET) == 176 and camera == 256
-                    and read(CHECKPOINT) == 1 and read(LIVES) == 2,
-                    "checkpoint camera or player state did not reset") then return end
+            local empty = true
             for slot = 0, 3 do
-                if not check(read(EN_TYPE + slot) == 0, "enemy pool was not reset") then return end
+                if read(EN_TYPE + slot) ~= 0 then empty = false end
             end
-            phase = "respawn"
+            seen.emptyPool = seen.emptyPool or empty
+            if emu.getState()["ppu.mask.backgroundEnabled"] then
+                if not check(x == 416 and read(PLAYER_FEET) == 176 and camera == 256
+                        and read(CHECKPOINT) == 1 and read(LIVES) == 2,
+                        "checkpoint camera or player state did not reset") then return end
+                if not check(seen.emptyPool, "enemy pool was not reset") then return end
+                phase = "respawn"
+            end
         end
     elseif phase == "respawn" then
         if turretAt(1, 492) then

@@ -792,14 +792,18 @@ ap_update_frame:
     beq :+
     dec ap_invuln
 :
-    ldx ap_test_hit             ; 1 or 2: a hit flying that way, 3: the time-out
-    beq @no_test_hit
+    ldx ap_test_hit             ; 1 or 2: a hit flying that way, 3: the time-out,
+    beq @no_test_hit            ; 4: the time-out after the checkpoint
     lda #0
     sta ap_test_hit
     cpx #3
     bcs :+
     jsr ap_hit_toward
     jmp @no_test_hit
+:
+    beq :+
+    lda #1                      ; the restart is at the checkpoint (arcade $0081)
+    sta checkpoint_reached
 :
     jsr ap_time_up
 @no_test_hit:
@@ -2305,6 +2309,11 @@ ap_check_side_wall:
     rts
 
 ; --- Support check: 16-bit dynamic platforms (+/-12 px), then 2D tiles ---
+.ifdef REVG_STAGE1
+ap_foot_probe = 8
+.else
+ap_foot_probe = 4
+.endif
 ap_check_support:
     lda #$ff
     sta ap_riding_plat
@@ -2358,7 +2367,8 @@ ap_check_support:
     cpx #ap_max_plats
     bne @check_plat_loop
 
-    ; Static 2D tile support (left foot X-4, right foot X+4)
+    ; Static 2D tile support (X - ap_foot_probe, then X + ap_foot_probe). The arcade $8B0A looks at
+    ; X - 8 first and then the tile 16 px to the right ($8C09 and $8BDD for size class 1).
     lda player_feet
     sta ap_probe_y
     and #$f0
@@ -2368,7 +2378,7 @@ ap_check_support:
     sta ap_tile_row_top_hi
     lda player_x
     sec
-    sbc #4
+    sbc #ap_foot_probe
     sta ap_probe_x
     lda player_x+1
     sbc #0
@@ -2377,7 +2387,7 @@ ap_check_support:
     bcs @supported
     lda player_x
     clc
-    adc #4
+    adc #ap_foot_probe
     sta ap_probe_x
     lda player_x+1
     adc #0
@@ -2407,13 +2417,27 @@ ap_probe_foot:
     rts
 @foot_oneway:
 .ifdef REVG_STAGE1
-    ; Arcade $8B0A: a floor tile holds the feet anywhere within its 14 px height ($448E),
-    ; not only when they come from above. The update then lifts them onto it ($904F).
+    ; Arcade $8B0A: a floor tile of height H ($448E) holds the feet anywhere from its
+    ; surface down to its in-tile height 0, not only when they come from above. In the FC
+    ; cell that is from offset 14 - H (0 for mt_floor, the cell's offset for mt_floor_top
+    ; and up) to 14. The update then lifts the feet onto the surface ($904F).
+    lda #0
+    cpx #mt_floor_top
+    bcc :+
+    txa
+    sbc #mt_floor_top - 1       ; C is set
+:
+    sta ap_tmp0
     lda player_feet
     and #$0f
-    sta ap_tmp0
-    lda #14
+    cmp #15
+    bcs @foot_no
     cmp ap_tmp0
+    bcc @foot_no
+    lda ap_tile_row_top
+    ora ap_tmp0
+    sta ap_tile_row_top
+    sec
     rts
 .endif
     lda ap_prev_feet_hi

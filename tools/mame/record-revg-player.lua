@@ -9,6 +9,10 @@
 -- player as the body check $F0A1 does, from an enemy on the right ($40) or the left
 -- ($80): the hit lands before the next update, which runs state 3 ($995F). Bit $100 is
 -- the time-out of $EC81 at the same point.
+--
+-- With REVG_PLAYER_CHECKPOINT set, the first controllable update sets the checkpoint flag
+-- ($0081) and runs out the clock; the schedule starts REVG_PLAYER_LEAD updates after the
+-- restart puts Arthur at the checkpoint (X 1920).
 local machine = manager.machine
 local cpu = machine.devices[":maincpu"]
 local mem = cpu.spaces.program
@@ -16,13 +20,17 @@ local frame = 0
 -- The first update that reads controls with Arthur standing at the start (see
 -- docs/revision-g-rom-map.md#1p-開始地点のプレイヤー更新).
 local first = 1140
+local restart = os.getenv("REVG_PLAYER_CHECKPOINT") ~= nil
+local lead = tonumber(os.getenv("REVG_PLAYER_LEAD") or "60")
+local trigger
+if restart then trigger, first = first, nil end
 
 local schedule = {}
 for frames, bits in string.gmatch(assert(os.getenv("REVG_PLAYER_INPUT"), "REVG_PLAYER_INPUT"),
         "(%d+):(%x+)") do
     for _ = 1, tonumber(frames) do schedule[#schedule + 1] = tonumber(bits, 16) end
 end
-local last = first + #schedule + 2
+local last = first and first + #schedule + 2
 
 local function field(port, mask)
     for _, item in pairs(machine.ioport.ports[port].fields) do
@@ -83,6 +91,13 @@ revg_frame = emu.add_machine_frame_notifier(function()
         -- off by $93: free all 40 enemy slots ($0880 + $30 * n).
         for n = 0, 39 do mem:write_u8(0x0880 + 0x30 * n, 0) end
     end
+    if frame == trigger then
+        mem:write_u8(0x0081, 1)
+        time_up()
+    elseif trigger and not first and frame > trigger + 60 and word(0x0506) == 1920 then
+        first = frame + lead
+        last = first + #schedule + 2
+    end
     -- Clear the fractions left over from the attract demo so both traces start alike.
     if frame == first then
         mem:write_u8(0x0508, 0)
@@ -90,10 +105,10 @@ revg_frame = emu.add_machine_frame_notifier(function()
     end
     -- Rows read RAM after the update that used the input of the same step. A hit lands
     -- before the update of its own step, so the row before already shows state 3.
-    local bits = frame >= first and schedule[frame - first + 1] or 0
+    local bits = first and frame >= first and schedule[frame - first + 1] or 0
     if (bits & 0xc0) ~= 0 then hit((bits & 0x40) ~= 0) end
     if (bits & 0x100) ~= 0 then time_up() end
-    local step = frame - first - 1
+    local step = first and frame - first - 1 or -1
     if step >= 0 and step <= #schedule then
         -- $051E is the facing (1 right, 2 left), $051F the crouch flag and $0526 the
         -- ladder flag. $AD is the blink timer after a hit, $90 the end of the death.
@@ -109,6 +124,6 @@ revg_frame = emu.add_machine_frame_notifier(function()
     end
     coin:set_value(frame >= 400 and frame < 404 and 1 or 0)
     start:set_value(frame >= 500 and frame < 504 and 1 or 0)
-    local input = frame >= first and schedule[frame - first + 1] or 0
+    local input = first and frame >= first and schedule[frame - first + 1] or 0
     for mask, item in pairs(p1) do item:set_value((input & mask) ~= 0 and 1 or 0) end
 end)

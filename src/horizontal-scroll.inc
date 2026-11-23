@@ -85,15 +85,32 @@ enable_static_screen:
     rts
 
 enable_terrain:
+    lda scene
+    cmp #2
+    beq enable_hud_terrain
+    cmp #4
+    beq enable_hud_terrain
     jsr enable_screen
     lda #0
     sta terrain_frame
-    jsr apply_camera
+    jmp apply_camera
+enable_hud_terrain:
+    ; The NMI starts the HUD split ($F000) at the top of each frame. Waiting on $2002
+    ; clears the vertical blank flag before the NMI is on, so that frame had no NMI and
+    ; showed no split. Turn the NMI on first and show the screen from inside its vertical
+    ; blank, so the first frame already has the split.
+    bit $2002
+    jsr apply_camera    ; The split position, the HUD view and the NMI on.
+    lda #0
+    sta terrain_frame
+:
+    lda terrain_frame
+    beq :-
+    lda #0
+    sta terrain_frame
     lda scene
     cmp #2
     beq enable_hud_sprites
-    cmp #4
-    bne terrain_enabled
     lda #$18            ; Match the clipped left edge of the two-axis camera.
     jmp enable_terrain_sprites
 enable_hud_sprites:
