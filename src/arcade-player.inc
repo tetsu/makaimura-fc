@@ -792,12 +792,17 @@ ap_update_frame:
     beq :+
     dec ap_invuln
 :
-    ldx ap_test_hit
-    beq :+
+    ldx ap_test_hit             ; 1 or 2: a hit flying that way, 3: the time-out
+    beq @no_test_hit
     lda #0
     sta ap_test_hit
+    cpx #3
+    bcs :+
     jsr ap_hit_toward
+    jmp @no_test_hit
 :
+    jsr ap_time_up
+@no_test_hit:
 .endif
     jsr ap_map_enemy_bank      ; The enemy routines below and the shot checks are in Bank 4.
     jsr ap_update_rank
@@ -809,7 +814,27 @@ ap_update_frame:
     jsr ap_check_items
     jsr ap_check_enemies_contact
     jsr ap_check_hazard
+.ifdef REVG_STAGE1
+    ; The clock stops during the death, so it stays at 000 after a time-out. At 000 the
+    ; arcade ($EC81) starts the death from lying down instead of a miss.
+    lda player_hit
+    bne @clock_done
+    lda ap_state
+    cmp #ap_state_knockback
+    bne :+
+    lda ap_kb_dying
+    bne @clock_done
+:
     jsr tick_campaign_clock
+    lda player_hit
+    beq @clock_done
+    lda #0
+    sta player_hit
+    jsr ap_time_up
+@clock_done:
+.else
+    jsr tick_campaign_clock
+.endif
     lda player_hit
     beq @check_goal
     lda #ap_armor_dead
@@ -1644,6 +1669,12 @@ ap_jump_vx_accel = $0fa0        ; $93BA: added while rising, taken off while fal
 ap_jump_gravity = $3d90
 ap_knock_vx_accel = $0df0       ; $9A59, the knockback
 ap_knock_gravity = $4590
+ap_zombie_box_x = 9             ; $F122: X -9 to +9
+ap_zombie_box_below = 19        ; height -19 to +19, crouching -19 to +13 ($F1BA)
+ap_zombie_box_crouch_above = 13
+; $F6BE: the miss when the height above the camera is 32 or less. player_feet is
+; 254 - height (the start stands at height 62, feet 192).
+ap_pit_feet = 254 - 32
 ap_jump_vy_max = 5
 ap_step_air:
 .ifdef REVG_STAGE1
@@ -2445,7 +2476,11 @@ ap_check_hazard:
     lda ap_player_y_hi
     bne @fatal_hazard
     lda player_feet
+.ifdef REVG_STAGE1
+    cmp #ap_pit_feet
+.else
     cmp #232
+.endif
     bcs @fatal_hazard
     jmp @tile_hazard_check
 @vert_fall_check:
@@ -3249,6 +3284,28 @@ ap_hit_toward:
     jmp call_bank8_play_se
 @hit_ignored:
     rts
+
+; $EC81, the time-out: $AC = 1, $0500 = 2 and state 3 at sub-step 3 of the death, so
+; Arthur lies down where he is, even in the air or during the knockback, and the miss
+; follows 60 updates later.
+ap_time_up:
+    lda ap_state
+    cmp #ap_state_dead
+    beq @time_up_done
+    lda #ap_state_knockback
+    sta ap_state
+    lda #$ff
+    sta ap_riding_plat
+    lda #0
+    sta ap_shot_phase
+    lda #1
+    sta ap_kb_dying
+    lda #3
+    sta ap_kb_step
+    lda #ap_armor_naked
+    sta ap_armor
+@time_up_done:
+    rts
 .endif
     lda #snd_se_damage
     jsr call_bank8_play_se
@@ -3282,6 +3339,55 @@ ap_hit_toward:
     rts
 
 ap_test_contact_at_probe:
+.ifdef REVG_STAGE1
+    ; $F057 with the zombie's box ($F0CA + 8 x 11; crouching $F162): hit when
+    ; enemy X - player X + 9 <= 18 and enemy height - player height + 19 <= 38
+    ; (crouching 32), both unsigned. The heights are up-positive, so the height difference
+    ; is player_feet - probe_y. The other kinds get their boxes with their arcade AI.
+    sec
+    lda ap_probe_x
+    sbc player_x
+    tay
+    lda ap_probe_x+1
+    sbc player_x+1
+    tax
+    tya
+    clc
+    adc #ap_zombie_box_x
+    tay
+    txa
+    adc #0
+    bne @revg_miss
+    cpy #ap_zombie_box_x * 2 + 1
+    bcs @revg_miss
+    sec
+    lda player_feet
+    sbc ap_probe_y
+    tay
+    lda ap_player_y_hi
+    sbc ap_probe_y_hi
+    tax
+    tya
+    clc
+    adc #ap_zombie_box_below
+    tay
+    txa
+    adc #0
+    bne @revg_miss
+    lda #ap_zombie_box_below * 2 + 1
+    ldx ap_crouch
+    beq :+
+    lda #ap_zombie_box_below + ap_zombie_box_crouch_above + 1
+:
+    sta ap_tmp0
+    cpy ap_tmp0             ; C set (miss) when the offset is past the box.
+    bcs @revg_miss
+    sec
+    rts
+@revg_miss:
+    clc
+    rts
+.else
     sec
     lda player_x
     sbc ap_probe_x
@@ -3329,6 +3435,7 @@ ap_test_contact_at_probe:
 @miss:
     clc
     rts
+.endif
 
 ap_weapon_max_shots: .byte 2, 3, 2, 2
 ap_weapon_vx_pos:    .byte 3, 4, 2, 3

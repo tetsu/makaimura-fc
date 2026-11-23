@@ -21,6 +21,8 @@ ROOT = Path(__file__).resolve().parent.parent
 RIGHT, LEFT, DOWN, UP, SHOT, JUMP = 0x01, 0x02, 0x04, 0x08, 0x10, 0x20
 # Not buttons: an enemy on the right or the left hits the player before the next update.
 HIT_RIGHT, HIT_LEFT = 0x40, 0x80
+# Also not a button: the clock runs out ($EC81) at the same point.
+TIME_UP = 0x100
 
 # Runs of (updates, arcade P1 bits). The start position is X 96 on flat ground and the
 # first tombstone's left edge is X 256, so the other trials stay between them.
@@ -85,6 +87,20 @@ TRIALS = {
     # Hits in the air: during a forward jump, and the death during a straight jump.
     "hit-air": [(10, 0), (20, RIGHT), (1, RIGHT | JUMP), (10, RIGHT), (1, RIGHT | HIT_LEFT),
                 (60, 0), (130, 0), (1, JUMP), (8, 0), (1, HIT_RIGHT), (100, 0)],
+    # The time-out ($EC81) starts the death lying down: on the ground while crouching,
+    # and in the air, where Arthur stays up to the miss.
+    "time-up": [(10, 0), (20, DOWN), (1, DOWN | TIME_UP), (80, DOWN)],
+    "time-up-air": [(10, 0), (20, RIGHT), (1, RIGHT | JUMP), (15, RIGHT), (1, TIME_UP),
+                    (80, 0)],
+    # Into the lake (X 1648-1791): the miss when the height is 32 or less ($F6BE). The
+    # walk stops at each tombstone on the ground (X 256, 416, 528, 752, 960, 1104, 1264
+    # and 1520) and jumps over it from there.
+    "pit": [(10, 0), (160, RIGHT), (1, RIGHT | JUMP), (50, RIGHT), (150, RIGHT),
+            (1, RIGHT | JUMP), (50, RIGHT), (110, RIGHT), (1, RIGHT | JUMP), (50, RIGHT),
+            (210, RIGHT), (1, RIGHT | JUMP), (50, RIGHT), (190, RIGHT), (1, RIGHT | JUMP),
+            (50, RIGHT), (140, RIGHT), (1, RIGHT | JUMP), (50, RIGHT), (150, RIGHT),
+            (1, RIGHT | JUMP), (50, RIGHT), (240, RIGHT), (1, RIGHT | JUMP), (50, RIGHT),
+            (57, RIGHT), (1, RIGHT | JUMP), (80, RIGHT), (10, 0)],
 }
 
 # Trials that show a known difference outside the player's movement. They run only when
@@ -138,7 +154,11 @@ emu.addEventCallback(function()
     -- A hit lands after the player update of the next frame (ap_test_hit $60FD), which
     -- the FC runs one step ahead of the MAME row of the same input.
     local hit = (inputs[step + 1] or 0) & %(hits)d
-    if hit ~= 0 then emu.write(0x60fd, hit == %(hit_right)d and 2 or 1, cpu) end
+    if hit == %(time_up)d then
+        emu.write(0x60fd, 3, cpu)
+    elseif hit ~= 0 then
+        emu.write(0x60fd, hit == %(hit_right)d and 2 or 1, cpu)
+    end
 %(buttons)s
 end, emu.eventType.endFrame)
 """
@@ -192,7 +212,8 @@ def record_fc(args, name, runs):
     script = ROOT / "build/player-trace" / f"{name}.lua"
     script.parent.mkdir(parents=True, exist_ok=True)
     script.write_text(MESEN_SCRIPT % {"inputs": inputs, "buttons": buttons,
-                                      "hits": HIT_RIGHT | HIT_LEFT, "hit_right": HIT_RIGHT},
+                                      "hits": HIT_RIGHT | HIT_LEFT | TIME_UP,
+                                      "hit_right": HIT_RIGHT, "time_up": TIME_UP},
                       encoding="utf-8")
     command = [str(args.mesen), "--doNotSaveSettings", "--testRunner", "--timeout=120",
                str(script), str(args.rom)]
@@ -228,9 +249,11 @@ def relative(rows):
     with its X and height from the player's start, facing left, crouching, on a ladder,
     in state 3 (hit), the blink timer, and the miss."""
     _, x0, y0, c0, *_ = rows[0]
-    return [(x - x0, y - y0, c - c0, air, timer,
+    # After the miss only the miss itself counts as the state: a fall into a pit misses
+    # without state 3, and the FC turns to its own miss state either way.
+    return [(x - x0, y - y0, c - c0, air and not miss, timer,
              tuple((slot, sx - x0, sy - y0) for slot, sx, sy in shots), left, crouch, ladder,
-             hurt, blink, miss)
+             hurt and not miss, blink, miss)
             for _, x, y, c, air, timer, shots, left, crouch, ladder, hurt, blink, miss in rows]
 
 

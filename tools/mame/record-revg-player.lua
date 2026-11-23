@@ -7,7 +7,8 @@
 -- REVG_PLAYER_INPUT is a list of "frames:bits" runs separated by commas, with the arcade
 -- P1 bits: right $01, left $02, down $04, up $08, shot $10, jump $20. Two more bits hit the
 -- player as the body check $F0A1 does, from an enemy on the right ($40) or the left
--- ($80): the hit lands before the next update, which runs state 3 ($995F).
+-- ($80): the hit lands before the next update, which runs state 3 ($995F). Bit $100 is
+-- the time-out of $EC81 at the same point.
 local machine = manager.machine
 local cpu = machine.devices[":maincpu"]
 local mem = cpu.spaces.program
@@ -64,10 +65,24 @@ local function hit(from_right)
     mem:write_u8(0x0505, 0)
 end
 
+-- $EC81, the time-out: $AC = 1, $0500 = 2, state 3 at sub-step 3 (the miss music of
+-- $788C is left out).
+local function time_up()
+    mem:write_u8(0x00ac, 1)
+    mem:write_u8(0x0500, 2)
+    mem:write_u8(0x0503, 3)
+    mem:write_u8(0x0504, 3)
+end
+
 print("type,step,input,x,x_fraction,y,y_fraction,mode,phase,direction,camera_x,facing,shot_timer,shots,crouch,ladder,blink,miss")
 revg_frame = emu.add_machine_frame_notifier(function()
     frame = frame + 1
-    if frame >= 1000 then mem:write_u8(0x0093, 0) end
+    if frame >= 1000 then
+        mem:write_u8(0x0093, 0)
+        -- The enemies placed with the section (the crows on the tombstones) are not held
+        -- off by $93: free all 40 enemy slots ($0880 + $30 * n).
+        for n = 0, 39 do mem:write_u8(0x0880 + 0x30 * n, 0) end
+    end
     -- Clear the fractions left over from the attract demo so both traces start alike.
     if frame == first then
         mem:write_u8(0x0508, 0)
@@ -77,6 +92,7 @@ revg_frame = emu.add_machine_frame_notifier(function()
     -- before the update of its own step, so the row before already shows state 3.
     local bits = frame >= first and schedule[frame - first + 1] or 0
     if (bits & 0xc0) ~= 0 then hit((bits & 0x40) ~= 0) end
+    if (bits & 0x100) ~= 0 then time_up() end
     local step = frame - first - 1
     if step >= 0 and step <= #schedule then
         -- $051E is the facing (1 right, 2 left), $051F the crouch flag and $0526 the
