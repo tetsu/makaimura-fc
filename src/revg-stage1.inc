@@ -9,7 +9,7 @@ revg_cp_page = 7
 revg_floor = 192
 revg_goal_x = 3568              ; Right walk limit. The stage ends when the player takes the key
 revg_raft_x = 1664              ; Arcade path platform (1664, 36) over the lake
-revg_raft_feet = 218
+revg_raft_feet = 194            ; MAME: the player stands at Y=60 on the raft at Y=36
 revg_raft_span = 112            ; Lake columns 103-111 (X 1648-1791)
 ; Placeholder enemies until the arcade enemy AI (TODO C-2). Zombies use the prototype
 ; zombie and appear where the arcade puts the first one: camera X + 128 + 144.

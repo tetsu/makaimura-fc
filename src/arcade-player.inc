@@ -493,6 +493,12 @@ ap_init_stage:
     dex
     bpl :-
     jsr ap_update_cam_y
+.ifdef REVG_STAGE1
+    lda demo_active
+    beq :+
+    rts                         ; the opening keeps its music
+:
+.endif
     lda sd_bgm_stage
     jmp call_bank8_play_song
 
@@ -638,6 +644,7 @@ ap_load_stage_visuals:
 .ifdef REVG_STAGE1
     ; The arcade sprites: an empty tile cache and their palettes.
     jsr rs_init
+    jsr op_start
     lda #$3f
     sta $2006
     lda #$10
@@ -772,6 +779,14 @@ ap_map_enemy_bank:
     jmp select_bank2
 
 ap_update_frame:
+.ifdef REVG_STAGE1
+    lda demo_active
+    beq :+
+    jsr op_tick                 ; the opening demo: no play, only its frames
+    jsr draw_sprites
+    jmp submit_frame
+:
+.endif
     lda ap_pad
     eor #$ff
     sta ap_tmp0
@@ -3160,6 +3175,48 @@ ap_tomb_box:
 
 ; Carry set if shot slot ap_loop_idx hits any tombstone platform.
 ap_shot_hits_tombstone:
+.ifdef REVG_STAGE1
+    ; The section 0 tombstones (revg_tomb_*): the shot point within 14 px of the centre X
+    ; and between the floor and the stone's top, 19 px up (the box of ap_tomb_box).
+    ldx ap_loop_idx
+    lda ps_y_hi,x
+    bne @revg_miss
+    ldy #revg_tomb_count - 1
+@revg_loop:
+    lda ps_x_lo,x
+    sec
+    sbc revg_tomb_x_lo,y
+    sta ap_tmp0
+    lda ps_x_hi,x
+    sbc revg_tomb_x_hi,y
+    sta ap_tmp1
+    lda ap_tmp0
+    clc
+    adc #14
+    lda ap_tmp1
+    adc #0
+    bne @revg_next
+    lda ap_tmp0
+    clc
+    adc #14
+    cmp #29
+    bcs @revg_next
+    lda revg_tomb_feet,y
+    sec
+    sbc ps_y,x
+    cmp #20
+    bcs @revg_next
+    lda #snd_se_hit
+    jsr call_bank8_play_se
+    sec
+    rts
+@revg_next:
+    dey
+    bpl @revg_loop
+@revg_miss:
+    clc
+    rts
+.endif
     ldy #0
 @tomb_loop:
     lda plat_type,y
@@ -3358,6 +3415,11 @@ ap_hit_toward:
     ; The FC draws Arthur without the armor from the hit; the arcade $AC turns 1 on landing.
     lda #ap_armor_naked
     sta ap_armor
+    lda ap_kb_dying
+    beq :+
+    lda #snd_se_death
+    jmp call_bank8_play_se
+:
     lda #snd_se_damage
     jmp call_bank8_play_se
 @hit_ignored:

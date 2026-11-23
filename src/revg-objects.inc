@@ -566,10 +566,16 @@ revg_draw_sprites:
     ldx #1
 :
     stx rs_budget
+    lda demo_active
+    beq :+
+    jsr rs_draw_opening
+    jmp @hide
+:
     jsr rp_draw_player
     jsr rs_draw_shots
     jsr rs_draw_platforms
     jsr rs_draw_objects
+@hide:
     ; Hide the rest.
     lda rs_full
     bne @flush
@@ -1035,9 +1041,13 @@ rs_draw_platforms:
     pla
     jsr rs_set_x
     ldx rs_shot_i
+    ; The raft's object point is 24 px under where the player stands (arcade Y 36 and 60).
     lda plat_y,x
+    clc
+    adc #24
     pha
     lda plat_y_hi,x
+    adc #0
     tax
     pla
     jsr rs_set_fc_y

@@ -142,7 +142,8 @@ def convert_voice(voice):
         if others and min(others) - tl <= 8:
             tl -= 4
         if mod_index == S1:
-            fb = voice.fb
+            # The OPLL's feedback 7 turns to noise on held notes: 6 at most.
+            fb = min(6, voice.fb)
         else:
             # Operators further up the chain make the modulator richer: stand in feedback.
             up = [voice.ops[i]["tl"] for i in UPSTREAM.get(voice.alg, {}).get(mod_index, [])]
@@ -154,6 +155,12 @@ def convert_voice(voice):
             # the bass.
             if level <= 45:
                 tl -= (46 - level) // 2
+            # The arcade lead (voice 6 and 29: S2 x5 into S3 x0.5 into S4 x2) is a buzzing,
+            # gritty tone at D5 and up; a two-operator copy only gets that with the
+            # modulator well up and fed back on itself (heard as the lead going missing).
+            if level <= 45 and voice.alg == 0:
+                tl -= 6
+                fb = 6
         tl = max(0, min(63, tl))
     else:
         mod, tl, fb = dict(car, tl=63), 63, 0
@@ -466,6 +473,9 @@ def main():
                 heard = sorted(pitches.get((layer, voice), [60]))
                 sounding = heard[len(heard) // 2] + 12 * math.log2(OPN_MUL[opn.ops[S4]["mul"]])
                 volume = min(15, volume + 2) if sounding < 48 else max(0, volume - 1)
+                # Headroom: with several channels at volume 0 the VRC7 output clipped
+                # (heard as crackle), so every voice goes 6 dB down from there.
+                volume = min(15, volume + 2)
                 if custom is None:
                     custom = patch
                     if patch not in patches:
@@ -476,11 +486,11 @@ def main():
                     else:
                         marks[layer_start[layer]] = patch_index
                     instruments[(layer, voice)] = (0, volume, 0)
-                    notes.append(f"${layer:04x} voice {voice}: custom {patch_index} vol {volume}")
+                    notes.append(f"${layer:04x} voice {voice}: custom {patch_index} vol {volume} pitch {sounding:.0f}")
                 else:
                     number, transpose = nearest_builtin(patch)
                     instruments[(layer, voice)] = (number, volume, transpose)
-                    notes.append(f"${layer:04x} voice {voice}: built-in {number} {transpose:+d} vol {volume}")
+                    notes.append(f"${layer:04x} voice {voice}: built-in {number} {transpose:+d} vol {volume} pitch {sounding:.0f}")
         body = [f"; {index + 1} {name}: " + "; ".join(notes)]
         if looping:
             starts = [frame_of(lp[0], origin) for lp in loops if lp]

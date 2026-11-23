@@ -118,6 +118,10 @@ start_arcade_stage:
     sta ap_loop
     sta ap_bounce_back
     jsr blank_display
+.ifdef REVG_STAGE1
+    jsr load_game_patterns
+    jsr clear_screen            ; the title's name table would stay around the HUD
+.endif
     jsr reset_campaign_clock
     lda #arcade_stage_bank
     jsr select_bank0

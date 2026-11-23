@@ -990,6 +990,8 @@ oz_shot_hit:
     lda #0
     sta ob_carry,x
 :
+    lda #snd_se_clank
+    jsr call_bank8_play_se
     sec
     rts
 @not_shield:
@@ -1010,6 +1012,8 @@ oz_shot_hit:
     lda ob_hp,x
     beq @dies
     dec ob_hp,x
+    lda #snd_se_hit
+    jsr call_bank8_play_se
     jmp @spent
 @dies:
     jsr oz_kill
@@ -1026,6 +1030,8 @@ oz_shot_hit:
 
 ; Object X is destroyed: points, then the explosion (and a pot's item at its end).
 oz_kill:
+    lda #snd_se_kill
+    jsr call_bank8_play_se
     ldy ob_kind,x
     lda ok_points,y
     beq :+
@@ -1259,16 +1265,19 @@ oz_item:
     bne @not_armour
     lda #ap_armor_full
     sta ap_armor
-    rts
+    lda #snd_se_pickup
+    jmp call_bank8_play_se
 @not_armour:
     cpy #6
     bcs @bonus
     lda oz_item_weapon,y
     sta ap_weapon
     inc campaign_hud_dirty
-    lda #snd_se_key
+    lda #snd_se_pickup
     jmp call_bank8_play_se
 @bonus:
+    lda #snd_se_pickup
+    jsr call_bank8_play_se
     lda #2                      ; 200
     cpy #19
     bne :+
@@ -1485,6 +1494,8 @@ oz_aimed_shot:
     lda #0
     sta ob_carry,x
     jsr oz_aim
+    lda #snd_se_efire
+    jsr call_bank8_play_se
     clc
 @none:
     rts
@@ -1631,6 +1642,8 @@ oz_zombie:
     beq @rise
     jmp oz_zombie_walk_start
 @rise:
+    lda #snd_se_rise
+    jsr call_bank8_play_se
     lda #1
     sta ob_state,x
     lda #87
@@ -1639,17 +1652,9 @@ oz_zombie:
     ldy #>rf_5272
     sta oz_t2
     sty oz_t3
-    lda #<rf_523C
+    lda #<rf_523C               ; the $523C series faces right ($526D goes on to the right walk $52FC)
     ldy #>rf_523C
-    lda ob_dir,x
-    beq :+
-    lda #<rf_523C
-    ldy #>rf_523C
-    jmp ob_anim
-:
-    lda #<rf_5272
-    ldy #>rf_5272
-    jmp ob_anim
+    jmp ob_anim_dir
 @not_down:
     cmp #1
     bne @not_rising
@@ -1663,7 +1668,7 @@ oz_zombie:
     sty oz_t3
     lda #<rf_5245
     ldy #>rf_5245
-    jsr oz_anim_lr
+    jsr ob_anim_dir
 :
     lda ob_t0,x
     cmp #32
@@ -1674,7 +1679,7 @@ oz_zombie:
     sty oz_t3
     lda #<rf_524D
     ldy #>rf_524D
-    jsr oz_anim_lr
+    jsr ob_anim_dir
 :
     lda ob_t0,x
     bne :+
@@ -1706,7 +1711,7 @@ oz_zombie:
     sta ob_t0,x
     rts
 @walk_on:
-    lda frames
+    lda rs_frame
     and #1
     bne :+
     dec ob_t1,x                 ; the 180-step walk time ($0A)
@@ -1738,7 +1743,7 @@ oz_zombie:
     sty oz_t3
     lda #<rf_525F
     ldy #>rf_525F
-    jmp oz_anim_lr
+    jmp ob_anim_dir
 @sinking:
     dec ob_t0,x
     lda ob_t0,x
@@ -1750,7 +1755,7 @@ oz_zombie:
     sty oz_t3
     lda #<rf_5267
     ldy #>rf_5267
-    jsr oz_anim_lr
+    jsr ob_anim_dir
 :
     lda ob_t0,x
     bne :+
@@ -1776,7 +1781,7 @@ oz_zombie_walk_start:
     sty oz_t3
     lda #<rf_52FC
     ldy #>rf_52FC
-    ; fall through
+    jmp ob_anim_dir
 
 ; A/Y = the left animation, oz_t2/oz_t3 = the right one: by ob_dir.
 oz_anim_lr:
@@ -2196,11 +2201,24 @@ oz_knight:
     rts
 
 ; --- Red Arremer (type $05) -------------------------------------------------------------
-; 0 sleeping until the player is within 96 px (X) and 48 px (Y), 1 waking (16 frames),
-; 2 walking (keeps 48-112 px from the player), 3 shooting, 4 flying at the player,
-; 5 diving. Three hits.
+; docs/revision-g-enemy-behaviour.md. States (ob_state): 0 sleeping until the player is
+; within 96 px (X) and 48 px (Y), 1 waking (16 frames, $0001), 2 walking ($0100), 3
+; shooting ($0102), 4 flying ($0101), 5 coming down to the ground, 6 keeping its distance
+; ($0103), 7 dodging a shot ($0105), 8 the level rush and 9 the swoop ($0106), 10 powering
+; up ($0104). Three hits.
+; Fields: ob_t0 fire timer (+$06), ob_t1 rush timer (+$07), ob_t2 state timer, ob_aux fly
+; count (+$08, every 8 frames), ob_aux2 its table index, ob_by_l the ground Y, ob_by_h the
+; power-up count (+$09, every 32 frames), ob_var the power stage (+$0D), ob_step the phase.
 oz_arremer_fire: .byte 90, 100, 220, 130, 160, 180, 200, 120
 oz_arremer_rush: .byte 72, 136, 85, 92, 108, 144, 70, 49
+oz_arremer_flyt: .byte 10, 20, 30, 40, 50, 60
+; By the power stage: fly 1.75 / 2.0, distance 2.13 / 2.25, dodge 1.13 / 1.38, rush
+; 2.13 / 2.38 px (8.8).
+oz_arremer_fly_v:   .byte $c0, $00
+oz_arremer_fly_vi:  .byte 1, 2
+oz_arremer_dist_v:  .byte $22, $40
+oz_arremer_dodge_v: .byte $21, $61
+oz_arremer_rush_v:  .byte $22, $61
 
 oz_arremer:
     lda ob_state,x
@@ -2231,72 +2249,51 @@ oz_arremer:
     bne @awake
     dec ob_t0,x
     bne @out
+    ; $0003: three hits, the timers from the table of difficulty row 0.
     lda #2
-    sta ob_hp,x                 ; three hits
+    sta ob_hp,x
     lda oz_arremer_fire
     sta ob_t0,x
     lda oz_arremer_rush
     sta ob_t1,x
-    lda #0
+    lda oz_arremer_flyt
     sta ob_aux,x
+    lda #1
+    sta ob_aux2,x
+    lda #50                     ; 50 x 32 = 1,600 frames
+    sta ob_by_h,x
+    lda #0
+    sta ob_var,x
+    lda ob_yl,x
+    sta ob_by_l,x
     jmp oz_arremer_walk
 @awake:
-    cmp #2
-    beq @walking
-    cmp #3
-    bne :+
-    jmp oz_arremer_shoot
-:
-    cmp #4
-    bne :+
-    jmp oz_arremer_fly
-:
-    jmp oz_arremer_dive
-@walking:
+    asl a
+    tay
+    lda @states-3,y
+    pha
+    lda @states-4,y
+    pha
+    rts
+@states:
+    .word oz_arremer_walking - 1, oz_arremer_shoot - 1, oz_arremer_fly - 1
+    .word oz_arremer_down - 1, oz_arremer_distance - 1, oz_arremer_dodge - 1
+    .word oz_arremer_rush_level - 1, oz_arremer_swoop - 1, oz_arremer_power - 1
+
+; --- walking ($0100) and its checks ---
+oz_arremer_walking:
     lda ob_flash,x
-    bne :+
+    bne :+                      ; hit: no move for the hit pose
     jsr ob_move
 :
     jsr oz_face_player_keep
-    ; Keep 48-112 px away.
-    jsr oz_rel_player
-    jsr oz_abs_d
-    sta oz_t0
-    lda ob_dir,x
-    sta oz_t1
-    lda oz_t0
-    cmp #48
-    bcs :+
-    lda oz_t1                   ; too close: walk away
-    eor #1
-    sta ob_dir,x
     jsr oz_arremer_speed
-    lda oz_t1
-    sta ob_dir,x
-    jmp @timers
-:
-    cmp #112
-    bcc :+
-    jsr oz_arremer_speed        ; too far: walk closer
-    jmp @timers
-:
-    jsr ob_stop
-@timers:
+    ; Fire (+$06).
     dec ob_t0,x
     bne :+
-    lda #3
-    sta ob_state,x
-    lda #12
-    sta ob_t2,x
-    jsr ob_stop
-    lda #<rf_4C58
-    ldy #>rf_4C58
-    sta oz_t2
-    sty oz_t3
-    lda #<rf_4C53
-    ldy #>rf_4C53
-    jmp oz_anim_lr
+    jmp oz_arremer_start_shoot
 :
+    ; Rush (+$07).
     dec ob_t1,x
     bne :+
     jsr oz_random
@@ -2304,16 +2301,58 @@ oz_arremer:
     tay
     lda oz_arremer_rush,y
     sta ob_t1,x
+    jmp oz_arremer_start_rush
+:
+    ; Fly (+$08, every 8 frames).
+    lda rs_frame
+    and #7
+    bne :+
+    dec ob_aux,x
+    bne :+
+    ldy ob_aux2,x
+    lda oz_arremer_flyt,y
+    sta ob_aux,x
+    iny
+    cpy #6
+    bcc @idx
+    ldy #0
+@idx:
+    tya
+    sta ob_aux2,x
     jmp oz_arremer_takeoff
 :
+    ; Power up (+$09, every 32 frames, stage 0 only).
+    lda ob_var,x
+    bne :+
+    lda rs_frame
+    and #31
+    bne :+
+    dec ob_by_h,x
+    bne :+
+    jmp oz_arremer_start_power
+:
+    ; Dodge: a shot coming at it on the player's side.
+    jsr oz_arremer_threat
+    bcc :+
+    jmp oz_arremer_start_dodge
+:
+    ; Distance: outside 48-112 px.
+    jsr oz_rel_player
+    jsr oz_abs_d
+    cmp #48
+    bcc :+
+    cmp #113
+    bcc @done
+:
+    jmp oz_arremer_start_distance
+@done:
     rts
 
-; Walk toward ob_dir at 0.80 px, with the walk frames.
+; Walk toward ob_dir at 0.80 px.
 oz_arremer_speed:
     lda #$cd
     ldy #0
-    jsr ob_set_vx_dir
-    rts
+    jmp ob_set_vx_dir
 
 oz_face_player_keep:
     lda ob_dir,x
@@ -2329,6 +2368,12 @@ oz_face_player_keep:
 oz_arremer_walk:
     lda #2
     sta ob_state,x
+    lda #ofl_shootable | ofl_harmful
+    sta ob_flags,x
+    lda #0
+    sta ob_vyf,x
+    sta ob_vyi,x
+    jsr oz_face_player
 oz_arremer_walk_anim:
     lda #<rf_4DBB
     ldy #>rf_4DBB
@@ -2336,6 +2381,92 @@ oz_arremer_walk_anim:
     sty oz_t3
     lda #<rf_4DA7
     ldy #>rf_4DA7
+    jmp oz_anim_lr
+
+; C set when a player shot is within 64 px on the player's side of it and near its
+; height (the shot's FC Y within 24 px of 12 px above its feet).
+oz_arremer_threat:
+    lda ob_yl,x
+; A = the Y to measure the shot's height against (the ground while floating, so that it
+; stays up until the shot has gone by).
+oz_arremer_threat_at:
+    pha
+    jsr oz_rel_player
+    jsr oz_abs_d
+    sta oz_t3
+    pla
+    sta oz_t2
+    lda oz_t3
+    cmp #32
+    bcc @no                     ; close to the player: no dodging
+    lda #254 - 12
+    sec
+    sbc oz_t2
+    sta oz_t2                   ; FC Y of its middle (feet 254 - Y, 12 up)
+    ldy #ap_max_shots - 1
+@shot:
+    lda ps_active,y
+    beq @next
+    cmp #ap_shot_spent
+    beq @next
+    lda ps_y_hi,y
+    bne @next
+    lda ps_y,y
+    sec
+    sbc oz_t2
+    clc
+    adc #24
+    cmp #48
+    bcs @next
+    ; sdx = shot X - its X: on the player's side and within 64 px.
+    lda ps_x_lo,y
+    sec
+    sbc ob_xl,x
+    sta oz_t0
+    lda ps_x_hi,y
+    sbc ob_xh,x
+    sta oz_t1
+    eor oz_dx+1
+    bmi @next                   ; the other side
+    lda oz_t1
+    bpl :+
+    lda oz_t0
+    eor #$ff
+    clc
+    adc #1
+    sta oz_t0
+    lda oz_t1
+    eor #$ff
+    adc #0
+    sta oz_t1
+:
+    lda oz_t1
+    bne @next
+    lda oz_t0
+    cmp #64
+    bcs @next
+    sec
+    rts
+@next:
+    dey
+    bpl @shot
+@no:
+    clc
+    rts
+
+; --- shooting ($0102): 6 frames, the shot, 6 frames ---
+oz_arremer_start_shoot:
+    lda #3
+    sta ob_state,x
+    lda #12
+    sta ob_t2,x
+    jsr ob_stop
+    lda #<rf_4C58
+    ldy #>rf_4C58
+    sta oz_t2
+    sty oz_t3
+    lda #<rf_4C53
+    ldy #>rf_4C53
     jmp oz_anim_lr
 
 oz_arremer_shoot:
@@ -2348,8 +2479,11 @@ oz_arremer_shoot:
     lda ob_xh,x
     sta oz_t1
     lda ob_yl,x
+    clc
+    adc #16
     sta oz_t2
     lda ob_yh,x
+    adc #0
     sta oz_t3
     stx oz_obj
     lda #<rf_FDD7
@@ -2369,23 +2503,29 @@ oz_arremer_shoot:
 :
     rts
 
-; Fly up 56-88 px in 21 frames, then at the player.
+; --- flying ($0101): up 56-88 px in 21 frames, at the player, 80 px past, 5 frames ---
 oz_arremer_takeoff:
     lda #4
     sta ob_state,x
+    lda #0
+    sta ob_step,x
     lda #21
     sta ob_t2,x
     jsr oz_face_player
-    lda #0
-    sta ob_vxf,x
-    sta ob_vxi,x
+    jsr ob_stop
     jsr oz_random
     and #$7f
     clc
-    adc #$a0
+    adc #$ab
     sta ob_vyf,x
     lda #2
-    sta ob_vyi,x                ; 2.6-3.1 px up
+    adc #0
+    sta ob_vyi,x                ; 2.67-3.17 px: 56-67 px
+    jsr oz_random
+    bpl :+
+    inc ob_vyi,x                ; or 3.67-4.17 px: 77-88 px
+:
+oz_arremer_fly_anim:
     lda #<rf_4E09
     ldy #>rf_4E09
     sta oz_t2
@@ -2396,63 +2536,305 @@ oz_arremer_takeoff:
 
 oz_arremer_fly:
     jsr ob_move
-    lda ob_t2,x
-    beq :+
+    lda ob_step,x
+    bne @glide
     dec ob_t2,x
     bne @out
-    ; Level off and glide at the player at 1.75 px.
+    ; At the player at 1.75 px (2.0 powered up).
+    inc ob_step,x
     lda #0
     sta ob_vyf,x
     sta ob_vyi,x
-    lda #$c0
-    ldy #1
+    jsr oz_face_player
+    ldy ob_var,x
+    lda oz_arremer_fly_v,y
+    pha
+    lda oz_arremer_fly_vi,y
+    tay
+    pla
     jsr ob_set_vx_dir
-    lda #120
-    sta ob_aux,x
+    lda #160                    ; a limit, in case the player keeps ahead
+    sta ob_t2,x
+    jmp oz_arremer_fly_anim
 @out:
     rts
-:
-    dec ob_aux,x
-    beq @down
-    ; 80 px past the player: come down.
+@glide:
+    cmp #2
+    beq @wait
+    dec ob_t2,x
+    beq @stop
+    ; 80 px past the player: stop.
     jsr oz_rel_player
     jsr oz_abs_d
     cmp #80
     bcc @out
     lda ob_dir,x
+    eor #1                      ; flying right (0): past when the player is left
     beq :+
-    lda oz_dx+1                 ; flying left: past when the player is right
-    bpl @down
-    rts
-:
     lda oz_dx+1
     bpl @out
-@down:
+    bmi @stop
+:
+    lda oz_dx+1
+    bmi @out
+@stop:
+    lda #2
+    sta ob_step,x
+    lda #5
+    sta ob_t2,x
+    jmp ob_stop
+@wait:
+    dec ob_t2,x
+    bne @out
+    jmp oz_arremer_start_down
+
+; --- down to the ground in 16 frames ---
+oz_arremer_start_down:
     lda #5
     sta ob_state,x
-    jsr oz_face_player
-    lda #$80
-    ldy #0
-    jsr ob_set_vx_dir
-    lda #$00
-    sta ob_vyf,x
-    lda #$fe
-    sta ob_vyi,x                ; 2 px down
-    rts
-
-oz_arremer_dive:
-    jsr ob_move
-    jsr oz_on_ground
-    bcc :+
-    jsr oz_snap_ground
-    jmp oz_arremer_walk
+    lda #16
+    sta ob_t2,x
+    jsr ob_stop
+    ; vy = -(Y - ground) / 16 (8.8)
+    lda ob_yl,x
+    sec
+    sbc ob_by_l,x
+    bcs :+
+    lda #0
 :
-    lda ob_yh,x
-    bpl :+
-    lda #62
+    sta oz_t0
+    lda #0
+    sta oz_t1
+    ldy #4
+:
+    asl oz_t0
+    rol oz_t1
+    dey
+    bne :-
+    lda #0
+    sec
+    sbc oz_t0
+    sta ob_vyf,x
+    lda #0
+    sbc oz_t1
+    sta ob_vyi,x
+    jmp oz_arremer_fly_anim
+
+oz_arremer_down:
+    jsr ob_move
+    dec ob_t2,x
+    bne :+
+    lda ob_by_l,x
     sta ob_yl,x
     lda #0
     sta ob_yh,x
+    sta ob_yf,x
+    jmp oz_arremer_walk
+:
+    rts
+
+; --- keeping its distance ($0103): away within 80 px, closer beyond, 7-27 frames ---
+oz_arremer_start_distance:
+    lda #6
+    sta ob_state,x
+    jsr oz_random
+    and #15
+    sta oz_t0
+    jsr oz_random
+    and #3
+    clc
+    adc oz_t0
+    adc #7
+    sta ob_t2,x
+    jsr oz_face_player
+    jsr oz_rel_player
+    jsr oz_abs_d
+    cmp #81
+    bcs :+
+    lda ob_dir,x
+    eor #1
+    sta ob_dir,x
+:
+    ldy ob_var,x
+    lda oz_arremer_dist_v,y
+    ldy #2
+    jsr ob_set_vx_dir
+    jmp oz_arremer_walk_anim
+
+oz_arremer_distance:
+    jsr ob_move
+    dec ob_t2,x
+    bne :+
+    jmp oz_arremer_walk
+:
+    rts
+
+; --- dodging ($0105): up for 21 frames, up to 64 floating, then down ---
+oz_arremer_start_dodge:
+    lda #7
+    sta ob_state,x
+    lda #0
+    sta ob_step,x
+    lda #21
+    sta ob_t2,x
+    jsr ob_stop
+    ldy ob_var,x
+    lda oz_arremer_dodge_v,y
+    sta ob_vyf,x
+    lda #1
+    sta ob_vyi,x
+    jmp oz_arremer_fly_anim
+
+oz_arremer_dodge:
+    jsr ob_move
+    dec ob_t2,x
+    bne @out
+    lda ob_step,x
+    bne @floating
+    inc ob_step,x
+    lda #64
+    sta ob_t2,x
+    jmp ob_stop
+@floating:
+    jmp oz_arremer_start_down
+@out:
+    lda ob_step,x
+    beq :+
+    lda ob_by_l,x
+    jsr oz_arremer_threat_at    ; floating: down once the shot has gone by
+    bcs :+
+    jmp oz_arremer_start_down
+:
+    rts
+
+; --- the rush ($0106) ---
+oz_arremer_start_rush:
+    jsr oz_face_player
+    jsr oz_rel_player
+    jsr oz_abs_d
+    lda oz_dy+1
+    bmi @level                  ; below the player
+    cpy #17
+    bcs @swoop
+@level:
+    ; Within 16 px of the player's height: across at 2.13 px to 64 px past.
+    lda #8
+    sta ob_state,x
+    lda #120
+    sta ob_t2,x
+    ldy ob_var,x
+    lda oz_arremer_rush_v,y
+    ldy #2
+    jsr ob_set_vx_dir
+    jmp oz_arremer_fly_anim
+@swoop:
+    ; Higher: down to where the player is in about 43 frames, then up as far on the
+    ; other side (v = d x 6 / 256).
+    lda #9
+    sta ob_state,x
+    lda #0
+    sta ob_step,x
+    lda #43
+    sta ob_t2,x
+    lda oz_dx
+    ldy oz_dx+1
+    jsr oz_mul6
+    sta ob_vxi,x
+    lda oz_t0
+    sta ob_vxf,x
+    lda #0
+    sec
+    sbc oz_dy
+    pha
+    lda #0
+    sbc oz_dy+1
+    tay
+    pla
+    jsr oz_mul6
+    sta ob_vyi,x
+    lda oz_t0
+    sta ob_vyf,x
+    jmp oz_arremer_fly_anim
+
+; A/Y = signed 16-bit d: oz_t0 = low and A = high byte of d x 6 (8.8 speed of d/42.7).
+oz_mul6:
+    sta oz_t0
+    sty oz_t1
+    asl oz_t0
+    rol oz_t1                   ; 2d
+    lda oz_t0
+    sta oz_t2
+    lda oz_t1
+    sta oz_t3
+    asl oz_t0
+    rol oz_t1                   ; 4d
+    lda oz_t0
+    clc
+    adc oz_t2
+    sta oz_t0
+    lda oz_t1
+    adc oz_t3
+    rts
+
+oz_arremer_rush_level:
+    jsr ob_move
+    dec ob_t2,x
+    beq @back
+    jsr oz_rel_player
+    jsr oz_abs_d
+    cmp #64
+    bcc @out
+    lda ob_dir,x
+    beq :+
+    lda oz_dx+1                 ; rushing left: past when the player is right of it
+    bpl @back
+    rts
+:
+    lda oz_dx+1
+    bmi @back
+@out:
+    rts
+@back:
+    jmp oz_arremer_walk
+
+oz_arremer_swoop:
+    jsr ob_move
+    dec ob_t2,x
+    bne @out
+    lda ob_step,x
+    bne @up_done
+    inc ob_step,x
+    lda #43
+    sta ob_t2,x
+    lda #0
+    sec
+    sbc ob_vyf,x
+    sta ob_vyf,x
+    lda #0
+    sbc ob_vyi,x
+    sta ob_vyi,x
+@out:
+    rts
+@up_done:
+    jmp oz_arremer_start_down
+
+; --- powering up ($0104): 80 frames blinking, not hit ---
+oz_arremer_start_power:
+    lda #10
+    sta ob_state,x
+    lda #80
+    sta ob_t2,x
+    lda #ofl_harmful
+    sta ob_flags,x
+    lda #1
+    sta ob_var,x
+    jmp ob_stop
+
+oz_arremer_power:
+    lda #2
+    sta ob_flash,x
+    dec ob_t2,x
+    bne :+
     jmp oz_arremer_walk
 :
     rts

@@ -42,6 +42,71 @@ fe_timer: .res 1
     .byte $ff
 .endmacro
 
+.ifdef REVG_STAGE1
+; The arcade title (tools/convert-revg-frontend.py): its tiles, name table, attributes and
+; palettes from the frontend bank. Display off.
+draw_title_screen:
+    lda prg_bank0
+    pha
+    lda #revg_frontend_bank
+    jsr select_bank0
+    lda #>chr_background_address
+    sta $2006
+    lda #<chr_background_address
+    sta $2006
+    lda #<revg_title_tiles
+    sta chr_source
+    lda #>revg_title_tiles
+    sta chr_source+1
+    ldx #>(revg_title_tile_count * 16)
+    lda #<(revg_title_tile_count * 16)
+    jsr upload_chr_patterns
+    lda #$20
+    sta $2006
+    lda #$00
+    sta $2006
+    lda #<revg_title_names
+    sta map_ptr
+    lda #>revg_title_names
+    sta map_ptr+1
+    ldx #4                      ; 960 bytes: three pages and 192
+    ldy #0
+@names:
+    lda (map_ptr),y
+    sta $2007
+    iny
+    cpx #1
+    bne :+
+    cpy #192
+    beq @attributes
+:
+    cpy #0
+    bne @names
+    inc map_ptr+1
+    dex
+    bne @names
+@attributes:
+    ldx #0
+:
+    lda revg_title_attributes,x
+    sta $2007
+    inx
+    cpx #64
+    bne :-
+    lda #$3f
+    sta $2006
+    lda #0
+    sta $2006
+    ldx #0
+:
+    lda revg_title_palette,x
+    sta $2007
+    inx
+    cpx #16
+    bne :-
+    pla
+    jmp select_bank0
+.else
 draw_title_screen:
     lda #>chr_background_address
     sta $2006
@@ -173,6 +238,8 @@ draw_title_screen:
     dex
     bne :-
     rts
+
+.endif
 
 ; A/X = low/high address of fe_line records ended by a zero byte.
 fe_draw_lines:

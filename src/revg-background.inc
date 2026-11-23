@@ -41,6 +41,8 @@ revg_attr_lo: .res 1
 revg_col_attr: .res 7
 revg_pal_pending: .res 1
 revg_pal_buf: .res 8
+revg_fade_pending: .res 1       ; 1: the NMI writes revg_fade_buf to $3F00-$3F0F (the opening)
+revg_fade_buf: .res 16
 
 .segment "BANK3"
 ; Draw the screen around the camera during forced blank (draw_pan): the HUD attribute
@@ -130,6 +132,7 @@ revg_bg_load_all:
     lda #0
     sta revg_zone
     sta revg_pal_pending
+    sta revg_fade_pending
     sta revg_chr_count
     sta revg_q_head
     sta revg_q_tail
@@ -514,6 +517,22 @@ revg_upload:
     lda #0
     sta revg_chr_count
 @palette:
+    lda revg_fade_pending
+    beq @no_fade
+    lda #$3f
+    sta $2006
+    lda #0
+    sta $2006
+    tax
+:
+    lda revg_fade_buf,x
+    sta $2007
+    inx
+    cpx #16
+    bne :-
+    lda #0
+    sta revg_fade_pending
+@no_fade:
     lda revg_pal_pending
     beq @column
     lda #$3f

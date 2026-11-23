@@ -37,13 +37,16 @@ bank_tag_base = $80
 ; Stage 1 background art from bank 19 (revg-background.inc reads it through $C000).
 .include "revg-section0-bg.inc"
 .include "revg-sprite-data.inc"
+.include "revg-frontend-data.inc"
 revg_bg_banks
 .reloc
 ; The Stage 1 sprites (revg-objects.inc) follow from bank 24.
 .assert revg_spr_tile_bank = 19 + revg_bg_bank_count, error, "Sprite banks must follow the background"
 revg_spr_banks
-.repeat 44 - revg_bg_bank_count - revg_spr_bank_count, index
-    .byte bank_tag_base + 19 + revg_bg_bank_count + revg_spr_bank_count + index
+; The title and the opening demo (revg-opening.inc) after them.
+revg_frontend_banks
+.repeat 44 - revg_bg_bank_count - revg_spr_bank_count - revg_frontend_bank_count, index
+    .byte bank_tag_base + 19 + revg_bg_bank_count + revg_spr_bank_count + revg_frontend_bank_count + index
     .res $1fff, $ff
 .endrepeat
 .else
@@ -238,6 +241,9 @@ check_bank:
 .if PRG_ROM_UNITS = 32
     sta campaign_stage
     sta arcade_mode
+    sta game_paused
+    sta demo_active
+    sta demo_finish
     jsr show_title_screen
     jmp main
 .else
@@ -320,11 +326,61 @@ same_scene:
 :
 .endif
 .endif
+.ifdef REVG_STAGE1
+    lda demo_finish
+    beq :+
+    lda #0
+    sta demo_finish
+    sta demo_active
+    jsr begin_arcade_game
+    jmp audio_tick
+:
+    ; After a death the arcade puts the player back by itself: the restart position is
+    ; set 423 frames after the death starts ($6D26, docs/revision-g.md, the pit). The
+    ; FC restarts there as if Start were pressed.
+    lda arcade_mode
+    beq @no_auto_restart
+    lda scene
+    cmp #4
+    bne @no_auto_restart
+    lda player_hit
+    bne :+
+    sta death_timer
+    sta death_timer+1
+    beq @no_auto_restart
+:
+    inc death_timer
+    bne :+
+    inc death_timer+1
+:
+    lda death_timer+1
+    cmp #>423
+    bcc @no_auto_restart
+    lda death_timer
+    cmp #<423
+    bcc @no_auto_restart
+    lda #0
+    sta death_timer
+    sta death_timer+1
+    lda pressed
+    ora #$10
+    sta pressed
+@no_auto_restart:
+.endif
     lda pressed
     and #$10            ; Start: enter or restart the playable scene.
 .ifdef REVG_STAGE1
     bne :+
+    lda game_paused
+    beq @not_paused
+    jsr wait_terrain_frame  ; Paused: the screen stays, nothing moves, no sound.
+    jmp main
+@not_paused:
     jmp dispatch_scene
+:
+    jsr toggle_pause        ; Start during play pauses and resumes.
+    bcc :+
+    jmp main
 :
 .else
     beq dispatch_scene
@@ -378,10 +434,10 @@ check_campaign_start:
     bne @begin_arcade
     lda #snd_song_title ; The arcade starts the opening music after 1P START.
     jsr call_bank8_play_song
-    lda #opening_scene
-    jsr show_frontend_scene
-    jsr call_bank8_audio_tick
-    jmp main
+    lda #1              ; The opening demo, then Stage 1 (revg-opening.inc).
+    sta demo_active
+    jsr begin_arcade_game
+    jmp audio_tick
 .else
     jmp @begin_arcade
 .endif
@@ -865,6 +921,30 @@ read_pad:
     bne :-
     rts
 
+.ifdef REVG_STAGE1
+; The title's picture fills the background patterns, so the stage puts back what the
+; old title loaded: the text glyphs, then the arcade ground tiles at $0400 (Bank 10).
+load_game_patterns:
+    jsr load_menu_patterns
+    lda prg_bank0
+    pha
+    lda #arcade_gfx_bank
+    jsr select_bank0
+    lda #>arcade_bg_chr_vram
+    sta $2006
+    lda #<arcade_bg_chr_vram
+    sta $2006
+    lda #<arcade_bg_chr_data
+    sta chr_source
+    lda #>arcade_bg_chr_data
+    sta chr_source+1
+    ldx #>arcade_bg_chr_bytes
+    lda #<arcade_bg_chr_bytes
+    jsr upload_chr_patterns
+    pla
+    jmp select_bank0
+.endif
+
 load_menu_patterns:
     lda #>chr_background_address
     sta $2006
@@ -980,14 +1060,53 @@ show_title_screen:
     lda #title_scene
     sta scene
     jsr call_bank8_audio_init
-    lda #snd_song_title
+.ifndef REVG_STAGE1
+    lda #snd_song_title             ; The arcade title is silent; its songs follow START.
     jsr call_bank8_play_song
+.endif
     lda #2
     jsr select_bank2
     jsr draw_title_screen
     jmp enable_static_screen
 
+; Start in the arcade game with the player alive: pause or resume. C set when it did.
+toggle_pause:
+    lda arcade_mode
+    beq @no
+.ifdef REVG_STAGE1
+    lda demo_active
+    beq :+
+    lda #1              ; START skips the opening.
+    sta demo_finish
+    sec
+    rts
+:
+.endif
+    lda scene
+    cmp #2
+    beq :+
+    cmp #4
+    bne @no
+:
+    lda player_hit
+    bne @no
+    lda game_paused
+    eor #1
+    sta game_paused
+    beq @done
+    lda #8                  ; Pausing: stop the voices (the driver keys on the next notes).
+    jsr select_bank2
+    jsr snd_silence_all
+@done:
+    sec
+    rts
+@no:
+    clc
+    rts
+
 begin_arcade_game:
+    lda #0
+    sta game_paused
     lda #1
     sta arcade_mode
     sta campaign_stage
@@ -1189,6 +1308,10 @@ CHR_BACKGROUND_BYTES = CHR_TEXT_BYTES + CHR_TERRAIN_BYTES
 
 ; Kept last in BSS so earlier variables keep the addresses the Mesen tests read.
 .segment "BSS"
+game_paused: .res 1             ; Start pauses the arcade game (toggle_pause)
+demo_active: .res 1             ; the opening demo plays over Stage 1 (revg-opening.inc)
+demo_finish: .res 1             ; set at its end (or START): Stage 1 starts
+death_timer: .res 2             ; frames since the player died (the automatic restart)
 pan_tile_x_hi: .res 1           ; Bit 8 of pan_tile_x (two-axis-scroll.inc)
 pan_data_x_hi: .res 1
 goal_tile_x_hi: .res 1
@@ -1202,6 +1325,7 @@ pan_row_start: .res 1            ; First ring column of a prepared row
 .include "revg-background.inc"
 .include "revg-objects.inc"
 .include "revg-enemies.inc"
+.include "revg-opening.inc"
 .endif
 
 .segment "VECTORS"

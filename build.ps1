@@ -106,6 +106,9 @@ if ($RefreshRevgMap) {
     if ($LASTEXITCODE -ne 0) { throw "Spawn conversion failed with code $LASTEXITCODE" }
     & python (Join-Path $PSScriptRoot 'tools/convert-revg-sprites.py') (Join-Path $sourceDir 'revg-sprite-data.inc') | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Sprite conversion failed with code $LASTEXITCODE" }
+    # The title and the opening demo, from the MAME captures in tools/fixtures.
+    & python (Join-Path $PSScriptRoot 'tools/convert-revg-frontend.py') (Join-Path $sourceDir 'revg-frontend-data.inc') | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Title conversion failed with code $LASTEXITCODE" }
 }
 if ($Prototype) {
     # The prototype seven stages that the arcade-* Mesen smoke tests play.

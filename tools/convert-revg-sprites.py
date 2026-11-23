@@ -65,6 +65,14 @@ PINNED = [[0x0F, 0x00, 0x3D], [0x0F, 0x16, 0x27], [0x0F, 0x22, 0x31], [0x09, 0x1
 
 # (first frame, shape): the armour, lance, axe and dagger items.
 EXTRA_ANIMATIONS = [(0x5B0C, 1), (0x5B20, 2), (0x5B32, 0), (0x5B4E, 0)]
+# (frame, shape): single frames of the opening demo (tools/fixtures/revg-opening.txt).
+# The demo sets each one itself ($7BA6), so their next fields are not followed. Arthur
+# sitting and jumping, the princess, the armour on the ground and the demon.
+STATIC_FRAMES = [(0x798E, 3), (0x971E, 3), (0x7AD5, 1), (0x7AD8, 1), (0x7ADB, 1), (0x7B26, 1),
+                 (0xA4AB, 4), (0x4E59, 4), (0x4E64, 4), (0x4E6F, 4), (0x4E7A, 4), (0x4E98, 4),
+                 (0x4EB6, 4)]
+# The walks Arthur uses in the opening, naked and armoured, as animations.
+EXTRA_ANIMATIONS += [(0x95F2, 3), (0x9596, 3)]
 
 
 def load_module(name, path):
@@ -123,6 +131,8 @@ def main():
             ptr = f["next"]
             if ptr == start:
                 break
+    for ptr, shape in STATIC_FRAMES:
+        shape_of.setdefault(ptr, shape)
     group_of = {}
     for (pool, typ, _, weight), g in zip(GROUPS, fixture["groups"]):
         for start in g["starts"]:
