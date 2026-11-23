@@ -554,6 +554,7 @@ rs_set_arcade_y:
 revg_draw_sprites:
     lda prg_bank0
     sta rs_stage_bank
+    jsr rs_drop_unsent
     inc rs_frame
     lda #0
     sta rs_oam
@@ -592,6 +593,50 @@ revg_draw_sprites:
     jsr rs_flush
     lda rs_stage_bank
     jmp select_bank0
+
+; Tiles the last draw requested that no NMI has sent (the draw ran twice without one, as
+; while a stage loads) are not in their slots: forget them, so this draw loads them
+; again instead of drawing what the slots held before.
+rs_drop_unsent:
+    ldx rs_up_n
+    beq @done
+@tile:
+    dex
+    lda rs_up_hi,x              ; the slot: (address - chr_sprite_address) / 32
+    and #$0f
+    asl a
+    asl a
+    asl a
+    sta rs_tmp
+    lda rs_up_lo,x
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora rs_tmp
+    tay
+    lda rs_slot_hi,y
+    bmi @next
+    clc
+    adc #>rs_tile_slot
+    sta rs_lptr2+1
+    lda #<rs_tile_slot
+    sta rs_lptr2
+    lda rs_slot_lo,y
+    pha
+    lda #$ff
+    sta rs_slot_hi,y
+    pla
+    tay
+    lda #0
+    sta (rs_lptr2),y
+@next:
+    txa
+    bne @tile
+    stx rs_up_n
+@done:
+    rts
 
 ; Copy the requested tiles for the NMI.
 rs_flush:
@@ -668,17 +713,18 @@ rp_kind_fly_dead = 10
 rp_kind_fall_apart = 11
 rp_kind_bones = 12
 
-; Animation starts by kind, armoured then naked.
+; Animation starts by kind, armoured then naked. The hurt flies as $9913 (one frame, naked);
+; the death's flight $9927 turns to bones every other frame ($992D).
 rp_start_lo:
     .byte <rf_9596, <rf_9596, <rf_965A, <rf_9732, <rf_966E, <rf_96DE, <rf_970A, <rf_9213, <rf_9213
-    .byte <rf_9927, <rf_9913, <rf_9947, <rf_9ABE
+    .byte <rf_9913, <rf_9927, <rf_9947, <rf_9ABE
     .byte <rf_95F2, <rf_95F2, <rf_969A, <rf_9746, <rf_96A8, <rf_96F2, <rf_96F2, <rf_91FF, <rf_91FF
-    .byte <rf_9927, <rf_9913, <rf_9947, <rf_9ABE
+    .byte <rf_9913, <rf_9927, <rf_9947, <rf_9ABE
 rp_start_hi:
     .byte >rf_9596, >rf_9596, >rf_965A, >rf_9732, >rf_966E, >rf_96DE, >rf_970A, >rf_9213, >rf_9213
-    .byte >rf_9927, >rf_9913, >rf_9947, >rf_9ABE
+    .byte >rf_9913, >rf_9927, >rf_9947, >rf_9ABE
     .byte >rf_95F2, >rf_95F2, >rf_969A, >rf_9746, >rf_96A8, >rf_96F2, >rf_96F2, >rf_91FF, >rf_91FF
-    .byte >rf_9927, >rf_9913, >rf_9947, >rf_9ABE
+    .byte >rf_9913, >rf_9927, >rf_9947, >rf_9ABE
 ; Kinds that show their first frame only.
 rp_still:
     .byte 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0

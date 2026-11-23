@@ -495,8 +495,13 @@ ap_init_stage:
     jsr ap_update_cam_y
 .ifdef REVG_STAGE1
     lda demo_active
+    bne @keep_song              ; the opening starts its own music
+    lda op_stage_song
     beq :+
-    rts                         ; the opening keeps its music
+    lda #0                      ; the opening already started the stage song
+    sta op_stage_song
+@keep_song:
+    rts
 :
 .endif
     lda sd_bgm_stage
@@ -3176,8 +3181,10 @@ ap_tomb_box:
 ; Carry set if shot slot ap_loop_idx hits any tombstone platform.
 ap_shot_hits_tombstone:
 .ifdef REVG_STAGE1
-    ; The section 0 tombstones (revg_tomb_*): the shot point within 14 px of the centre X
-    ; and between the floor and the stone's top, 19 px up (the box of ap_tomb_box).
+    ; The section 0 tombstones (revg_tomb_*), arcade $F5FE: the shot point within 14 px of
+    ; the centre X and from 8 px below to 4 px above the stone's Y (the floor; the box at
+    ; $F67E + 8). The standing shot is 9 px above the feet and passes over; the crouching
+    ; one, 3 px below them, hits.
     ldx ap_loop_idx
     lda ps_y_hi,x
     bne @revg_miss
@@ -3201,10 +3208,12 @@ ap_shot_hits_tombstone:
     adc #14
     cmp #29
     bcs @revg_next
-    lda revg_tomb_feet,y
+    lda ps_y,x
     sec
-    sbc ps_y,x
-    cmp #20
+    sbc revg_tomb_feet,y
+    clc
+    adc #4
+    cmp #13
     bcs @revg_next
     lda #snd_se_hit
     jsr call_bank8_play_se

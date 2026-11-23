@@ -61,7 +61,11 @@ GROUPS = [
 # out either the blue (zombies, crows, the flying knight) or the green and brown (the
 # plants and the raft, the arcade's grass island) or the red (the Red Arremer, fire), so
 # they are set by hand from the fits; each piece still takes the one that draws it best.
-PINNED = [[0x0F, 0x00, 0x3D], [0x0F, 0x16, 0x27], [0x0F, 0x22, 0x31], [0x09, 0x17, 0x1A]]
+# The first was grey ($00, $3D), which left Arthur all grey. With the beard brown and
+# the skin ($17, $37), his face and the naked Arthur take it, and the armour, whose
+# lavender greys are closest to the light blues, takes the blue one. A None entry is
+# fitted freely (that gave $17 and $10: a brown face and body).
+PINNED = [[0x0F, 0x17, 0x37], [0x0F, 0x16, 0x27], [0x0F, 0x22, 0x31], [0x09, 0x17, 0x1A]]
 
 # (first frame, shape): the armour, lance, axe and dagger items.
 EXTRA_ANIMATIONS = [(0x5B0C, 1), (0x5B20, 2), (0x5B32, 0), (0x5B4E, 0)]
@@ -208,17 +212,19 @@ def main():
     heavy = sorted(range(len(pieces)), key=lambda i: -weights[i] * hist[i].sum())[:60]
     best, best_cost = None, None
     for _ in range(12):
-        palettes = [list(p) for p in PINNED]
-        for _ in range(4 - len(PINNED)):
-            i = rng.choice(heavy)
-            wish = sorted(candidates, key=lambda c: hist[i] @ d[:, cand_index[c]])
-            palettes.append(wish[:3])
+        palettes = []
+        for p in PINNED:
+            if p is None:
+                i = rng.choice(heavy)
+                wish = sorted(candidates, key=lambda c: hist[i] @ d[:, cand_index[c]])
+                p = wish[:3]
+            palettes.append(list(p))
         table = np.stack([palette_cost(p) for p in palettes], axis=1)
         cost = total(table)
         improved = True
         while improved:
             improved = False
-            for pi in range(len(PINNED), 4):
+            for pi in [i for i, p in enumerate(PINNED) if p is None]:
                 for slot in range(3):
                     for c in candidates:
                         if c in palettes[pi]:

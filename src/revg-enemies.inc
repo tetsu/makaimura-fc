@@ -1839,21 +1839,21 @@ oz_crow:
     jsr oz_random
     and #1
     beq @pose_a
-    lda #<rf_4A4A               ; right
-    ldy #>rf_4A4A
+    lda #<rf_4A0C               ; right (the arcade draws $4A0C mirrored)
+    ldy #>rf_4A0C
     sta oz_t2
     sty oz_t3
-    lda #<rf_4A0C               ; left
-    ldy #>rf_4A0C
+    lda #<rf_4A4A               ; left
+    ldy #>rf_4A4A
     jsr oz_anim_lr
     jmp :+
 @pose_a:
-    lda #<rf_4A42
-    ldy #>rf_4A42
-    sta oz_t2
-    sty oz_t3
     lda #<rf_4A04
     ldy #>rf_4A04
+    sta oz_t2
+    sty oz_t3
+    lda #<rf_4A42
+    ldy #>rf_4A42
     jsr oz_anim_lr
 :
     dec ob_t0,x
@@ -1872,12 +1872,12 @@ oz_crow:
     lda #$40
     ldy #1
     jsr ob_set_vx_dir
-    lda #<rf_4A6C
-    ldy #>rf_4A6C
-    sta oz_t2
-    sty oz_t3
     lda #<rf_4A2E
     ldy #>rf_4A2E
+    sta oz_t2
+    sty oz_t3
+    lda #<rf_4A6C
+    ldy #>rf_4A6C
     jmp oz_anim_lr
 @out:
     rts

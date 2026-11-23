@@ -244,6 +244,9 @@ check_bank:
     sta game_paused
     sta demo_active
     sta demo_finish
+.ifdef REVG_STAGE1
+    sta op_stage_song
+.endif
     jsr show_title_screen
     jmp main
 .else
@@ -432,9 +435,7 @@ check_campaign_start:
     lda pad
     and #$01            ; Right+START skips the opening and the map (Mesen tests).
     bne @begin_arcade
-    lda #snd_song_title ; The arcade starts the opening music after 1P START.
-    jsr call_bank8_play_song
-    lda #1              ; The opening demo, then Stage 1 (revg-opening.inc).
+    lda #1              ; (the opening starts its own music, op_tick)              ; The opening demo, then Stage 1 (revg-opening.inc).
     sta demo_active
     jsr begin_arcade_game
     jmp audio_tick
