@@ -17,7 +17,8 @@ ap_armor_full = 2
 ap_weapon_lance = 0
 ap_weapon_dagger = 1
 ap_weapon_torch = 2
-ap_weapon_shield = 3
+ap_weapon_shield = 3             ; the arcade's cross in the game build
+ap_weapon_axe = 4                ; game build only
 
 ap_max_shots = 3
 ap_max_plats = 4
@@ -634,6 +635,28 @@ ap_load_stage_visuals:
     cpy #64
     bne :-
 @visuals_done:
+.ifdef REVG_STAGE1
+    ; The arcade sprites: an empty tile cache and their palettes.
+    jsr rs_init
+    lda #$3f
+    sta $2006
+    lda #$10
+    sta $2006
+    ldx #0
+:
+    lda revg_spr_palettes,x
+    sta $2007
+    inx
+    cpx #16
+    bne :-
+    lda prg_bank2
+    pha
+    lda #6
+    jsr select_bank2
+    jsr revg_objects_init
+    pla
+    jsr select_bank2
+.endif
     rts
 
 ; Compute 16-bit ap_cam_y = pan_y_page * 240 + pan_y.
@@ -823,6 +846,15 @@ ap_update_frame:
     jsr ap_time_up
 @no_test_hit:
 .endif
+.ifdef REVG_STAGE1
+    ; The enemies, items and the shot checks of the game build are in Bank 6
+    ; (revg-enemies.inc).
+    lda #6
+    jsr select_bank2
+    jsr revg_update_objects
+    jsr ap_update_shots
+    jsr ap_check_hazard
+.else
     jsr ap_map_enemy_bank      ; The enemy routines below and the shot checks are in Bank 4.
     jsr ap_update_rank
     jsr ap_update_scheduler
@@ -833,6 +865,7 @@ ap_update_frame:
     jsr ap_check_items
     jsr ap_check_enemies_contact
     jsr ap_check_hazard
+.endif
 .ifdef REVG_STAGE1
     ; The clock stops during the death, so it stays at 000 after a time-out. At 000 the
     ; arcade ($EC81) starts the death from lying down instead of a miss.
@@ -2671,6 +2704,11 @@ ap_update_shots:
 @shot_vert:
     lda ps_kind,x
     cmp #ap_weapon_torch
+.ifdef REVG_STAGE1
+    beq :+
+    cmp #ap_weapon_axe
+:
+.endif
     bne @shot_bounds
     lda ps_vy,x
     bmi @torch_vy_neg
@@ -3014,7 +3052,7 @@ ap_step_lance:
 :
     rts
 
-ap_revg_max_shots: .byte 3, 3, 2, 3 ; lance, dagger, torch, cross
+ap_revg_max_shots: .byte 3, 3, 2, 3, 2 ; lance, dagger, torch, cross, axe ($9E0F)
 
 ; Arcade $92BF/$92C9 then $9E14: A = +1 or -1. Probes X + A at 1 px above the feet.
 ap_tomb_probe_ahead:
@@ -3477,11 +3515,13 @@ ap_test_contact_at_probe:
     rts
 .endif
 
-ap_weapon_max_shots: .byte 2, 3, 2, 2
-ap_weapon_vx_pos:    .byte 3, 4, 2, 3
-ap_weapon_vx_neg:    .byte $fd, $fc, $fe, $fd
-ap_weapon_vy_init:   .byte 0, 0, $fc, 0
-ap_weapon_life:      .byte 48, 48, 56, 40
+; Lance, dagger, torch, cross (shield), axe. The axe (game build) is thrown up like the
+; torch, higher, and passes through enemies; the cross flies a short way.
+ap_weapon_max_shots: .byte 2, 3, 2, 2, 2
+ap_weapon_vx_pos:    .byte 3, 5, 2, 4, 2
+ap_weapon_vx_neg:    .byte $fd, $fb, $fe, $fc, $fe
+ap_weapon_vy_init:   .byte 0, 0, $fc, 0, $fb
+ap_weapon_life:      .byte 48, 48, 56, 26, 64
 
 ap_kb_delta:
     .byte $fe, $fe, $ff, $ff, $ff, $00, $00, $00

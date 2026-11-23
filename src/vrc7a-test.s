@@ -24,9 +24,8 @@ bank_tag_base = $80
 .byte bank_tag_base + 2
 .if fixed_bank > 3
 ; Bank 5 holds the later stage songs (arcade-music-data.inc).
-.segment "PAD_6"
+.segment "BANK6"
     .byte bank_tag_base + 6
-    .res $1fff, $ff
 .ifdef NES_AREA_ART
 .include "nes-areas.inc"
 .else
@@ -37,10 +36,14 @@ bank_tag_base = $80
 .ifdef REVG_STAGE1
 ; Stage 1 background art from bank 19 (revg-background.inc reads it through $C000).
 .include "revg-section0-bg.inc"
+.include "revg-sprite-data.inc"
 revg_bg_banks
 .reloc
-.repeat 44 - revg_bg_bank_count, index
-    .byte bank_tag_base + 19 + revg_bg_bank_count + index
+; The Stage 1 sprites (revg-objects.inc) follow from bank 24.
+.assert revg_spr_tile_bank = 19 + revg_bg_bank_count, error, "Sprite banks must follow the background"
+revg_spr_banks
+.repeat 44 - revg_bg_bank_count - revg_spr_bank_count, index
+    .byte bank_tag_base + 19 + revg_bg_bank_count + revg_spr_bank_count + index
     .res $1fff, $ff
 .endrepeat
 .else
@@ -778,6 +781,12 @@ call_bank3_update:
 call_bank7_draw_sprites:
     lda #7
     jsr select_bank2
+.ifdef REVG_STAGE1
+    lda revg_bg_active
+    beq :+
+    jmp revg_draw_sprites
+:
+.endif
     jmp ap_draw_sprites
 
 call_bank3_load_stage_visuals:
@@ -1191,6 +1200,8 @@ pan_row_start: .res 1            ; First ring column of a prepared row
 .endif
 .ifdef REVG_STAGE1
 .include "revg-background.inc"
+.include "revg-objects.inc"
+.include "revg-enemies.inc"
 .endif
 
 .segment "VECTORS"

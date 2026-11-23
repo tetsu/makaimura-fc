@@ -101,6 +101,11 @@ if ($RefreshRevgMap) {
     # The songs, from the Z80 sound ROM (docs/revision-g-sound-rom-map.md).
     & python (Join-Path $PSScriptRoot 'tools/convert-revg-music.py') (Join-Path $sourceDir 'arcade-music-data.inc') | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Music conversion failed with code $LASTEXITCODE" }
+    # The enemy placement and, in about three minutes, the sprites (docs/revision-g-sprites.md).
+    & python (Join-Path $PSScriptRoot 'tools/convert-revg-spawns.py') (Join-Path $sourceDir 'revg-section0-spawns.inc') --stages $stageDir | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Spawn conversion failed with code $LASTEXITCODE" }
+    & python (Join-Path $PSScriptRoot 'tools/convert-revg-sprites.py') (Join-Path $sourceDir 'revg-sprite-data.inc') | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Sprite conversion failed with code $LASTEXITCODE" }
 }
 if ($Prototype) {
     # The prototype seven stages that the arcade-* Mesen smoke tests play.

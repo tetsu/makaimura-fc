@@ -148,6 +148,12 @@ def convert_voice(voice):
             up = [voice.ops[i]["tl"] for i in UPSTREAM.get(voice.alg, {}).get(mod_index, [])]
             level = min(up, default=127)
             fb = 4 if level <= 30 else 2 if level <= 45 else 0
+            # A modulator that is itself strongly modulated puts far more harmonics into
+            # the carrier than its TL alone says; without this the melody voice 6 (alg 0,
+            # S2 at TL 41 driven by S3 at TL 23) came out a near sine wave, buried under
+            # the bass.
+            if level <= 45:
+                tl -= (46 - level) // 2
         tl = max(0, min(63, tl))
     else:
         mod, tl, fb = dict(car, tl=63), 63, 0
@@ -440,6 +446,13 @@ def main():
                 if kind != "off":
                     following = ch[i + 1][0] if i + 1 < len(ch) else stop
                     use[(layer, voice)] = use.get((layer, voice), 0) + following - tick
+        # The sounding pitch of each voice (the carrier multiplier included), for the
+        # balance below.
+        pitches = {}
+        for ch in events:
+            for tick, kind, midi, voice, layer in ch:
+                if kind != "off" and midi is not None:
+                    pitches.setdefault((layer, voice), []).append(midi)
         instruments, notes, marks, first_patch = {}, [], {}, None
         for layer in sorted(layer_start, key=layer_start.get):
             voices = sorted((v for lay, v in use if lay == layer), key=lambda v: -use[(layer, v)])
@@ -447,6 +460,12 @@ def main():
             for voice in voices:
                 opn = OpnVoice(rom[decoder.VOICES + 32 * voice:decoder.VOICES + 32 * voice + 25])
                 patch, volume = convert_voice(opn)
+                # Balance: the VRC7's two-operator voices make the low parts boom and the
+                # high parts thin, so the melody lost to the bass. Bass voices (sounding
+                # mostly below C3) go 6 dB down, the others 3 dB up.
+                heard = sorted(pitches.get((layer, voice), [60]))
+                sounding = heard[len(heard) // 2] + 12 * math.log2(OPN_MUL[opn.ops[S4]["mul"]])
+                volume = min(15, volume + 2) if sounding < 48 else max(0, volume - 1)
                 if custom is None:
                     custom = patch
                     if patch not in patches:

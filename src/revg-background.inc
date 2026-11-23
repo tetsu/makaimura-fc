@@ -476,6 +476,9 @@ revg_prepare_column:
 .segment "CODE"
 ; Fixed bank: the NMI part (from upload_pan), also used by revg_bg_draw_screen.
 revg_upload:
+    lda pan_ctrl                ; Increment by 1
+    sta $2000
+    jsr revg_spr_upload
     lda revg_chr_count
     bne :+
     jmp @palette

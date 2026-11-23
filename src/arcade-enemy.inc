@@ -60,8 +60,13 @@ ap_shot_hits_probe:
     clc
     rts
 
-; Carry set if shot slot ap_loop_idx hit an enemy or boss.
+; Carry set if shot slot ap_loop_idx hit an enemy or boss. (The game build's is in
+; revg-enemies.inc.)
+.ifdef REVG_STAGE1
+ap_shot_check_enemies_proto:
+.else
 ap_shot_check_enemies:
+.endif
     ldx ap_loop_idx
     lda ap_enemy_active
     beq @check_pot_enemy
