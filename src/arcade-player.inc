@@ -515,6 +515,16 @@ ap_load_stage_visuals:
     ldx #>arcade_spr_chr_bytes
     lda #<arcade_spr_chr_bytes
     jsr upload_chr_patterns
+.ifdef REVG_STAGE1
+    ; The real Stage 1 streams its own background tiles into $25-$FF.
+    lda revg_bg_active
+    beq @placeholder_bg
+    pla
+    jsr select_bank0
+    jsr revg_bg_load_all
+    jmp @check_spr_pal
+@placeholder_bg:
+.endif
 
     lda #>arcade_bg_chr_vram
     sta $2006
@@ -570,6 +580,10 @@ ap_load_stage_visuals:
     cpy #16
     bne :-
 @check_bg_chr:
+.ifdef REVG_STAGE1
+    lda revg_bg_active
+    bne @check_spr_chr
+.endif
     ; BG terrain tiles (4 tiles = 64 bytes at terrain_tiles - glyphs).
     ; Restore default terrain_tiles when sd_bg_chr_ptr == 0.
     lda sd_bg_chr_ptr
@@ -599,6 +613,7 @@ ap_load_stage_visuals:
     bne :-
     ; Four CHR tiles replace the two 8x16 sprites in the boss's upper half.
     ; A zero pointer keeps the default patterns loaded from BANK10.
+@check_spr_chr:
     lda sd_spr_chr_ptr
     ora sd_spr_chr_ptr+1
     beq @visuals_done
@@ -1064,6 +1079,7 @@ ap_pan_camera:
 @cam_y_ready:
 .ifdef REVG_STAGE1
     jsr prepare_pan_steps
+    jsr revg_bg_stream
 .else
     jsr prepare_pan
 .endif

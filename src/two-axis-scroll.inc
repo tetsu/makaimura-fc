@@ -176,6 +176,21 @@ draw_pan:
     jsr load_trial_background_banked
 :
 .endif
+.ifdef REVG_STAGE1
+    ; The real Stage 1 draws the arcade art by columns (revg-background.inc).
+    lda arcade_mode
+    beq pan_initial_rows
+    sta revg_bg_active
+    lda #$80
+    sta $e000           ; Vertical mirroring: a 64-column ring.
+    lda prg_bank1
+    pha
+    lda #3
+    jsr select_bank1
+    jsr revg_bg_draw_screen
+    pla
+    jmp select_bank1
+.endif
 pan_initial_rows:
     jsr prepare_pan_row
     jsr upload_pan_row
@@ -289,6 +304,12 @@ pan_page_tile:
     rts
 
 upload_pan:
+.ifdef REVG_STAGE1
+    lda revg_bg_active
+    beq :+
+    jmp revg_upload
+:
+.endif
     lda pan_need_row
     bmi :+
     jsr upload_pan_row
@@ -513,6 +534,12 @@ pan_next_data_x:
     rts
 
 prepare_pan_column:
+.ifdef REVG_STAGE1
+    lda revg_bg_active
+    beq :+
+    jmp revg_prepare_column     ; Only the arcade camera (Bank 3) gets here.
+:
+.endif
     lda pan_tile_y
     clc
     adc pan_top_rows

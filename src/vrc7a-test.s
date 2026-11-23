@@ -35,10 +35,21 @@ bank_tag_base = $80
     .byte bank_tag_base + 11
     .res $1fff, $ff
 .segment "PAD_19_62"
+.ifdef REVG_STAGE1
+; Stage 1 background art from bank 19 (revg-background.inc reads it through $C000).
+.include "revg-section0-bg.inc"
+revg_bg_banks
+.reloc
+.repeat 44 - revg_bg_bank_count, index
+    .byte bank_tag_base + 19 + revg_bg_bank_count + index
+    .res $1fff, $ff
+.endrepeat
+.else
 .repeat 44, index
     .byte bank_tag_base + 19 + index
     .res $1fff, $ff
 .endrepeat
+.endif
 .endif
 .endif
 .segment "FIXED_TAG"
@@ -1178,6 +1189,9 @@ pan_row_start: .res 1            ; First ring column of a prepared row
 
 .if PRG_ROM_UNITS = 32
 .include "frontend.inc"
+.endif
+.ifdef REVG_STAGE1
+.include "revg-background.inc"
 .endif
 
 .segment "VECTORS"

@@ -53,6 +53,9 @@ blank_display:
     sta $2001
     sta $2000
     sta render_pending
+.ifdef REVG_STAGE1
+    sta revg_bg_active
+.endif
     lda #$80
     sta $e000           ; Restore left/right nametables for the other scenes.
     jmp stop_shot_sound

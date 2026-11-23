@@ -94,6 +94,10 @@ if ($RefreshRevgMap) {
     if ($LASTEXITCODE -ne 0) { throw "Stage extraction failed with code $LASTEXITCODE" }
     & python (Join-Path $PSScriptRoot 'tools/convert-revg-section.py') (Join-Path $sourceDir 'revg-section0-map.inc') --stages $stageDir | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Real map conversion failed with code $LASTEXITCODE" }
+    # The background art (src/revg-section0-bg.inc) takes about a minute and a half: the
+    # palette fit tries 40 starts.
+    & python (Join-Path $PSScriptRoot 'tools/convert-revg-bg.py') (Join-Path $sourceDir 'revg-section0-bg.inc') | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Background art conversion failed with code $LASTEXITCODE" }
 }
 if ($Prototype) {
     # The prototype seven stages that the arcade-* Mesen smoke tests play.
