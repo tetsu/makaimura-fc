@@ -412,11 +412,25 @@ ap_draw_sprites:
     sta draw_tile
     lda ps_y,y
     ldx ps_y_hi,y
+.ifdef REVG_STAGE1
+    ; The game build keeps the arcade's centre: the tile is centred on X and its middle
+    ; is 16 px above ps_y (ps_y sits as far above player_feet as the shot is above the
+    ; player's Y in the arcade, and the arcade Y is the middle of the 32 px Arthur).
+    ldy #25
+.else
     ldy #2
+.endif
     jsr ap_set_sprite_y_off
     ldy ap_loop_idx
     lda ps_x_lo,y
     ldx ps_x_hi,y
+.ifdef REVG_STAGE1
+    sec
+    sbc #4
+    bcs :+
+    dex
+:
+.endif
     jsr set_sprite_x
     jsr emit_sprite
     ldy ap_loop_idx

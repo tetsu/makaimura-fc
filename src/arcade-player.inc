@@ -215,6 +215,11 @@ ap_steps: .res 1
 ap_pad_next: .res 1
 ap_pad: .res 1                  ; arcade $004B
 ap_pressed: .res 1              ; arcade $004B & ~$004C
+; The shot follows the arcade too (game build): ap_shoot_lock is $052A, the pose timer.
+ap_shot_phase: .res 1           ; arcade $0505: 0 until the pose has been set up
+ps_x_frac: .res ap_max_shots    ; kept when a slot is reused, as in the arcade
+ps_start_lo: .res ap_max_shots  ; X where the shot was thrown, for its range
+ps_start_hi: .res ap_max_shots
 
 .segment "BANK3"
     .byte bank_tag_base + 3
@@ -301,9 +306,11 @@ ap_init_stage:
 @init_clear_pools:
     ldx #ap_max_shots - 1
     lda #0
+    sta ap_shot_phase
 :
     sta ps_active,x
     sta ps_y_hi,x
+    sta ps_x_frac,x
     dex
     bpl :-
 
@@ -727,10 +734,12 @@ ap_update_frame:
     beq :+
     dec ap_invuln
 :
+.ifndef REVG_STAGE1
     lda ap_shoot_lock
     beq :+
     dec ap_shoot_lock
 :
+.endif
     jsr ap_update_platforms
     jsr ap_carry_player_on_platform
     lda player_feet
@@ -1113,11 +1122,18 @@ ap_step_ground:
 @enter_crouch:
     lda #1
     sta ap_crouch
+.ifdef REVG_STAGE1
+    jsr ap_shot_pose
+.endif
     jmp @check_ground_support
 @not_crouching:
     lda #0
     sta ap_crouch
-    ; Arcade order ($8FDF): direction ($9233), walk ($9265), ground ($9034), jump ($907B).
+    ; Arcade order ($8FDF): shot ($8F71), direction ($9233), walk ($9265), ground ($9034),
+    ; jump ($907B).
+.ifdef REVG_STAGE1
+    jsr ap_shot_pose
+.endif
     jsr ap_update_move_dir
     bcs @check_ground_support
     lda ap_shoot_lock
@@ -1158,6 +1174,11 @@ ap_update_move_dir:
     ; A new direction turns the player and walks in the same update (CLRB at $9263).
     sta ap_move_dir
     jsr ap_face_dir
+.ifdef REVG_STAGE1
+    ; Turning ends the shot pose ($9259).
+    lda #0
+    sta ap_shoot_lock
+.endif
 @same_dir:
     clc
     rts
@@ -1267,8 +1288,12 @@ ap_step_air:
 .endif
     lda ap_jump_phase
     bne @air_moving
-    ; The update after the press only starts the jump ($9415).
+    ; The update after the press only starts the jump ($9415), which ends the shot pose.
     inc ap_jump_phase
+.ifdef REVG_STAGE1
+    lda #0
+    sta ap_shoot_lock
+.endif
     rts
 @air_moving:
     ; Only the facing follows the controller in the air ($9572).
@@ -1276,6 +1301,9 @@ ap_step_air:
     beq :+
     jsr ap_face_dir
 :
+.ifdef REVG_STAGE1
+    jsr ap_shot_pose            ; $9433, $9472
+.endif
     jsr ap_air_move_x
     lda ap_jump_phase
     cmp #1
@@ -1385,6 +1413,9 @@ ap_air_fall:
     lda #0
     sta ap_air_dir
     sta ap_move_dir
+.ifdef REVG_STAGE1
+    sta ap_shoot_lock           ; $9544
+.endif
     jmp ap_reset_velocity
 @air_fall_accel:
     ; $950C keeps vx when its 16-bit fraction would turn negative.
@@ -1953,7 +1984,9 @@ ap_tile_type_at:
 
 ; --- Multi-weapon 16-bit shot pool (Lance 2, Dagger 3, Torch 2 + flame, Shield 2) ---
 ap_update_shots:
+.ifndef REVG_STAGE1
     jsr ap_try_spawn_shot
+.endif
     ldx #0
 @shot_loop:
     stx ap_loop_idx
@@ -1961,6 +1994,46 @@ ap_update_shots:
     bne :+
     jmp @next_shot
 :
+.ifdef REVG_STAGE1
+    ; The game build throws the shot in the player update (ap_throw_shot).
+    cmp #ap_shot_thrown
+    bne :+
+    lda #1                      ; The update after the throw only sets it up ($9C9F).
+    sta ps_active,x
+    jmp @next_shot
+:
+    cmp #ap_shot_spent
+    bne :+
+    dec ps_timer,x
+    beq @revg_reclaim
+    jmp @next_shot
+:
+    lda ps_kind,x
+    cmp #ap_weapon_lance
+    bne @revg_not_lance
+    jsr ap_step_lance
+    ldx ap_loop_idx
+    bcc :+
+    ; Out of range: two more updates in states 2 and 3 ($9BEB, $9CF1), then gone.
+    lda #ap_shot_spent
+    sta ps_active,x
+    lda #3
+    sta ps_timer,x
+    jmp @next_shot
+:
+    ; The lance passes through the ground; only tombstones and enemies stop it.
+    jsr ap_shot_hits_tombstone
+    ldx ap_loop_idx
+    bcs @revg_reclaim
+    jsr ap_shot_check_enemies
+    ldx ap_loop_idx
+    bcs @revg_reclaim
+    jmp @next_shot
+@revg_reclaim:
+    jmp @reclaim_shot
+@revg_not_lance:
+    lda ps_active,x
+.endif
     cmp #2
     bne @shot_flying
     jsr ap_shot_check_enemies
@@ -2179,6 +2252,163 @@ ap_try_spawn_shot:
     sta ap_shoot_lock
 @spawn_done:
     rts
+
+.ifdef REVG_STAGE1
+; --- Arcade shot ($8F71 pose, $9DB7 throw, $9B3A lance flight) ---
+ap_shot_thrown = 4              ; ps_active: thrown in this update, not moved yet
+ap_shot_spent = 3               ; ps_active: out of range, waiting ps_timer updates
+ap_lance_speed = $0430          ; $9C73: 4 3/16 px per update
+ap_lance_range = 192            ; $9C51
+
+; $8F71, called by the player update on the ground, crouching and in the air. A press of
+; the shot button throws when the pose timer is 5 or less; the pose then lasts 15 updates,
+; and walking waits for it to end ($9265). A press with every slot in use still restarts
+; the pose, as the arcade clears $0505 either way.
+ap_shot_pose:
+    lda ap_shoot_lock
+    cmp #6
+    bcs @pose
+    lda ap_pressed
+    and #$40                    ; B, the arcade shot button ($10)
+    beq @pose
+    jsr ap_throw_shot
+    lda #0
+    sta ap_shot_phase
+@pose:
+    lda ap_shoot_lock
+    beq @done
+    lda ap_shot_phase
+    bne @count
+    lda #ap_shoot_lock_frames   ; $8F9C
+    sta ap_shoot_lock
+    inc ap_shot_phase
+@count:
+    dec ap_shoot_lock           ; $8FC2
+    bne @done
+    lda #0
+    sta ap_shot_phase
+@done:
+    rts
+
+; $9DB7: the first free slot of the weapon's count ($9E0F), 15 px ahead of the player's X
+; when facing right and at it when facing left, 9 px above the player's Y standing and
+; 3 px below it crouching ($9DF7).
+ap_throw_shot:
+    ldx ap_weapon
+    lda ap_revg_max_shots,x
+    sta ap_tmp0
+    ldx #0
+@find:
+    lda ps_active,x
+    beq @found
+    inx
+    cpx ap_tmp0
+    bne @find
+    rts
+@found:
+    lda #ap_shot_thrown
+    sta ps_active,x
+    ldy ap_weapon
+    tya
+    sta ps_kind,x
+    lda player_left
+    bne @left
+    lda player_x
+    clc
+    adc #15
+    sta ps_x_lo,x
+    lda player_x+1
+    adc #0
+    sta ps_x_hi,x
+    lda ap_weapon_vx_pos,y
+    jmp @set_vx
+@left:
+    lda player_x
+    sta ps_x_lo,x
+    lda player_x+1
+    sta ps_x_hi,x
+    lda ap_weapon_vx_neg,y
+@set_vx:
+    sta ps_vx,x
+    lda ap_weapon_vy_init,y
+    sta ps_vy,x
+    lda ap_weapon_life,y
+    sta ps_timer,x
+    lda ps_x_lo,x
+    sta ps_start_lo,x
+    lda ps_x_hi,x
+    sta ps_start_hi,x
+    lda player_feet
+    ldy ap_crouch
+    bne @crouch
+    sec
+    sbc #9
+    sta ps_y,x
+    lda ap_player_y_hi
+    sbc #0
+    jmp @set_y_hi
+@crouch:
+    clc
+    adc #3
+    sta ps_y,x
+    lda ap_player_y_hi
+    adc #0
+@set_y_hi:
+    sta ps_y_hi,x
+    lda #1
+    sta shot_sound_pending
+    lda #ap_shoot_lock_frames
+    sta ap_shoot_lock
+    rts
+
+; $9B3A: move the lance, keeping the fraction of the slot. C set once it is 192 px or more
+; from where it was thrown (X - start + 192 >= 384, unsigned).
+ap_step_lance:
+    lda ps_vx,x
+    bmi @left
+    lda ps_x_frac,x
+    clc
+    adc #<ap_lance_speed
+    sta ps_x_frac,x
+    lda ps_x_lo,x
+    adc #>ap_lance_speed
+    sta ps_x_lo,x
+    bcc @range
+    inc ps_x_hi,x
+    jmp @range
+@left:
+    lda ps_x_frac,x
+    sec
+    sbc #<ap_lance_speed
+    sta ps_x_frac,x
+    lda ps_x_lo,x
+    sbc #>ap_lance_speed
+    sta ps_x_lo,x
+    bcs @range
+    dec ps_x_hi,x
+@range:
+    lda ps_x_lo,x
+    sec
+    sbc ps_start_lo,x
+    sta ap_tmp0
+    lda ps_x_hi,x
+    sbc ps_start_hi,x
+    sta ap_tmp1
+    lda ap_tmp0
+    clc
+    adc #<ap_lance_range
+    sta ap_tmp0
+    lda ap_tmp1
+    adc #>ap_lance_range
+    cmp #>(2 * ap_lance_range)
+    bne :+
+    lda ap_tmp0
+    cmp #<(2 * ap_lance_range)
+:
+    rts
+
+ap_revg_max_shots: .byte 3, 3, 2, 3 ; lance, dagger, torch, cross
+.endif
 
 ; Carry set if shot slot ap_loop_idx hits any tombstone platform.
 ap_shot_hits_tombstone:

@@ -35,6 +35,16 @@ TRIALS = {
                (45, LEFT), (10, 0), (1, RIGHT | JUMP), (45, RIGHT), (10, 0), (100, LEFT),
                (10, 0), (1, RIGHT | JUMP), (45, RIGHT), (10, 0), (20, RIGHT),
                (1, RIGHT | JUMP), (8, RIGHT), (40, LEFT), (10, 0)],
+    # The lance ($8F71, $9DB7, $9B3A): one throw that runs out of range; presses while
+    # the pose has more than 5 updates left (ignored) and 5 or less (thrown); all three
+    # slots in use (the pose restarts, nothing is thrown); a throw that stops the walk;
+    # turning out of the pose; throws to the left; throws while jumping and falling.
+    "shot": [(10, 0), (1, SHOT), (55, 0), (1, SHOT), (6, 0), (1, SHOT), (3, 0), (1, SHOT),
+             (9, 0), (1, SHOT), (9, 0), (1, SHOT), (9, 0), (1, SHOT), (60, 0),
+             (20, RIGHT), (1, RIGHT | SHOT), (25, RIGHT), (1, RIGHT | SHOT), (4, RIGHT),
+             (10, LEFT), (1, LEFT | SHOT), (20, LEFT), (10, 0), (1, JUMP), (5, 0), (1, SHOT),
+             (40, 0), (1, RIGHT | JUMP), (20, RIGHT), (1, RIGHT | SHOT), (30, RIGHT),
+             (60, 0)],
     # Walk into the first tombstone, jump onto it and walk off its far side.
     "tombstone": [(10, 0), (150, RIGHT), (10, 0), (1, RIGHT | JUMP), (60, RIGHT), (20, 0)],
 }
@@ -72,8 +82,17 @@ emu.addEventCallback(function()
             return
         end
     else
-        print(string.format("fc,%%d,%%d,%%d,%%d,%%d", step - 1, read(0x4c) + 256 * read(0x4d),
-            read(0x4e) + 256 * read(0x60ac), read(0x6010), read(0x25) + 256 * read(0x26)))
+        -- Shot slots: ps_active $6026, ps_x_lo $602C, ps_x_hi $602F, ps_y $6032,
+        -- ps_y_hi $60B3 (src/arcade-player.inc). ap_shoot_lock is $6014.
+        local shots = {}
+        for slot = 0, 2 do
+            shots[#shots + 1] = string.format("%%d:%%d:%%d", read(0x6026 + slot),
+                read(0x602c + slot) + 256 * read(0x602f + slot),
+                read(0x6032 + slot) + 256 * read(0x60b3 + slot))
+        end
+        print(string.format("fc,%%d,%%d,%%d,%%d,%%d,%%d,%%s", step - 1, read(0x4c) + 256 * read(0x4d),
+            read(0x4e) + 256 * read(0x60ac), read(0x6010), read(0x25) + 256 * read(0x26),
+            read(0x6014), table.concat(shots, ";")))
     end
     if step >= #inputs + 2 then emu.stop(0) return end
     step = step + 1
@@ -107,8 +126,15 @@ def record_arcade(args, name, runs):
             continue
         step, _, x, _, y, _, mode, phase, _, camera = (int(v, 16) if i == 1 else int(v)
                                                        for i, v in enumerate(part[1:11]))
+        timer = int(part[12])
+        shots = []
+        for slot, text in enumerate(part[13].split(";")):
+            active, _, sx, sy = (int(v) for v in text.split(":"))
+            if active:
+                shots.append((slot, signed(sx), signed(sy)))
         # Mode 2 is the jump; phase 1 of mode 1 is the fall after walking off an edge.
-        rows.append((step, x, y, camera, mode == 2 or (mode == 1 and phase == 1)))
+        rows.append((step, x, y, camera, mode == 2 or (mode == 1 and phase == 1), timer,
+                     tuple(shots)))
     if not rows:
         sys.exit(f"{name}: MAME printed no trace\n{result.stdout}\n{result.stderr}")
     return rows
@@ -129,16 +155,30 @@ def record_fc(args, name, runs):
         part = line.strip().split(",")
         if part[0] != "fc":
             continue
-        step, x, feet, state, camera = (int(v) for v in part[1:6])
-        rows.append((step, x, -feet, camera, state == 1))
+        step, x, feet, state, camera, timer = (int(v) for v in part[1:7])
+        shots = []
+        for slot, text in enumerate(part[7].split(";")):
+            active, sx, sy = (int(v) for v in text.split(":"))
+            if active:
+                # ps_y is down-positive like player_feet; the arcade height is up-positive.
+                shots.append((slot, signed(sx), -signed(sy)))
+        rows.append((step, x, -feet, camera, state == 1, timer, tuple(shots)))
     if not rows:
         sys.exit(f"{name}: Mesen printed no trace (exit {result.returncode})\n{result.stdout}")
     return rows
 
 
+def signed(value):
+    return value - 65536 if value >= 32768 else value
+
+
 def relative(rows):
-    _, x0, y0, c0, _ = rows[0]
-    return [(x - x0, y - y0, c - c0, air) for _, x, y, c, air in rows]
+    """Per update: dx, dy and dcam from the start, air, pose timer, and each active shot
+    slot with its X and height from the player's start."""
+    _, x0, y0, c0, *_ = rows[0]
+    return [(x - x0, y - y0, c - c0, air, timer,
+             tuple((slot, sx - x0, sy - y0) for slot, sx, sy in shots))
+            for _, x, y, c, air, timer, shots in rows]
 
 
 def compare(name, runs, arcade, fc):
@@ -148,10 +188,11 @@ def compare(name, runs, arcade, fc):
     for step in range(count):
         if a[step] != f[step]:
             print(f"FAIL {name}: first difference at update {step}")
-            print("  update input  arcade (dx, dy, dcam, air)  fc (dx, dy, dcam, air)")
+            print("  update input  (dx, dy, dcam, air, pose, shots (slot, dx, dy))")
             for i in range(max(0, step - 4), min(count, step + 6)):
                 mark = ">" if i == step else " "
-                print(f"{mark} {i:6d}  ${inputs[i]:02x}   {str(a[i]):27s} {f[i]}")
+                print(f"{mark} {i:6d}  ${inputs[i]:02x}   arcade {a[i]}")
+                print(f"                fc     {f[i]}")
             return False
     print(f"PASS {name}: {count} updates match")
     return True
