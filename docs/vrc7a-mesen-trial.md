@@ -2,7 +2,7 @@
 
 ZIP を展開する。Mesen 2.1.1 の NES 設定を NTSC にし、1P に NES コントローラーを割り当てる。スプライト制限を有効にし、オーバースキャンを上下左右とも0にして設定を保存する。
 
-`build/vrc7a-test-512k.nes` を Mesen で開く。
+`build/vrc7a-test-512k-prototype.nes` を Mesen で開く。
 
 ## 操作とゲームモード
 

@@ -847,6 +847,104 @@ ap_update_frame:
     jmp submit_frame
 
 ; 16-bit X and Y camera follower for both horizontal and vertical arcade stages.
+.ifdef REVG_STAGE1
+; Arcade $8001: the camera keeps the player at X - camera X = 128. Right of that it
+; catches up unless it has already reached the right limit (checked before the move, as
+; at $8015); left of that it follows back until camera X 0 ($8291, $82AE).
+ap_cam_max_step = 4
+ap_follow_camera:
+    sec
+    lda player_x
+    sbc camera_low
+    tay
+    lda player_x+1
+    sbc camera_high
+    bmi @cam_left_far
+    bne @cam_right_far
+    cpy #128
+    beq @cam_none
+    bcc @cam_left
+    lda camera_high
+    cmp stage_cam_x_max_hi
+    bcs @cam_none
+    tya
+    sec
+    sbc #128
+    ldx #1
+    bne @cam_steps
+@cam_right_far:
+    lda camera_high
+    cmp stage_cam_x_max_hi
+    bcs @cam_none
+    lda #ap_cam_max_step
+    ldx #1
+    bne @cam_steps
+@cam_left:
+    lda camera_low
+    ora camera_high
+    beq @cam_none
+    sty ap_steps
+    lda #128
+    sec
+    sbc ap_steps
+    ldx #2
+    bne @cam_steps
+@cam_left_far:
+    lda camera_low
+    ora camera_high
+    beq @cam_none
+    lda #ap_cam_max_step
+    ldx #2
+@cam_steps:
+    ; A = pixels (1 or more), X = direction. pan_directions takes the extra pixels in bits 6-4.
+    cmp #ap_cam_max_step
+    bcc :+
+    lda #ap_cam_max_step
+:
+    sec
+    sbc #1
+    asl a
+    asl a
+    asl a
+    asl a
+    stx ap_steps
+    ora ap_steps
+    jmp ap_pan_camera
+@cam_none:
+    lda #0
+    beq ap_pan_camera
+
+; Arcade $9283, $92A9 (walk) and $93F0, $940F (jump): room between the player and the
+; screen edge toward A (1 right: camera X + 256 - X, 2 left: X - camera X).
+; Returns C clear when the room is under 10 px and Z set when it is exactly 10 px.
+ap_edge_room:
+    cmp #1
+    bne @room_left
+    lda camera_low
+    sec
+    sbc player_x
+    tay
+    lda camera_high
+    sbc player_x+1
+    clc
+    adc #1
+    jmp @room_check
+@room_left:
+    lda player_x
+    sec
+    sbc camera_low
+    tay
+    lda player_x+1
+    sbc camera_high
+@room_check:
+    bne @room_far
+    cpy #10
+    rts
+@room_far:
+    sec
+    lda #1
+    rts
+.else
 ap_follow_camera:
     ; Horizontal axis
     sec
@@ -868,6 +966,7 @@ ap_follow_camera:
     bne ap_pan_camera
 @cam_left:
     lda #2
+.endif
 ; A = horizontal pan direction (0 none, 1 right, 2 left). The vertical axis follows the player.
 ap_pan_camera:
     sta pan_directions
@@ -894,7 +993,11 @@ ap_pan_camera:
     ora pan_directions
     sta pan_directions
 @cam_y_ready:
+.ifdef REVG_STAGE1
+    jsr prepare_pan_steps
+.else
     jsr prepare_pan
+.endif
     lda pan_x
     sta camera_low
     lda pan_x+1
@@ -1088,6 +1191,14 @@ ap_face_dir:
 ; Arcade $92DA with the walk table $93B6: 288/256 px per update.
 ap_walk_speed_frac = $20
 ap_walk_step:
+.ifdef REVG_STAGE1
+    ; No step within 10 px of the screen edge ($9283, $92A9).
+    lda ap_move_dir
+    jsr ap_edge_room
+    bcs :+
+    rts
+:
+.endif
     lda ap_move_dir
     cmp #1
     bne @walk_left
@@ -1141,6 +1252,19 @@ ap_jump_vx_accel = $0fa0        ; $93BA: added while rising, taken off while fal
 ap_jump_gravity = $3d90
 ap_jump_vy_max = 5
 ap_step_air:
+.ifdef REVG_STAGE1
+    ; $93CA, before every phase: within 10 px of the screen edge the jump loses its
+    ; sideways direction.
+    lda ap_air_dir
+    beq :+
+    jsr ap_edge_room
+    bcc @air_edge
+    bne :+
+@air_edge:
+    lda #0
+    sta ap_air_dir
+:
+.endif
     lda ap_jump_phase
     bne @air_moving
     ; The update after the press only starts the jump ($9415).

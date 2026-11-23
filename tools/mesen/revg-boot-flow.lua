@@ -1,4 +1,4 @@
--- Boot to play in the -RevgStage1 game, with controller input only (TODO C-1a).
+-- Boot to play in the game build (./build.ps1 -Hardware), with controller input only (TODO C-1a).
 -- Power on -> title -> START -> opening (text) -> map (text) -> Stage 1 on the real map.
 -- Then stand at the first tombstone holding right until the placeholder zombies use up
 -- all three lives -> GAME OVER -> START -> title. The other route (boss, key, clear,
@@ -20,6 +20,9 @@ local frame, phase, phaseFrame = 0, "boot", 0
 local input = {}
 local deaths = 0
 local zombieSeen = false
+-- Each screen is drawn with the display off, and how many frames that spans moves with
+-- the code layout (245 frames for the opening once the fixed bank grew), so allow a few.
+local SLACK = 8
 
 local function read(addr) return emu.read(addr, emu.memType.nesMemory) end
 local function readWord(addr) return read(addr) + 256 * read(addr + 1) end
@@ -69,14 +72,14 @@ emu.addEventCallback(function()
             if not check(scene == OPENING and textAt(0x216a, "THE PRINCESS")
                     and read(SND_SONG_ID) == 1, "opening after START") then return end
         elseif scene ~= OPENING and phaseFrame > 4 then
-            if not check(scene == MAP and math.abs(phaseFrame - OPENING_FRAMES) <= 4
+            if not check(scene == MAP and math.abs(phaseFrame - OPENING_FRAMES) <= SLACK
                     and textAt(0x218c, "STAGE 1") and textAt(0x21cb, "GRAVEYARD"),
                     string.format("map after the opening (%d frames)", phaseFrame)) then return end
             nextPhase("map")
         end
     elseif phase == "map" then
         if scene ~= MAP then
-            if not check(scene == PLAY and read(0x8000) == 0x8c and math.abs(phaseFrame - MAP_FRAMES) <= 4,
+            if not check(scene == PLAY and read(0x8000) == 0x8c and math.abs(phaseFrame - MAP_FRAMES) <= SLACK,
                     string.format("Stage 1 after the map (%d frames)", phaseFrame)) then return end
             nextPhase("stage")
         end

@@ -3,7 +3,7 @@
 local frame = 0
 local nextInput = {}
 local step = "select"
-local retryAt
+local retryAt, startAt
 local zero = 0x1b
 local ppu = emu.memType.nesPpuDebug
 local cpu = emu.memType.nesMemory
@@ -84,14 +84,18 @@ emu.addEventCallback(function()
         end
     elseif step == "clear third" then
         if emu.read(0x218a, ppu) == 0x04 and emu.read(0x21d1, ppu) == 0x0e then
-            nextInput.start = true
-            retryAt = frame + 32
+            -- The clear text appears while the screen is still being drawn, and a START
+            -- pressed before the display is back on is not read. Wait a few frames.
+            startAt = frame + 4
+            retryAt = startAt + 32
             step = "check fourth"
         else
             nextInput.right = true
             local enemyGap = emu.read(0x20b, cpu) - emu.read(0x203, cpu) + 4
             nextInput.b = emu.read(0x208, cpu) ~= 0xf8 and enemyGap == 38
         end
+    elseif step == "check fourth" and frame == startAt then
+        nextInput.start = true
     elseif step == "check fourth" and frame == retryAt then
         checkCourse(0xb7, 12, 0x21)
         check(emu.read(0x224c, ppu) == 0x64 and emu.read(0x3f05, ppu) == 0x07,

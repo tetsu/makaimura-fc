@@ -202,11 +202,14 @@ python tools/convert-stage-map.py stage.json build/stage.inc --prefix test_stage
 #### Revision G の実マップ（Stage 1 の区間0）
 
 ```powershell
-./build.ps1 -Hardware -RevgStage1
-./tools/test-mesen.ps1 -RevgStage1 -UseBuiltRoms
+./build.ps1 -Hardware
+./tools/test-mesen.ps1 -Stage1 -UseBuiltRoms
 ```
 
-`-RevgStage1` は、アーケードの区間0の地形を、通常のゲームモードの Stage 1（PRG Bank 12）に組み込む。区間0は横224列（14ページ、3,584 px）。
+本編のビルド（`-Hardware`）は、アーケードの区間0の地形を、通常のゲームモードの Stage 1（PRG Bank 12）に組み込む。区間0は横224列（14ページ、3,584 px）。
+- 変換済みのマップは `src/revg-section0-map.inc` としてリポジトリに入れてある。曲と絵の変換データと同じ扱いで、ビルドに MAME の ROM は要らない。
+- アーケードの ROM（`reference/makaimurg.zip`）から作り直すときは `./build.ps1 -Hardware -RefreshRevgMap`。`tools/mame/extract-revg-stages.py` と `tools/convert-revg-section.py` を順に実行し、このファイルを書き換える。
+- 自作の7面の試作は `-Prototype` でビルドする。
 - 地形と当たりはアーケードのとおりにした。
 - 絵は今ある草・土・墓石の仮の絵で描く。
 - 敵とボスは仮のもの（下の「仮の敵とボス」）。アイテムはまだ置いていない。

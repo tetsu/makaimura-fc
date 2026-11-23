@@ -132,7 +132,7 @@ def main():
     output = BUILD / "audio" / "course-512k"
     try:
         output.mkdir(parents=True, exist_ok=True)
-        rom = BUILD / "vrc7a-test-512k.nes"
+        rom = BUILD / "vrc7a-test-512k-prototype.nes"
         route = (ROOT / "tools/mesen/course-audio.lua").read_bytes()
         alternate = "true" if args.course == "alternate" else "false"
         mute = "true" if args.mute_shot else "false"

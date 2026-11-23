@@ -1,6 +1,6 @@
 # 352402 基板の実機試験
 
-[書き込みと照合](#書き込みと照合)を行ったあと、日本版 NTSC ファミコンで試験する。比較には `build/vrc7a-test-512k.nes` を Mesen で開く。Mesen は NTSC、1P に NES コントローラー、スプライト制限ありに設定する。
+[書き込みと照合](#書き込みと照合)を行ったあと、日本版 NTSC ファミコンで試験する。比較には `build/vrc7a-test-512k-prototype.nes` を Mesen で開く。Mesen は NTSC、1P に NES コントローラー、スプライト制限ありに設定する。
 
 ## 交換 ROM と U1 の確認
 
@@ -26,10 +26,10 @@
 試験用 ZIP は展開し、PowerShell で展開先のルートを開く。同梱の `SHA256SUMS.txt` で PRG と NES イメージのハッシュを確認できる。
 
 ```powershell
-Get-FileHash -Algorithm SHA256 build/vrc7a-test-512k.prg, build/vrc7a-test-512k.nes
+Get-FileHash -Algorithm SHA256 build/vrc7a-test-512k-prototype.prg, build/vrc7a-test-512k-prototype.nes
 ```
 
-T48 の対応表には `AT27C040 @DIP32` がある。Xgpro で同じ項目を選び、ガイドが示す向きで交換 ROM を ZIF ソケットに挿す。ブランクチェックの後、`build/vrc7a-test-512k.prg`（524,288バイト）をオフセット0から書き込む。取り付け前に全域を `build/readback.bin` などの別ファイルへ読み戻す。[T48 の対応表](https://docs.rs-online.com/f666/0900766b814b5d4b.pdf)
+T48 の対応表には `AT27C040 @DIP32` がある。Xgpro で同じ項目を選び、ガイドが示す向きで交換 ROM を ZIF ソケットに挿す。ブランクチェックの後、`build/vrc7a-test-512k-prototype.prg`（524,288バイト）をオフセット0から書き込む。取り付け前に全域を `build/readback.bin` などの別ファイルへ読み戻す。[T48 の対応表](https://docs.rs-online.com/f666/0900766b814b5d4b.pdf)
 
 ```powershell
 ./tools/verify-prg-readback.ps1 -Readback build/readback.bin

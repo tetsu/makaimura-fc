@@ -6,9 +6,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-& (Join-Path $root 'build.ps1') -Hardware -Cc65Bin $Cc65Bin | Out-Null
+# The hardware and Mesen trials check the prototype seven stages (docs/vrc7a-hardware-test.md).
+& (Join-Path $root 'build.ps1') -Hardware -Prototype -Cc65Bin $Cc65Bin | Out-Null
 
-$images = @('build/vrc7a-test-512k.prg', 'build/vrc7a-test-512k.nes')
+$images = @('build/vrc7a-test-512k-prototype.prg', 'build/vrc7a-test-512k-prototype.nes')
 $files = $images + @(
     'docs/vrc7a-hardware-test.md'
     'docs/vrc7a-frames/start.png'
@@ -25,7 +26,7 @@ $files = $images + @(
 $archiveName = 'vrc7a-352402-trial.zip'
 if ($Mesen) {
     & (Join-Path $root 'build.ps1') -Cc65Bin $Cc65Bin | Out-Null
-    $images = @('build/vrc7a-test.nes', 'build/vrc7a-test-512k.nes')
+    $images = @('build/vrc7a-test.nes', 'build/vrc7a-test-512k-prototype.nes')
     $files = $images + @('docs/vrc7a-mesen-trial.md', 'tools/test-mesen.ps1')
     $suiteDir = Join-Path $PSScriptRoot 'mesen'
     $files += Get-ChildItem -LiteralPath $suiteDir -Filter '*-smoke.lua' -File | Sort-Object Name |

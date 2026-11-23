@@ -31,9 +31,12 @@
 
 512 KiB 版を `./build.ps1 -Hardware -CourseSequence` でビルドすると、足場とはしごを使う自作コースから、敵が出現する横3ページの自作コースへ続けて遊べる。Mesen でスコアと残機の引き継ぎから最終クリア後の再スタートまで確認した。[操作と自動試験](docs/stage-design.md#通常ゲームモードの2コース連続プレイ) · [開発タスク](TODO.md)
 
-`./build.ps1 -Hardware -RevgStage1` は、アーケードの Stage 1 の区間0の地形（横14ページ）を Stage 1 に組み込む。地形と当たりはアーケードのとおりで、絵は仮のもの。ビルドには、MAME の ROM から抽出したステージデータが要る。[実マップの規則](docs/stage-design.md#revision-g-の実マップstage-1-の区間0)
+`./build.ps1 -Hardware` は本編の ROM を作る。Stage 1 は、アーケードの Stage 1 の区間0の地形（横14ページ）でできている。地形と当たりはアーケードのとおりで、絵は仮のもの。[実マップの規則](docs/stage-design.md#revision-g-の実マップstage-1-の区間0)
+- 変換済みのマップ `src/revg-section0-map.inc` はリポジトリに入っている。曲と絵の変換データと同じ扱い。ビルドに MAME の ROM は要らない。
+- アーケードの ROM からマップを作り直すときは `./build.ps1 -Hardware -RefreshRevgMap` を使う。
+- 自作の7面の試作は `./build.ps1 -Hardware -Prototype` で `build/vrc7a-test-512k-prototype.nes` になる。`arcade-*` の回帰試験、音声の収録、実機試験の資料はこの ROM を使う。
 
-できた `build/vrc7a-test-512k-revg-stage1.nes` を開くと、電源投入からアーケードの流れで遊べる。
+できた `build/vrc7a-test-512k.nes` を開くと、電源投入からアーケードの流れで遊べる。
 - タイトルで **START** を押すと、開始の演出と地図（どちらも仮の文字だけ）を経て Stage 1 が始まる。演出と地図は **START** で飛ばせる。
 - 敵は仮のゾンビ、門の前のボスは仮の一角獣（10発で倒れる）。鍵を取ると `STAGE1 CLEAR` になり、**START** でタイトルに戻る。
 - 残機がなくなると `GAME OVER` になり、**START** でタイトルに戻る。
@@ -61,11 +64,11 @@ Mesen 2.1.1 で NES の地域を NTSC にし、1P に NES コントローラー�
 
 既定では `build/mesen/Mesen.exe` を使う。別の場所にある場合は `-MesenPath` で指定し、試験ごとの制限時間は `-TimeoutSeconds` で変更できる（既定は120秒）。cc65 の場所は `-Cc65Bin` で指定できる。
 
-32 KiB 版と 512 KiB 版を再ビルドする。32 KiB 版では診断系の試験、512 KiB 版ではアーケードモードと従来の2コース連続プレイの試験を実行する。失敗やタイムアウトがあれば該当する ROM 名と試験名を表示し、残りの試験も実行してから終了コード 1 を返す。Mesen の標準出力と標準エラーは `build/mesen-smoke/` に試験ごとに保存する。
+32 KiB 版、512 KiB の試作版、本編を再ビルドする。32 KiB 版では診断系の試験、試作版ではアーケードモードと従来の2コース連続プレイの試験、本編では電源投入から Stage 1 のクリアまでの2本を実行する。本編の2本だけを回すときは `-Stage1` を付ける。失敗やタイムアウトがあれば該当する ROM 名と試験名を表示し、残りの試験も実行してから終了コード 1 を返す。Mesen の標準出力と標準エラーは `build/mesen-smoke/` に試験ごとに保存する。
 
 ### 512 KiB 版のコース検証
 
-リポジトリのルートで `./build.ps1 -Hardware` を実行し、上記の設定の Mesen 2.1.1 で `build/vrc7a-test-512k.nes` を開く。FM 6声と APU の伴奏が始まってからコースに入る。
+リポジトリのルートで `./build.ps1 -Hardware -Prototype` を実行し、上記の設定の Mesen 2.1.1 で `build/vrc7a-test-512k-prototype.nes` を開く。FM 6声と APU の伴奏が始まってからコースに入る。
 
 **連続プレイ**では、タイトルで **上＋START** を押すと元のコースから始まる。初期残機はプレイ中の1機を含む3機、制限時間は各コース120秒。HUD の `STG`、`LIFE`、`TIME` に現在の値を表示し、途中復帰地点を通過すると `CP` が `N` から `Y` に変わる。
 
@@ -79,9 +82,9 @@ Mesen 2.1.1 で NES の地域を NTSC にし、1P に NES コントローラー�
 入力を自動で再現する場合は、ビルド後に次を実行する。元のコースのメニュー経路と、負荷を掛けた通常クリア・途中復帰の両経路、追加コースの途中復帰からクリアとバンクの切り替えを確認する。
 
 ```powershell
-./build/mesen/Mesen.exe --doNotSaveSettings --testRunner --timeout=50 tools/mesen/course-menu-smoke.lua build/vrc7a-test-512k.nes
-./build/mesen/Mesen.exe --doNotSaveSettings --testRunner --timeout=50 tools/mesen/course-clear-smoke.lua build/vrc7a-test-512k.nes
-./build/mesen/Mesen.exe --doNotSaveSettings --testRunner --timeout=50 tools/mesen/course-bank-smoke.lua build/vrc7a-test-512k.nes
+./build/mesen/Mesen.exe --doNotSaveSettings --testRunner --timeout=50 tools/mesen/course-menu-smoke.lua build/vrc7a-test-512k-prototype.nes
+./build/mesen/Mesen.exe --doNotSaveSettings --testRunner --timeout=50 tools/mesen/course-clear-smoke.lua build/vrc7a-test-512k-prototype.nes
+./build/mesen/Mesen.exe --doNotSaveSettings --testRunner --timeout=50 tools/mesen/course-bank-smoke.lua build/vrc7a-test-512k-prototype.nes
 ```
 
 | 計測対象 | 32 KiB 版 | 512 KiB 版 |
@@ -167,7 +170,7 @@ $fixture = 'build/area-trial-fixture'
 Windows x64 の Mesen 2.1.1（`137ae7c`）の内蔵レコーダーを使う。録音用スクリプトは NTSC、1P に NES コントローラー、マスター音量と各音源100%、パン中央、EQ・リバーブ・クロスフィード無効の条件で実行する。各コースを電源投入から走らせ、被弾後にチェックポイントから再開し、クリア画面から SELECT でメニューに戻る。
 
 ```powershell
-./build.ps1 -Hardware
+./build.ps1 -Hardware -Prototype
 python tools/record-course-audio.py original
 python tools/record-course-audio.py alternate
 python tools/record-course-audio.py original --mute-shot
@@ -177,7 +180,7 @@ python tools/measure-audio.py build/audio/course-512k/original.wav build/audio/c
 
 既定では `build/mesen/MesenCore.dll` を使う。`--core` で同じ版の別の場所を指定できる。WAV とイベントのフレーム番号を `build/audio/course-512k/` に保存する。`--mute-shot` では同じ ROM と入力で、APU パルス2の音量だけを Lua で0にする。[録音スクリプト](tools/record-course-audio.py) · [入力とイベント記録](tools/mesen/course-audio.lua)
 
-測定に使った `vrc7a-test-512k.nes` の SHA-256 は `70046c0a3506bf8852602f383b48c90dd454d6fb5104b0320546f9152662b1f2`。48 kHz・16ビット PCM で、両チャンネルのサンプルは一致した。
+測定に使った `vrc7a-test-512k.nes`（当時の512 KiB 版。今の `-Prototype` の ROM にあたる）の SHA-256 は `70046c0a3506bf8852602f383b48c90dd454d6fb5104b0320546f9152662b1f2`。48 kHz・16ビット PCM で、両チャンネルのサンプルは一致した。
 
 | コース | 全体の RMS / ピーク (dBFS) | 最初の射撃 | 途中復帰 | クリア | メニュー復帰 |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -210,7 +213,7 @@ Mesen 2.1.1 で32 KiB版と512 KiB版の固定画面、音源の切り替え、�
 
 以下の書き込み手順は、機材確保後の追加検証で使う。
 
-`./build.ps1 -Hardware` で、同じソースから512 KiB版を生成する。Mesen には NES 2.0 ヘッダー付きの `build/vrc7a-test-512k.nes` を読み込む。ROM ライターにはヘッダーを除いた `build/vrc7a-test-512k.prg`（524,288バイト）を指定する。各8 KiBバンクの先頭に固有の識別バイトを置き、バンク3〜62の残りを `$FF` で埋める。固定バンク63はオフセット `$7E000`、割り込みとリセットのベクタは `$7FFFA–$7FFFF` に置く。[VRC7 の PRG バンク構成](https://www.nesdev.org/wiki/VRC7)
+`./build.ps1 -Hardware -Prototype` で、同じソースから512 KiB の試作版を生成する。実機試験の資料はこの ROM の動作を前提にしている。Mesen には NES 2.0 ヘッダー付きの `build/vrc7a-test-512k-prototype.nes` を読み込む。ROM ライターにはヘッダーを除いた `build/vrc7a-test-512k-prototype.prg`（524,288バイト）を指定する。各8 KiBバンクの先頭に固有の識別バイトを置き、バンク3〜62の残りを `$FF` で埋める。固定バンク63はオフセット `$7E000`、割り込みとリセットのベクタは `$7FFFA–$7FFFF` に置く。[VRC7 の PRG バンク構成](https://www.nesdev.org/wiki/VRC7)
 
 1. 使用する352402基板の U1 と、交換用 ROM・変換基板の端子対応を確認する。初回試験の候補は AT27C040-70PU と XGecu T48。端子確認後、基板から外した交換 ROM にライターで書き込む。[交換 ROM 候補と端子確認](docs/vrc7a-hardware-test.md#交換-rom-と-u1-の確認)
 2. 書き込みに使った `.prg` を保存しておき、ライターでチップの先頭から524,288バイトを読み戻して別ファイルに保存する。たとえば `build/readback.bin` に保存した場合は次のコマンドで照合する。
@@ -270,7 +273,7 @@ Mesen では、同じ位置とタイミングからの初弾に対し、立っ�
 
 窯の手前にあるひし形の標識を越えると、被弾後の **START** で標識のすぐ右に復帰する。カメラを復帰位置に合わせ、敵と弾を初期化する。標識に着く前の被弾や、操作できる状態での **START** ではコースの最初に戻る。Mesen では到達前のやり直し、窯の再発射、連続した途中復帰を入力だけで確認した。再検証には `Mesen.exe --testRunner --timeout=50 tools/mesen/checkpoint-smoke.lua build/vrc7a-test.nes` を使う。
 
-右端の旗の前に着地すると **COURSE CLEAR** が表示される。そこで **START** を押すと、選んだコースのチェックポイントを解除して最初から遊べる。**SELECT** でメニューに戻る。弾を飛び越える経路と被弾して途中復帰する経路は、どちらも `Mesen.exe --testRunner --timeout=50 tools/mesen/course-clear-smoke.lua build/vrc7a-test.nes` で再現できる。512 KiB版を検証する場合は ROM 名を `build/vrc7a-test-512k.nes` に置き換える。元コースのメニュー操作、再挑戦、リセットは `course-menu-smoke.lua`、バンクの切り替えと追加コースの途中復帰・クリアは `course-bank-smoke.lua` で検証できる。
+右端の旗の前に着地すると **COURSE CLEAR** が表示される。そこで **START** を押すと、選んだコースのチェックポイントを解除して最初から遊べる。**SELECT** でメニューに戻る。弾を飛び越える経路と被弾して途中復帰する経路は、どちらも `Mesen.exe --testRunner --timeout=50 tools/mesen/course-clear-smoke.lua build/vrc7a-test.nes` で再現できる。512 KiB版を検証する場合は ROM 名を `build/vrc7a-test-512k-prototype.nes` に置き換える。元コースのメニュー操作、再挑戦、リセットは `course-menu-smoke.lua`、バンクの切り替えと追加コースの途中復帰・クリアは `course-bank-smoke.lua` で検証できる。
 
 同じテストで FM 6声と APU の伴奏・射撃音のレジスタ更新、HUD の画素、地形の継ぎ目を途中復帰の前後まで確認した。Mesen のスプライト制限を有効にすると、被弾直前にプレイヤー2枠、窯2枠、火花1枠と印8枠が同じ走査線に重なり、火花と3個の印が見えた。[VBlank の計測値](#512-kib-版のコース検証)
 

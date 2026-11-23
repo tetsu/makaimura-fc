@@ -1,5 +1,5 @@
-; Stage 1 with the real Revision G section 0 layout (512 KiB game mode, -RevgStage1).
-; tools/convert-revg-section.py writes revg-section0-map.inc from the extracted map:
+; Stage 1 with the real Revision G section 0 layout (the 512 KiB game, ./build.ps1 -Hardware).
+; revg-section0-map.inc (committed; ./build.ps1 -Hardware -RefreshRevgMap rebuilds it from the arcade ROM):
 ; 224 columns (14 pages), one-way floors, ladders, pits, the lake and tombstones.
 ; The art is a placeholder. Coordinates are FC world pixels: X as in the arcade,
 ; feet = 256 - arcade Y (docs/stage-design.md, "Revision G の実マップ").

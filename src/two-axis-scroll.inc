@@ -197,6 +197,7 @@ prepare_pan:
     sta pan_need_row
     sta pan_need_col
     jsr pan_move_x
+prepare_pan_moved:
     jsr pan_move_y
     lda pan_x+1
     jsr pan_set_tile_x
@@ -242,6 +243,27 @@ pan_row_ready:
     jsr prepare_pan_column
 :
     rts
+
+.ifdef REVG_STAGE1
+; prepare_pan with extra horizontal pixels in bits 6-4 of pan_directions (the arcade
+; camera, arcade-player.inc). Under 8 px in all, so at most one new column.
+prepare_pan_steps:
+    lda #pan_no_update
+    sta pan_need_row
+    sta pan_need_col
+:
+    jsr pan_move_x
+    lda pan_directions
+    and #$70
+    beq :+
+    lda pan_directions
+    sec
+    sbc #$10
+    sta pan_directions
+    jmp :-
+:
+    jmp prepare_pan_moved
+.endif
 
 ; A = camera X high byte (page). Set pan_tile_x/pan_tile_x_hi to its first tile column.
 ; Preserves Y.

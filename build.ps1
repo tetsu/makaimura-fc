@@ -6,7 +6,8 @@ param(
     [switch]$PlatformCourse,
     [switch]$ScrollCourse,
     [switch]$CourseSequence,
-    [switch]$RevgStage1
+    [switch]$Prototype,
+    [switch]$RefreshRevgMap
 )
 $ErrorActionPreference = 'Stop'
 if ($AreaManifest -and !$Hardware) {
@@ -15,11 +16,14 @@ if ($AreaManifest -and !$Hardware) {
 if ($AreaTrial -and !$AreaManifest) {
     throw '-AreaTrial requires -AreaManifest.'
 }
-if (@($PlatformCourse, $ScrollCourse, $CourseSequence, $RevgStage1).Where({ $_ }).Count -gt 1) {
-    throw 'Choose one of -PlatformCourse, -ScrollCourse, -CourseSequence, or -RevgStage1.'
+if (@($PlatformCourse, $ScrollCourse, $CourseSequence, $Prototype).Where({ $_ }).Count -gt 1) {
+    throw 'Choose one of -PlatformCourse, -ScrollCourse, -CourseSequence, or -Prototype.'
 }
-if ($RevgStage1 -and !$Hardware) {
-    throw '-RevgStage1 requires -Hardware.'
+if ($Prototype -and !$Hardware) {
+    throw '-Prototype requires -Hardware.'
+}
+if ($Prototype -and $AreaManifest) {
+    throw '-Prototype cannot be combined with -AreaManifest.'
 }
 $courseName = if ($PlatformCourse) { 'platform-course' } elseif ($ScrollCourse) { 'scroll-course' } elseif ($CourseSequence) { 'course-sequence' }
 if ($courseName -and !$Hardware) {
@@ -82,17 +86,21 @@ if ($courseName) {
     if ($ScrollCourse) { $assembleOptions += @('-D', 'SCROLL_COURSE=1') }
     if ($CourseSequence) { $assembleOptions += @('-D', 'COURSE_SEQUENCE=1') }
 }
-if ($RevgStage1) {
-    # The map comes from the arcade ROM (reference/makaimurg.zip), which is not in the repository.
+if ($RefreshRevgMap) {
+    # Rebuild src/revg-section0-map.inc from the arcade ROM (reference/makaimurg.zip, not in
+    # the repository). The converted map is committed, like the music and graphics data.
     $stageDir = Join-Path $buildDir 'revg-stages'
-    if (!(Test-Path -LiteralPath (Join-Path $stageDir 'section0-map.json'))) {
-        & python (Join-Path $PSScriptRoot 'tools/mame/extract-revg-stages.py') --output $stageDir | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "Stage extraction failed with code $LASTEXITCODE" }
-    }
-    & python (Join-Path $PSScriptRoot 'tools/convert-revg-section.py') (Join-Path $buildDir 'revg-section0-map.inc') --stages $stageDir | Out-Null
+    & python (Join-Path $PSScriptRoot 'tools/mame/extract-revg-stages.py') --output $stageDir | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Stage extraction failed with code $LASTEXITCODE" }
+    & python (Join-Path $PSScriptRoot 'tools/convert-revg-section.py') (Join-Path $sourceDir 'revg-section0-map.inc') --stages $stageDir | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Real map conversion failed with code $LASTEXITCODE" }
-    $basename += '-revg-stage1'
-    $assembleOptions += @('-D', 'REVG_STAGE1=1', '-I', $buildDir)
+}
+if ($Prototype) {
+    # The prototype seven stages that the arcade-* Mesen smoke tests play.
+    $basename += '-prototype'
+} elseif ($Hardware -and !$courseName -and !$AreaManifest) {
+    # The game: Stage 1 with the real Revision G section 0 layout.
+    $assembleOptions += @('-D', 'REVG_STAGE1=1')
 }
 $object = Join-Path $buildDir "$basename.o"
 $rom = Join-Path $buildDir "$basename.nes"

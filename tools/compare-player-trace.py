@@ -2,8 +2,8 @@
 
 Each trial is one input schedule. MAME plays it from the first controllable update of
 section 0 (tools/mame/record-revg-player.lua) and Mesen plays the same buttons in the
--RevgStage1 build from the first update after the start (a generated Lua script). Both
-traces are reduced to the change in X and in height from the start position and to
+game build (./build.ps1 -Hardware) from the first update after the start (a generated Lua script). Both
+traces are reduced to the change in X, in height and in camera X from the start and to
 whether the player is in the air, and must match on every update.
 
     python tools/compare-player-trace.py            # all trials
@@ -29,6 +29,12 @@ TRIALS = {
     "forward": [(10, 0), (20, RIGHT), (1, RIGHT | JUMP), (45, RIGHT), (10, 0), (20, LEFT),
                 (1, LEFT | JUMP), (45, LEFT), (10, 0), (1, RIGHT | JUMP), (45, RIGHT),
                 (10, 0), (10, RIGHT), (1, RIGHT | JUMP), (8, RIGHT), (40, LEFT), (10, 0)],
+    # The camera follows at X - camera X = 128 both ways and stops at camera X 0. The
+    # tombstone at X 48 keeps the player from the 10 px left edge, so that is not tried.
+    "camera": [(10, 0), (120, RIGHT), (10, 0), (25, LEFT), (5, 0), (1, LEFT | JUMP),
+               (45, LEFT), (10, 0), (1, RIGHT | JUMP), (45, RIGHT), (10, 0), (100, LEFT),
+               (10, 0), (1, RIGHT | JUMP), (45, RIGHT), (10, 0), (20, RIGHT),
+               (1, RIGHT | JUMP), (8, RIGHT), (40, LEFT), (10, 0)],
     # Walk into the first tombstone, jump onto it and walk off its far side.
     "tombstone": [(10, 0), (150, RIGHT), (10, 0), (1, RIGHT | JUMP), (60, RIGHT), (20, 0)],
 }
@@ -99,10 +105,10 @@ def record_arcade(args, name, runs):
         part = line.split(",")
         if part[0] != "arcade":
             continue
-        step, _, x, _, y, _, mode, phase = (int(v, 16) if i == 1 else int(v)
-                                           for i, v in enumerate(part[1:9]))
+        step, _, x, _, y, _, mode, phase, _, camera = (int(v, 16) if i == 1 else int(v)
+                                                       for i, v in enumerate(part[1:11]))
         # Mode 2 is the jump; phase 1 of mode 1 is the fall after walking off an edge.
-        rows.append((step, x, y, mode == 2 or (mode == 1 and phase == 1)))
+        rows.append((step, x, y, camera, mode == 2 or (mode == 1 and phase == 1)))
     if not rows:
         sys.exit(f"{name}: MAME printed no trace\n{result.stdout}\n{result.stderr}")
     return rows
@@ -123,16 +129,16 @@ def record_fc(args, name, runs):
         part = line.strip().split(",")
         if part[0] != "fc":
             continue
-        step, x, feet, state, _ = (int(v) for v in part[1:6])
-        rows.append((step, x, -feet, state == 1))
+        step, x, feet, state, camera = (int(v) for v in part[1:6])
+        rows.append((step, x, -feet, camera, state == 1))
     if not rows:
         sys.exit(f"{name}: Mesen printed no trace (exit {result.returncode})\n{result.stdout}")
     return rows
 
 
 def relative(rows):
-    _, x0, y0, _ = rows[0]
-    return [(x - x0, y - y0, air) for _, x, y, air in rows]
+    _, x0, y0, c0, _ = rows[0]
+    return [(x - x0, y - y0, c - c0, air) for _, x, y, c, air in rows]
 
 
 def compare(name, runs, arcade, fc):
@@ -142,10 +148,10 @@ def compare(name, runs, arcade, fc):
     for step in range(count):
         if a[step] != f[step]:
             print(f"FAIL {name}: first difference at update {step}")
-            print("  update input  arcade (dx, dy, air)  fc (dx, dy, air)")
+            print("  update input  arcade (dx, dy, dcam, air)  fc (dx, dy, dcam, air)")
             for i in range(max(0, step - 4), min(count, step + 6)):
                 mark = ">" if i == step else " "
-                print(f"{mark} {i:6d}  ${inputs[i]:02x}   {str(a[i]):22s} {f[i]}")
+                print(f"{mark} {i:6d}  ${inputs[i]:02x}   {str(a[i]):27s} {f[i]}")
             return False
     print(f"PASS {name}: {count} updates match")
     return True
@@ -159,7 +165,7 @@ def main():
                         default=Path.home() / "tools/mame/mame0289/mame.exe")
     parser.add_argument("--mesen", type=Path, default=ROOT / "build/mesen/Mesen.exe")
     parser.add_argument("--rom", type=Path,
-                        default=ROOT / "build/vrc7a-test-512k-revg-stage1.nes")
+                        default=ROOT / "build/vrc7a-test-512k.nes")
     args = parser.parse_args()
     for name in args.trials:
         if name not in TRIALS:

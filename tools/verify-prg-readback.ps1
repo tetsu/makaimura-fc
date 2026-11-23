@@ -7,7 +7,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 if (!$Prg) {
-    $Prg = Join-Path $PSScriptRoot '../build/vrc7a-test-512k.prg'
+    $Prg = Join-Path $PSScriptRoot '../build/vrc7a-test-512k-prototype.prg'
 }
 $expectedFile = Get-Item -LiteralPath $Prg
 $readbackFile = Get-Item -LiteralPath $Readback

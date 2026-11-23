@@ -1,4 +1,4 @@
--- Stage 1 with the real Revision G section 0 layout (-RevgStage1).
+-- Stage 1 with the real Revision G section 0 layout (the game build, ./build.ps1 -Hardware).
 -- Drive the route with controller input only: jump the tombstones, climb the first hill
 -- ladder, cross the lake on the raft, miss once after the checkpoint and restart there,
 -- jump the forest pits, beat the placeholder boss at the gate, take the key and return

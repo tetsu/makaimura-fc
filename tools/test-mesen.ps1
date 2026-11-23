@@ -9,12 +9,12 @@ param(
     [switch]$PlatformCourse,
     [switch]$ScrollCourse,
     [switch]$CourseSequence,
-    [switch]$RevgStage1
+    [switch]$Stage1
 )
 
 $ErrorActionPreference = 'Stop'
-if (@($AreaTrial, $PlatformCourse, $ScrollCourse, $CourseSequence, $RevgStage1).Where({ $_ }).Count -gt 1) {
-    throw 'Choose one of -AreaTrial, -PlatformCourse, -ScrollCourse, -CourseSequence, or -RevgStage1.'
+if (@($AreaTrial, $PlatformCourse, $ScrollCourse, $CourseSequence, $Stage1).Where({ $_ }).Count -gt 1) {
+    throw 'Choose one of -AreaTrial, -PlatformCourse, -ScrollCourse, -CourseSequence, or -Stage1.'
 }
 $root = Split-Path -Parent $PSScriptRoot
 if (!$MesenPath) {
@@ -40,14 +40,14 @@ function Invoke-MesenSuite($SuitePath, $RomPath) {
 }
 
 $buildScript = Join-Path $root 'build.ps1'
-if ($RevgStage1) {
-    $rom = Join-Path $root 'build/vrc7a-test-512k-revg-stage1.nes'
-    if (!$UseBuiltRoms) {
-        $rom = (& $buildScript -Hardware -RevgStage1 -Cc65Bin $Cc65Bin)[0]
-    }
-    if (!(Test-Path -LiteralPath $rom -PathType Leaf)) { throw "ROM not found: $rom." }
-    foreach ($suiteName in 'revg-boot-flow', 'revg-stage1') {
-        $exitCode = Invoke-MesenSuite (Join-Path $PSScriptRoot "mesen/$suiteName.lua") $rom
+$gameRom = Join-Path $root 'build/vrc7a-test-512k.nes'
+$gameSuites = 'revg-boot-flow.lua', 'revg-stage1.lua'
+if ($Stage1) {
+    # Only the game build: power-on to Stage 1, the boss and the key (real section 0 map).
+    if (!$UseBuiltRoms) { $gameRom = (& $buildScript -Hardware -Cc65Bin $Cc65Bin)[0] }
+    if (!(Test-Path -LiteralPath $gameRom -PathType Leaf)) { throw "ROM not found: $gameRom." }
+    foreach ($suiteName in $gameSuites) {
+        $exitCode = Invoke-MesenSuite (Join-Path $PSScriptRoot "mesen/$suiteName") $gameRom
         if ($exitCode -ne 0) { throw "$suiteName failed with code $exitCode. See $logDir." }
         Write-Host "$suiteName passed."
     }
@@ -126,12 +126,13 @@ if (!$suites.Count) {
 }
 
 $rom32 = Join-Path $root 'build/vrc7a-test.nes'
-$rom512 = Join-Path $root 'build/vrc7a-test-512k.nes'
+$rom512 = Join-Path $root 'build/vrc7a-test-512k-prototype.nes'
 if (!$UseBuiltRoms) {
     & $buildScript -Cc65Bin $Cc65Bin | Out-Null
+    & $buildScript -Hardware -Prototype -Cc65Bin $Cc65Bin | Out-Null
     & $buildScript -Hardware -Cc65Bin $Cc65Bin | Out-Null
 }
-foreach ($rom in @($rom32, $rom512)) {
+foreach ($rom in @($rom32, $rom512, $gameRom)) {
     if (!(Test-Path -LiteralPath $rom -PathType Leaf)) {
         throw "ROM image not found: $rom"
     }
@@ -155,6 +156,19 @@ foreach ($rom in @($rom32, $rom512)) {
             $failures += $failure
             Write-Host "FAIL $failure"
         }
+    }
+}
+# The game build (real Stage 1) runs its own route tests.
+foreach ($suiteName in $gameSuites) {
+    $testCount++
+    $testName = "vrc7a-test-512k.nes / $suiteName"
+    $code = Invoke-MesenSuite (Join-Path $PSScriptRoot "mesen/$suiteName") $gameRom
+    if ($code -eq 0) {
+        Write-Host "PASS $testName"
+    } else {
+        $failure = "$testName (Mesen exit $code)"
+        $failures += $failure
+        Write-Host "FAIL $failure"
     }
 }
 

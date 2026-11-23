@@ -1,4 +1,4 @@
-; Bank 2 ($C000): the title screen and, in the -RevgStage1 game, the opening and map
+; Bank 2 ($C000): the title screen and, in the game build (./build.ps1 -Hardware), the opening and map
 ; screens shown between START and Stage 1. The fixed bank keeps the entry points
 ; (show_title_screen, show_frontend_scene, update_frontend_scene) because they also call
 ; the sound driver, which maps Bank 8 into $C000. Nothing here may map another $C000 bank.
