@@ -1,17 +1,19 @@
-; Bank 8 ($C000-$DFFF): VRC7a FM 6-voice + APU BGM/SE sound driver.
-; Plays faithful arcade Makaimura (Revision G) music data stored in BANK9
-; ($8000-$9FFF data window, temporarily banked in during snd_play_song/snd_tick).
+; Bank 8 ($C000-$DFFF): VRC7a FM 6-voice music + APU/FM sound effects.
+; Plays the Revision G songs that tools/convert-revg-music.py converts from the Z80 sound
+; ROM (src/arcade-music-data.inc): six FM channels, like the arcade's two YM2203s. The
+; tables are in this bank; each song's streams are in a data bank (arc_song_bank) that
+; is mapped at $8000 while the driver reads them.
 ; Uses WRAM_SND ($7800+) and calls fixed-bank fm_write so the hardware
 ; $9010 (>=6 cycles) and $9030 (>=42 cycles) wait rules are always respected.
 
 snd_song_none     = 0
-snd_song_title    = 1   ; Arcade Start Demo jingle
-snd_song_stage    = 2   ; Arcade Stage 1 & 2 (Graveyard & Forest)
-snd_song_boss     = 3   ; Arcade Boss theme
-snd_song_clear    = 4   ; Arcade Stage Clear jingle
-snd_song_gameover = 5   ; Arcade Game Over jingle
-snd_song_stage3   = 6   ; Arcade Stage 3 & 4 (Cavern & Bridge)
-snd_song_stage5   = 7   ; Arcade Stage 5 & 6 (Castle)
+snd_song_title    = 1   ; $3C, $3D, $3A: the opening demo
+snd_song_stage    = 2   ; $30 then $2B: sections 0-1 (graveyard and forest)
+snd_song_boss     = 3   ; $2D: the section 0-1 boss pages
+snd_song_clear    = 4   ; $3B: after the key is taken
+snd_song_gameover = 5   ; $2F
+snd_song_stage3   = 6   ; $30 then $33: sections 2-3
+snd_song_stage5   = 7   ; $30 then $29: sections 4-5
 snd_song_max      = 7
 
 snd_se_none       = 0
@@ -21,14 +23,16 @@ snd_se_key        = 3
 snd_se_max        = snd_se_key
 
 snd_fm_channels   = 6
-snd_music_bank    = 9
 
-; Sequence stream commands (in BANK9):
-;   $00       : rest / key-off, followed by 1-byte duration (frames)
-;   $01..$54  : note MIDI 24..107 (C1..B7), followed by 1-byte duration (frames)
-;   $55       : hold current note without re-keyon, followed by 1-byte duration
-;   $FE       : end of non-looping song
-;   $FF lo hi : jump to 16-bit loop pointer in BANK9
+; Sequence stream commands (one stream per FM channel):
+;   $00 dd       key off (the pitch stays for the release), then wait dd frames
+;   $01-$5F dd   key on note n (MIDI n - 1), then wait dd frames
+;   $60 dd       wait dd frames
+;   $61 nn dd    change the pitch to note nn without a new attack, then wait dd frames
+;   $62 ii       set the instrument and volume ($30+ch), then read the next command
+;   $63 pp       load custom patch pp (arc_patches) into $00-$07, then read on
+;   $FE          end of this channel (a held note keeps sounding, as in the arcade)
+;   $FF lo hi    jump
 
 .segment "WRAM_SND"
 ; Preserve $7800..$7807 exact offsets for Mesen audio smoke tests.
@@ -46,11 +50,8 @@ snd_fm_ptr_hi:      .res snd_fm_channels
 snd_fm_wait:        .res snd_fm_channels
 snd_fm_inst:        .res snd_fm_channels    ; $30+ch shadow
 snd_fm_fnum_lo:     .res snd_fm_channels    ; $10+ch shadow
-snd_fm_fnum_hi:     .res snd_fm_channels    ; $20+ch shadow
-
-snd_drm_ptr_lo:     .res 1                  ; 16-bit stream pointer for APU drum track
-snd_drm_ptr_hi:     .res 1
-snd_drm_wait:       .res 1
+snd_fm_fnum_hi:     .res snd_fm_channels    ; $20+ch shadow (bit 4 = key on)
+snd_song_bank:      .res 1                  ; the data bank of the playing song
 
 snd_tmp0:           .res 1
 snd_tmp1:           .res 1
@@ -95,15 +96,10 @@ snd_silence_all:
     bpl @sil_fm
     rts
 
-; A = song ID (0..snd_song_max). Resets all voices, loads the song's shared FM
-; custom patch into $00..$07 if changed, and initializes all 6 FM + drum tracks.
+; A = song ID (0..snd_song_max). Resets all voices, loads the song's first custom
+; patch into $00..$07 and points the six FM channels at their streams.
 snd_play_song:
     sta snd_tmp0
-    lda prg_bank0
-    sta snd_saved_bank0
-    lda #snd_music_bank
-    jsr select_bank0
-
     jsr snd_silence_all
     lda #0
     sta snd_se_id
@@ -119,91 +115,67 @@ snd_play_song:
     cmp #snd_song_max + 1
     bcs @stop_song
 
-    ; Load shared FM custom patch ($00..$07) for this song if needed.
     tax
-    lda arc_song_patch_id,x
-    cmp snd_custom_patch
-    beq @patch_ready
-    sta snd_custom_patch
+    lda arc_song_bank - 1,x
+    sta snd_song_bank
+    lda arc_song_patch - 1,x
     jsr snd_load_custom_patch
-@patch_ready:
-    ; Initialize FM channel instruments & 16-bit stream pointers.
+    ; The six streams; each starts by setting its instrument ($62).
     ldx snd_song_id
-    lda arc_song_inst_base,x
-    sta snd_tmp1
-    lda arc_song_trk_offset,x
-    sta snd_tmp0
-
+    lda #0
+:
+    dex
+    beq :+
+    clc
+    adc #snd_fm_channels
+    bne :-
+:
+    tay
     ldx #0
 @init_fm_ch:
     lda #0
     sta snd_fm_fnum_lo,x
     sta snd_fm_fnum_hi,x
+    sta snd_fm_inst,x
     lda #1
     sta snd_fm_wait,x
-
-    ldy snd_tmp0
     lda arc_trk_lo,y
     sta snd_fm_ptr_lo,x
     lda arc_trk_hi,y
     sta snd_fm_ptr_hi,x
-    inc snd_tmp0
-
-    ldy snd_tmp1
-    lda arc_inst_presets,y
-    sta snd_fm_inst,x
-    inc snd_tmp1
-    ; Program $30+ch right away.
-    tay
-    txa
-    ora #$30
-    jsr fm_write
-
+    iny
     inx
     cpx #snd_fm_channels
     bne @init_fm_ch
-
-    ; Initialize APU drum track (7th track of the song).
-    ldy snd_tmp0
-    lda arc_trk_lo,y
-    sta snd_drm_ptr_lo
-    lda arc_trk_hi,y
-    sta snd_drm_ptr_hi
-    lda #1
-    sta snd_drm_wait
-
-    ; Enable APU Triangle ($04) + Noise ($08) = $0C for drums.
-    lda #$0c
-    jsr set_apu_channels
     lda #1
     sta snd_playing
-    jmp @restore_bank0
+    rts
 
 @stop_song:
     lda #0
     sta snd_playing
-@restore_bank0:
-    lda snd_saved_bank0
-    jmp select_bank0
+    rts
 
-; A = custom patch index (0 = arcade bright brass/organ lead, 1 = boss sharp FM lead).
+; A = custom patch index (arc_patches, 8 bytes each). Preserves X.
 snd_load_custom_patch:
+    sta snd_custom_patch
+    stx snd_tmp1
     asl a
     asl a
     asl a
     tax
-    ldy #0
-    sty snd_tmp1
+    lda #0
+    sta snd_tmp0
 @patch_loop:
-    lda snd_custom_patches,x
-    tay
-    lda snd_tmp1
+    ldy arc_patches,x
+    lda snd_tmp0
     jsr fm_write
     inx
-    inc snd_tmp1
-    lda snd_tmp1
+    inc snd_tmp0
+    lda snd_tmp0
     cmp #8
     bne @patch_loop
+    ldx snd_tmp1
     rts
 
 ; A = SE ID (1=shot, 2=damage, 3=key).
@@ -324,10 +296,9 @@ snd_tick:
     beq @tick_done
     lda prg_bank0
     sta snd_saved_bank0
-    lda #snd_music_bank
+    lda snd_song_bank
     jsr select_bank0
     jsr snd_update_fm_bgm
-    jsr snd_update_drum_bgm
     lda snd_saved_bank0
     jsr select_bank0
 @tick_done:
@@ -431,7 +402,8 @@ snd_update_se:
     ldy snd_fm_inst+5
     jsr fm_write
     lda snd_fm_fnum_hi+5
-    beq @clear_se_state
+    and #$10
+    beq @clear_se_state         ; the music's note there is not held
     lda #$15
     ldy snd_fm_fnum_lo+5
     jsr fm_write
@@ -447,219 +419,191 @@ snd_update_se:
 @se_u_done:
     rts
 
-; Update all 6 FM BGM voices; channel 5 updates shadow only if preempted by SE.
+; Update the six FM channels. Channel 5 only updates its shadow while an effect owns it.
 snd_update_fm_bgm:
-    lda #0
-    sta snd_ch
-@fm_ch_loop:
-    ldx snd_ch
-    dec snd_fm_wait,x
-    beq @fm_fetch_note
+    ldx #0
+    beq @fm_ch_loop
+@fm_skip:
     jmp @fm_next_ch
-
-@fm_fetch_note:
+@fm_ch_loop:
+    stx snd_ch
+    lda snd_fm_ptr_hi,x
+    beq @fm_skip             ; this channel has ended
+    dec snd_fm_wait,x
+    bne @fm_skip
+@fm_read:
     lda snd_fm_ptr_lo,x
     sta snd_ptr
     lda snd_fm_ptr_hi,x
     sta snd_ptr+1
-
     ldy #0
+@fm_command:
     lda (snd_ptr),y
     cmp #$ff
-    bne @fm_check_end
-    ; Jump to 16-bit loop address in BANK9
+    bne @fm_not_jump
     iny
     lda (snd_ptr),y
-    sta snd_fm_ptr_lo,x
+    pha
     iny
     lda (snd_ptr),y
-    sta snd_fm_ptr_hi,x
-    lda snd_fm_ptr_lo,x
-    sta snd_ptr
-    lda snd_fm_ptr_hi,x
     sta snd_ptr+1
+    pla
+    sta snd_ptr
     ldy #0
-    lda (snd_ptr),y
-@fm_check_end:
+    beq @fm_command
+@fm_not_jump:
+    iny
     cmp #$fe
-    bne @fm_play_note
-    ; Non-looping jingle finished: silence all and stop playback cleanly.
-    jsr snd_silence_all
+    bne :+
+    jmp @fm_channel_end
+:
+    cmp #$62
+    bcs @fm_untimed
+    sta snd_tmp0                ; $00-$61
+    cmp #$61
+    bne :+
+    lda (snd_ptr),y             ; $61: the note
+    iny
+    sta snd_tmp0
+    lda #$80                    ; bit 7 marks the legato
+    ora snd_tmp0
+    sta snd_tmp0
+:
+    lda (snd_ptr),y
+    iny
+    sta snd_fm_wait,x
+    jsr @fm_store_pointer
+    lda snd_tmp0
+    beq @fm_key_off
+    cmp #$60
+    beq @fm_skip
+    jsr @fm_set_pitch           ; $01-$5F or the legato note
+    jsr @fm_owned
+    bcs @fm_skip
+    lda snd_tmp0
+    bmi @fm_write_pitch         ; legato: no new attack
+    txa                         ; key off first, keeping the pitch, so the note attacks again
+    ora #$20
+    tay
+    lda snd_fm_fnum_hi,x
+    and #$0f
+    jsr @fm_write_y_reg
+@fm_write_pitch:
+    txa
+    ora #$10
+    tay
+    lda snd_fm_fnum_lo,x
+    jsr @fm_write_y_reg
+    txa
+    ora #$20
+    tay
+    lda snd_fm_fnum_hi,x
+    jsr @fm_write_y_reg
+    jmp @fm_next_ch
+
+@fm_key_off:
+    lda snd_fm_fnum_hi,x
+    and #$0f
+    sta snd_fm_fnum_hi,x
+    jsr @fm_owned
+    bcs :+
+    txa
+    ora #$20
+    tay
+    lda snd_fm_fnum_hi,x
+    jsr @fm_write_y_reg
+:
+    jmp @fm_next_ch
+
+@fm_untimed:                    ; $62 ii or $63 pp, then the next command
+    sta snd_tmp0
+    lda (snd_ptr),y
+    iny
+    pha
+    jsr @fm_store_pointer
+    pla
+    ldy snd_tmp0
+    cpy #$63
+    beq @fm_patch
+    sta snd_fm_inst,x
+    jsr @fm_owned
+    bcc :+
+    jmp @fm_read
+:
+    txa
+    ora #$30
+    tay
+    lda snd_fm_inst,x
+    jsr @fm_write_y_reg
+    jmp @fm_read
+@fm_patch:
+    jsr snd_load_custom_patch
+    jmp @fm_read
+
+@fm_channel_end:
     lda #0
+    sta snd_fm_ptr_hi,x
+    ldy #snd_fm_channels - 1    ; the song ends when every channel has
+:
+    lda snd_fm_ptr_hi,y
+    bne @fm_next_ch
+    dey
+    bpl :-
     sta snd_playing
+
+@fm_next_ch:
+    ldx snd_ch
+    inx
+    cpx #snd_fm_channels
+    beq :+
+    jmp @fm_ch_loop
+:
     rts
 
-@fm_play_note:
-    sta snd_tmp0                ; note cmd ($00=rest, $01..$54=MIDI, $55=hold)
-    iny
-    lda (snd_ptr),y             ; duration in frames
-    sta snd_fm_wait,x
-
-    ; Advance 16-bit stream pointer by 2
-    lda snd_fm_ptr_lo,x
+; The stream pointer of channel X = snd_ptr + Y.
+@fm_store_pointer:
+    tya
     clc
-    adc #2
+    adc snd_ptr
     sta snd_fm_ptr_lo,x
-    bcc :+
-    inc snd_fm_ptr_hi,x
-:
-    lda snd_tmp0
-    cmp #$55
-    bne :+
-    jmp @fm_next_ch             ; Hold current note without re-keyon
-:
-    cmp #0
-    beq @fm_rest
+    lda snd_ptr+1
+    adc #0
+    sta snd_fm_ptr_hi,x
+    rts
 
-    ; Key-on: load F-num low/high from BANK9 84-note table
+; The F-number shadow of channel X from note snd_tmp0 (bit 7 ignored), key on.
+@fm_set_pitch:
+    lda snd_tmp0
+    and #$7f
     tay
     lda arc_fm_fnum_lo,y
     sta snd_fm_fnum_lo,x
     lda arc_fm_fnum_hi,y
     sta snd_fm_fnum_hi,x
-
-    ; If ch5 is preempted by SE, keep shadow updated but do not touch hardware.
-    cpx #5
-    bne @fm_hw_keyon
-    lda snd_se_fm_mask
-    and #$20
-    bne @fm_next_ch
-
-@fm_hw_keyon:
-    ; Key-off first so consecutive notes re-trigger attack cleanly
-    txa
-    ora #$20
-    ldy #0
-    jsr fm_write
-
-    ldx snd_ch
-    txa
-    ora #$10
-    ldy snd_fm_fnum_lo,x
-    jsr fm_write
-
-    ldx snd_ch
-    txa
-    ora #$20
-    ldy snd_fm_fnum_hi,x
-    jsr fm_write
-    jmp @fm_next_ch
-
-@fm_rest:
-    lda #0
-    sta snd_fm_fnum_hi,x
-    cpx #5
-    bne @fm_hw_keyoff
-    lda snd_se_fm_mask
-    and #$20
-    bne @fm_next_ch
-@fm_hw_keyoff:
-    txa
-    ora #$20
-    ldy #0
-    jsr fm_write
-
-@fm_next_ch:
-    inc snd_ch
-    lda snd_ch
-    cmp #snd_fm_channels
-    beq @fm_done
-    jmp @fm_ch_loop
-@fm_done:
     rts
 
-; Update APU percussion (drum) track: $00=rest, $01=kick(Tri), $02=snare(Noise), $03=hihat(Noise)
-snd_update_drum_bgm:
-    dec snd_drm_wait
-    beq :+
+; C set when an effect owns channel X (channel 5 under snd_se_fm_mask bit 5).
+@fm_owned:
+    cpx #5
+    bne :+
+    lda snd_se_fm_mask
+    and #$20
+    cmp #$20
     rts
 :
-
-    lda snd_drm_ptr_lo
-    sta snd_ptr
-    lda snd_drm_ptr_hi
-    sta snd_ptr+1
-
-    ldy #0
-    lda (snd_ptr),y
-    cmp #$ff
-    bne @drm_check_end
-    iny
-    lda (snd_ptr),y
-    sta snd_drm_ptr_lo
-    iny
-    lda (snd_ptr),y
-    sta snd_drm_ptr_hi
-    lda snd_drm_ptr_lo
-    sta snd_ptr
-    lda snd_drm_ptr_hi
-    sta snd_ptr+1
-    ldy #0
-    lda (snd_ptr),y
-@drm_check_end:
-    cmp #$fe
-    beq @drm_done
-
-    sta snd_tmp0
-    iny
-    lda (snd_ptr),y
-    sta snd_drm_wait
-
-    lda snd_drm_ptr_lo
     clc
-    adc #2
-    sta snd_drm_ptr_lo
-    bcc :+
-    inc snd_drm_ptr_hi
-:
-    lda snd_tmp0
-    beq @drm_done
-    cmp #1
-    beq @drm_kick
-    ; Snare (2) or Hi-hat (3) on APU Noise (skip if SE owns Noise)
-    lda snd_se_apu_mask
-    and #$08
-    bne @drm_done
-    lda snd_tmp0
-    cmp #2
-    beq @drm_snare
-    ; Hi-hat: short crisp noise
-    lda #$15
-    sta $400c
-    lda #$02
-    sta $400e
-    lda #$08
-    sta $400f
-    rts
-@drm_snare:
-    lda #$19
-    sta $400c
-    lda #$07
-    sta $400e
-    lda #$10
-    sta $400f
-    rts
-@drm_kick:
-    ; Short punchy low triangle kick
-    lda #$0a
-    sta $4008
-    lda #$90
-    sta $400a
-    lda #$02
-    sta $400b
-@drm_done:
     rts
 
-; ---------------------------------------------------------------------------
-; Sound Driver Data Tables (in BANK8)
-; ---------------------------------------------------------------------------
+; Write A to VRC7 register Y.
+@fm_write_y_reg:
+    sta snd_tmp1
+    tya
+    ldy snd_tmp1
+    jmp fm_write
 
-; Two 8-byte VRC7 custom FM patches ($00..$07):
-;   Patch 0: Arcade Makaimura bright gothic lead (brass/organ hybrid)
-;   Patch 1: Arcade Boss sharp biting FM brass
-snd_custom_patches:
-    .byte $21, $21, $18, $07, $f4, $f2, $24, $23  ; Patch 0: stage lead
-    .byte $31, $21, $14, $0f, $f5, $f3, $13, $13  ; Patch 1: boss brass
+; ---------------------------------------------------------------------------
+; Sound effect tables (in BANK8)
+; ---------------------------------------------------------------------------
 
 ; Shot SE envelopes (indexed descending 6..1)
 snd_shot_vol:

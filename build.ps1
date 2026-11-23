@@ -98,6 +98,9 @@ if ($RefreshRevgMap) {
     # palette fit tries 40 starts.
     & python (Join-Path $PSScriptRoot 'tools/convert-revg-bg.py') (Join-Path $sourceDir 'revg-section0-bg.inc') | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Background art conversion failed with code $LASTEXITCODE" }
+    # The songs, from the Z80 sound ROM (docs/revision-g-sound-rom-map.md).
+    & python (Join-Path $PSScriptRoot 'tools/convert-revg-music.py') (Join-Path $sourceDir 'arcade-music-data.inc') | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Music conversion failed with code $LASTEXITCODE" }
 }
 if ($Prototype) {
     # The prototype seven stages that the arcade-* Mesen smoke tests play.

@@ -6,6 +6,13 @@
 ; --- 16-bit sprite Y helper ---
 ; Input: A = world_y_lo, X = world_y_hi, Y = positive pixel offset to subtract.
 ; Sets draw_y to screen Y, or $f8 if offscreen.
+; With the arcade background (revg_bg_active) every object is drawn revg_sprite_drop px
+; lower: the arcade sprite list puts an object's bottom 16 px row at 256 - Y, which is
+; feet + 2 when feet = 254 - Y, so standing Arthur's boots reach the bottom of the
+; grass row as in the arcade, where the old offsets stood him on top of it.
+.ifdef REVG_STAGE1
+revg_sprite_drop = 18
+.endif
 ap_set_sprite_y_off:
     sty ap_tmp3
     sec
@@ -18,6 +25,19 @@ ap_set_sprite_y_off:
     sta draw_y
     txa
     sbc ap_cam_y_hi
+.ifdef REVG_STAGE1
+    tax
+    lda revg_bg_active
+    beq :+
+    lda draw_y
+    clc
+    adc #revg_sprite_drop
+    sta draw_y
+    bcc :+
+    inx
+:
+    txa
+.endif
     bne @off_y
     lda draw_y
     cmp #240

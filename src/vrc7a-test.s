@@ -23,11 +23,10 @@ bank_tag_base = $80
 .segment "BANK2"
 .byte bank_tag_base + 2
 .if fixed_bank > 3
-.segment "PAD_5_6"
-.repeat 2, index
-    .byte bank_tag_base + 5 + index
+; Bank 5 holds the later stage songs (arcade-music-data.inc).
+.segment "PAD_6"
+    .byte bank_tag_base + 6
     .res $1fff, $ff
-.endrepeat
 .ifdef NES_AREA_ART
 .include "nes-areas.inc"
 .else

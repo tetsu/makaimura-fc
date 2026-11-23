@@ -68,6 +68,50 @@ HUD_COLOUR = 0x10          # light grey HUD text, also the lightest stone colour
 FIXED_COLOURS = (HUD_COLOUR, 0x00)
 
 
+# The tombstones are support objects (type $01, shape 3: 2x2 sprites) in the arcade, not
+# BG tiles. They never move, so they are drawn into the BG art here. Centre X, arcade Y
+# and animation frame, as tools/mame/log-revg-sprites.lua logs them (REVG_SPRITES_LOAD=1)
+# for section 0; the same places as revg_tomb_* in src/revg-section0-map.inc.
+TOMBSTONES = [
+    (48, 62, 0x585B), (256, 62, 0x5860), (416, 62, 0x585B), (528, 62, 0x5865),
+    (752, 62, 0x585B), (768, 142, 0x5860), (864, 142, 0x5865), (960, 142, 0x5865),
+    (960, 62, 0x585B), (1104, 62, 0x585B), (1264, 62, 0x5860), (1520, 62, 0x5865),
+]
+SPRITE_PALETTE_OFFSET = 0x80   # mj04g.bin: the sprite colours $40-$7F, RRRRGGGG then BBBBxxxx
+TOMBSTONE_WEIGHT = 8
+
+
+def tombstone_overlays(rom_path):
+    """(map column, map row) -> 16 rows of 16 RGB or None: the tombstone sprite pixels.
+
+    A shape 3 object's sprites start 16 px left of its X, and the bottom pair's top row
+    is at map Y 256 - arcade Y: $F79D writes sprite Y 256 - Y, and both the sprites and
+    the 224-line screen start 16 lines down (map row 1)."""
+    path = Path(__file__).resolve().parent / "mame" / "extract-revg-sprites.py"
+    spec = importlib.util.spec_from_file_location("extract_revg_sprites", path)
+    sp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sp)
+    rom = sp.Rom(rom_path)
+    with ZipFile(rom_path) as rom_zip:
+        data = rom_zip.read("mj04g.bin")[SPRITE_PALETTE_OFFSET:SPRITE_PALETTE_OFFSET + 128]
+    palette = [((data[i] >> 4) * 17, (data[i] & 15) * 17, (data[64 + i] >> 4) * 17) for i in range(64)]
+    canvas = {}
+    for x, y, pointer in TOMBSTONES:
+        frame = rom.frame(pointer, 3)
+        for code, left, top in sp.sprites_of(frame, 3):
+            pens = rom.tile(code)
+            for sy in range(16):
+                for sx in range(16):
+                    pen = pens[15 - sy if frame["flip_y"] else sy][15 - sx if frame["flip_x"] else sx]
+                    if pen != 15:
+                        canvas[(x + left + sx, 256 - y + top + sy)] = palette[frame["colour"] * 16 + pen]
+    cells = {}
+    for (px, py), rgb in canvas.items():
+        cell = cells.setdefault((px // 16, py // 16), [[None] * 16 for _ in range(16)])
+        cell[py % 16][px % 16] = rgb
+    return {k: tuple(tuple(row) for row in v) for k, v in cells.items()}
+
+
 def load_extractor():
     path = Path(__file__).resolve().parent / "mame" / "extract-revg-stages.py"
     spec = importlib.util.spec_from_file_location("extract_revg_stages", path)
@@ -233,13 +277,16 @@ def main():
             return 0
         return 1 if col > swap + VIEW_COLUMNS - 1 else 2
 
-    # Arcade 16 px tiles as drawn.
+    overlays = tombstone_overlays(args.rom)
+
+    # Arcade 16 px tiles as drawn, with the tombstones drawn over them.
     sources = {}          # arcade tile code -> 16x16 colour numbers
-    drawn_tiles = {}      # (code, flips and palette) -> Tile16
+    drawn_tiles = {}      # (code, flips and palette, zone, tombstone part) -> Tile16
     cells = [[None] * len(rows) for _ in range(width)]
     for r_index, row in enumerate(rows):
         for col, (code, attr) in enumerate(tilemap["tiles"][row]):
-            key = (code & 0x3FF, attr & 0x37, zone(col))
+            over = overlays.get((col, row))
+            key = (code & 0x3FF, attr & 0x37, zone(col), over)
             if key not in drawn_tiles:
                 if key[0] not in sources:
                     sources[key[0]] = gfx(key[0])
@@ -248,7 +295,10 @@ def main():
                 pixels = []
                 for y in range(16):
                     sy = 15 - y if attr & 0x20 else y
-                    pixels.append(tuple(colours[src[sy][15 - x if attr & 0x10 else x]] for x in range(16)))
+                    line = [colours[src[sy][15 - x if attr & 0x10 else x]] for x in range(16)]
+                    if over:
+                        line = [o if o is not None else c for o, c in zip(over[y], line)]
+                    pixels.append(tuple(line))
                 drawn_tiles[key] = Tile16(pixels)
             cells[col][r_index] = key
     unique = list(drawn_tiles)
@@ -263,12 +313,16 @@ def main():
     for i, tile in enumerate(tiles):
         if any(b > r + 40 and b > g for (r, g, b) in tile.hist):
             weights[i] *= WATER_WEIGHT
+        if unique[i][3]:
+            weights[i] *= TOMBSTONE_WEIGHT
     rgb_lab = {rgb: lab(rgb) for t in tiles for rgb in t.hist}
     candidates = sorted(c for c in NES_RGB if c != BLACK)
     zone_palettes = ((0, 1, 2, 3), (0, 1, 4, 5), (0, 1))
     # The ground (arcade palette 6) runs through both halves and the swap, so it always
     # uses palette 1 and looks the same everywhere.
-    allowed = [(1,) if key[1] & 7 == GROUND_PALETTE else zone_palettes[key[2]] for key in unique]
+    # A tombstone over the grass keeps its greys: it may take any palette of its zone.
+    allowed = [(1,) if key[1] & 7 == GROUND_PALETTE and not key[3] else zone_palettes[key[2]]
+               for key in unique]
     palettes, choice, dist = fit_palettes(tiles, weights, allowed, candidates, rgb_lab, FIXED_COLOURS)
 
     # Palette 0 starts with the HUD colour (colour 1 of the text); the others go dark to light.
