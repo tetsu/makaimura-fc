@@ -657,6 +657,16 @@ ap_update_ebolts:
     cmp #player_height
     bcs @eb_next
 @eb_hit_player:
+.ifdef REVG_STAGE1
+    ; No enemy shot is checked during state 3 ($F48C needs bit 0 of $0500).
+    lda ap_state
+    cmp #ap_state_knockback
+    bcs @eb_next
+    lda eb_x_lo,x
+    sta ap_probe_x
+    lda eb_x_hi,x
+    sta ap_probe_x+1
+.endif
     lda #0
     sta eb_active,x
     jsr ap_apply_player_damage

@@ -5,7 +5,9 @@
 -- enemy slot count ($93) at 0, so only the player and the starting tombstone move.
 --
 -- REVG_PLAYER_INPUT is a list of "frames:bits" runs separated by commas, with the arcade
--- P1 bits: right $01, left $02, down $04, up $08, shot $10, jump $20.
+-- P1 bits: right $01, left $02, down $04, up $08, shot $10, jump $20. Two more bits hit the
+-- player as the body check $F0A1 does, from an enemy on the right ($40) or the left
+-- ($80): the hit lands before the next update, which runs state 3 ($995F).
 local machine = manager.machine
 local cpu = machine.devices[":maincpu"]
 local mem = cpu.spaces.program
@@ -36,18 +38,33 @@ for _, mask in ipairs({0x01, 0x02, 0x04, 0x08, 0x10, 0x20}) do p1[mask] = field(
 local function word(addr) return mem:read_u8(addr) * 256 + mem:read_u8(addr + 1) end
 
 -- The shot pose timer ($052A) and the four shot slots ($0530 + $40 * n): active flag,
--- state, X and height, as "active:state:x:y" with the X and height words.
+-- state, X and height, as "active:state:x:y" with the X and height words. A hit fills
+-- the slots with the four armor pieces ($99CE, type 5 in $0545 + $40 * n) for 20
+-- updates; they are left out.
 local function shots()
     local out = {}
     for slot = 0, 3 do
         local base = 0x0530 + 0x40 * slot
-        out[#out + 1] = string.format("%d:%d:%d:%d", mem:read_u8(base), mem:read_u8(base + 3),
+        local active = mem:read_u8(base)
+        if mem:read_u8(base + 0x15) == 5 then active = 0 end
+        out[#out + 1] = string.format("%d:%d:%d:%d", active, mem:read_u8(base + 3),
             word(base + 6), word(base + 9))
     end
     return table.concat(out, ";")
 end
 
-print("type,step,input,x,x_fraction,y,y_fraction,mode,phase,direction,camera_x,facing,shot_timer,shots,crouch,ladder")
+-- $F0A1: $AE = enemy X - player X, $0500 shifted left (no more hits), state 3, step 0,
+-- and $0505 cleared.
+local function hit(from_right)
+    mem:write_u8(0x00ae, from_right and 0x00 or 0xff)
+    mem:write_u8(0x00af, from_right and 0x01 or 0xff)
+    mem:write_u8(0x0500, (mem:read_u8(0x0500) << 1) & 0xff)
+    mem:write_u8(0x0503, 3)
+    mem:write_u8(0x0504, 0)
+    mem:write_u8(0x0505, 0)
+end
+
+print("type,step,input,x,x_fraction,y,y_fraction,mode,phase,direction,camera_x,facing,shot_timer,shots,crouch,ladder,blink,miss")
 revg_frame = emu.add_machine_frame_notifier(function()
     frame = frame + 1
     if frame >= 1000 then mem:write_u8(0x0093, 0) end
@@ -56,16 +73,19 @@ revg_frame = emu.add_machine_frame_notifier(function()
         mem:write_u8(0x0508, 0)
         mem:write_u8(0x050b, 0)
     end
-    -- Rows read RAM after the update that used the input of the same step.
+    -- Rows read RAM after the update that used the input of the same step. A hit lands
+    -- before the update of its own step, so the row before already shows state 3.
+    local bits = frame >= first and schedule[frame - first + 1] or 0
+    if (bits & 0xc0) ~= 0 then hit((bits & 0x40) ~= 0) end
     local step = frame - first - 1
     if step >= 0 and step <= #schedule then
         -- $051E is the facing (1 right, 2 left), $051F the crouch flag and $0526 the
-        -- ladder flag.
-        print(string.format("arcade,%d,%02x,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%d,%d", step,
+        -- ladder flag. $AD is the blink timer after a hit, $90 the end of the death.
+        print(string.format("arcade,%d,%02x,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d", step,
             schedule[step + 1] or 0, word(0x0506), mem:read_u8(0x0508), word(0x0509),
             mem:read_u8(0x050b), mem:read_u8(0x0503), mem:read_u8(0x0504), mem:read_u8(0x050e),
             word(0x009c), mem:read_u8(0x051e), mem:read_u8(0x052a), shots(),
-            mem:read_u8(0x051f), mem:read_u8(0x0526)))
+            mem:read_u8(0x051f), mem:read_u8(0x0526), mem:read_u8(0x00ad), mem:read_u8(0x0090)))
     end
     if frame == last then
         machine:exit()

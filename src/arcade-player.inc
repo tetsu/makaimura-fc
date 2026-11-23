@@ -225,6 +225,10 @@ ap_stick: .res 1                ; arcade $0525: 3 after up, 4 after down, 0 neit
 ap_crouch_wait: .res 1          ; arcade $0520: updates before standing up
 ap_tomb_above: .res 1           ; arcade $052C: the support probe needs the player on top
 ap_ladder_anim: .res 1          ; arcade $0527: getting on from above, getting off at the top
+ap_kb_dying: .res 1             ; state 3 is the death (arcade $AC was 1 at the hit)
+; Test hook for tools/compare-player-trace.py: 1 or 2 hits the player after the next
+; player update, flying right or left, as if an enemy had touched him.
+ap_test_hit: .res 1
 
 .segment "BANK3"
     .byte bank_tag_base + 3
@@ -318,6 +322,8 @@ ap_init_stage:
     lda #0
     sta ap_tomb_above
     sta ap_ladder_anim
+    sta ap_kb_dying
+    sta ap_test_hit
 :
     sta ps_active,x
     sta ps_y_hi,x
@@ -741,11 +747,11 @@ ap_update_frame:
     beq @alive
     jmp @camera_and_submit
 @alive:
+.ifndef REVG_STAGE1
     lda ap_invuln
     beq :+
     dec ap_invuln
 :
-.ifndef REVG_STAGE1
     lda ap_shoot_lock
     beq :+
     dec ap_shoot_lock
@@ -779,6 +785,20 @@ ap_update_frame:
     jsr ap_step_knockback
 
 @post_move:
+.ifdef REVG_STAGE1
+    ; $EE63 counts the blink timer down after the player update, just before the hit
+    ; checks, so the update that sets 120 ends at 119.
+    lda ap_invuln
+    beq :+
+    dec ap_invuln
+:
+    ldx ap_test_hit
+    beq :+
+    lda #0
+    sta ap_test_hit
+    jsr ap_hit_toward
+:
+.endif
     jsr ap_map_enemy_bank      ; The enemy routines below and the shot checks are in Bank 4.
     jsr ap_update_rank
     jsr ap_update_scheduler
@@ -1622,6 +1642,8 @@ ap_begin_fall:
 ; --- Air state: arcade jump ($93CA, $942B rise, $946A fall, $952D landing) ---
 ap_jump_vx_accel = $0fa0        ; $93BA: added while rising, taken off while falling
 ap_jump_gravity = $3d90
+ap_knock_vx_accel = $0df0       ; $9A59, the knockback
+ap_knock_gravity = $4590
 ap_jump_vy_max = 5
 ap_step_air:
 .ifdef REVG_STAGE1
@@ -1660,13 +1682,30 @@ ap_step_air:
 .ifdef REVG_STAGE1
     jsr ap_shot_pose            ; $9433, $9472
 .endif
+; The moves of the jump without the controller, shared with the knockback ($9436, $9475).
+ap_air_motion:
     jsr ap_air_move_x
     lda ap_jump_phase
     cmp #1
-    beq @air_rising
+    beq ap_air_rise
     jmp ap_air_fall
 
-@air_rising:
+; The acceleration table ($0523): $93BA for the jump and the fall off an edge, $9A59
+; for the knockback. Y = 1 in the knockback.
+ap_air_table:
+    ldy #0
+    lda ap_state
+    cmp #ap_state_knockback
+    bne :+
+    iny
+:
+    rts
+ap_air_accel_lo: .byte <ap_jump_vx_accel, <ap_knock_vx_accel
+ap_air_accel_hi: .byte >ap_jump_vx_accel, >ap_knock_vx_accel
+ap_air_gravity_lo: .byte <ap_jump_gravity, <ap_knock_gravity
+ap_air_gravity_hi: .byte >ap_jump_gravity, >ap_knock_gravity
+
+ap_air_rise:
     ; Height += vy ($94B0): feet go up by the integer part and the fraction's carry.
     lda ap_y_frac
     clc
@@ -1681,22 +1720,23 @@ ap_step_air:
     jsr ap_air_ceiling
     bcs @air_rise_done
     ; vx += accel, vy -= gravity ($94EA). The rise ends when vy is below the gravity.
+    jsr ap_air_table
     lda ap_vx+2
     clc
-    adc #<ap_jump_vx_accel
+    adc ap_air_accel_lo,y
     sta ap_vx+2
     lda ap_vx+1
-    adc #>ap_jump_vx_accel
+    adc ap_air_accel_hi,y
     sta ap_vx+1
     bcc :+
     inc ap_vx
 :
     lda ap_vy+2
     sec
-    sbc #<ap_jump_gravity
+    sbc ap_air_gravity_lo,y
     sta ap_vy+2
     lda ap_vy+1
-    sbc #>ap_jump_gravity
+    sbc ap_air_gravity_hi,y
     sta ap_vy+1
     bcs :+
     dec ap_vy
@@ -1704,7 +1744,7 @@ ap_step_air:
     lda ap_vy
     bne @air_rise_done
     lda ap_vy+1
-    cmp #>ap_jump_gravity
+    cmp ap_air_gravity_hi,y
     bcs @air_rise_done
     lda #2
     sta ap_jump_phase
@@ -1762,6 +1802,15 @@ ap_air_fall:
     sta player_feet
     lda ap_tile_row_top_hi
     sta ap_player_y_hi
+.ifdef REVG_STAGE1
+    ; $9532: in the knockback the landing only moves on to the next step.
+    lda ap_state
+    cmp #ap_state_knockback
+    bne :+
+    inc ap_kb_step
+    rts
+:
+.endif
     lda #ap_state_ground
     sta ap_state
     lda #$ff
@@ -1775,12 +1824,13 @@ ap_air_fall:
     jmp ap_reset_velocity
 @air_fall_accel:
     ; $950C keeps vx when its 16-bit fraction would turn negative.
+    jsr ap_air_table
     lda ap_vx+2
     sec
-    sbc #<ap_jump_vx_accel
+    sbc ap_air_accel_lo,y
     tax
     lda ap_vx+1
-    sbc #>ap_jump_vx_accel
+    sbc ap_air_accel_hi,y
     bmi :+
     sta ap_vx+1
     stx ap_vx+2
@@ -1790,10 +1840,10 @@ ap_air_fall:
     bcs @air_fall_done
     lda ap_vy+2
     clc
-    adc #<ap_jump_gravity
+    adc ap_air_gravity_lo,y
     sta ap_vy+2
     lda ap_vy+1
-    adc #>ap_jump_gravity
+    adc ap_air_gravity_hi,y
     sta ap_vy+1
     bcc @air_fall_done
     inc ap_vy
@@ -1965,6 +2015,9 @@ ap_snap_to_ladder:
 
 ; --- Knockback state after losing armor ---
 ap_step_knockback:
+.ifdef REVG_STAGE1
+    jmp ap_step_knock_revg
+.endif
     lda #$ff
     sta ap_riding_plat
     lda ap_kb_dir
@@ -2005,6 +2058,101 @@ ap_step_knockback:
     sta jump_step
 @kb_done:
     rts
+
+.ifdef REVG_STAGE1
+; Arcade state 3 ($995F, the knockback $9975 and the death $9AA8). ap_kb_step:
+;   0  the hurt only ($997F): 120 blink updates, the speeds reset
+;   1  away from the hit, facing that way ($99ED, $9A12), the speeds reset
+;   2  the jump's rise and fall with the $9A59 table, no controller and no shot, until
+;      the landing ($9436, $9475)
+;   3  the hurt stands up without the armor ($99FB); the death lies down ($9A61)
+;   4  the death: 20 updates ($9A78)
+;   5  the death: 40 more updates, then the miss ($9A8D sets $90)
+ap_step_knock_revg:
+    lda ap_kb_step
+    bne @knock_dir
+    lda #ap_invuln_frames
+    sta ap_invuln
+    jsr ap_reset_velocity
+    inc ap_kb_step
+    jmp @knock_after
+@knock_dir:
+    cmp #1
+    bne @knock_air
+    lda ap_kb_dir
+    sta ap_air_dir
+    sec
+    sbc #1
+    sta player_left
+    jsr ap_reset_velocity
+    lda #1
+    sta ap_jump_phase
+    inc ap_kb_step
+    jmp @knock_after
+@knock_air:
+    cmp #2
+    bne @knock_landed
+    jsr ap_air_motion
+    jmp @knock_after
+@knock_landed:
+    cmp #3
+    bne @knock_wait
+    lda ap_kb_dying
+    bne @knock_lie
+    lda #ap_state_ground
+    sta ap_state
+    lda #$ff
+    sta jump_step
+    lda #0
+    sta ap_shot_phase
+    sta ap_jump_phase
+    jsr ap_reset_velocity
+    jmp @knock_after
+@knock_lie:
+    ; Steps 3 and 4 run on into the next step in the same update ($9A76, $9A8B).
+    lda #20
+    sta ap_crouch_wait          ; the arcade counts in $0520 too
+    inc ap_kb_step
+    jmp @knock_count
+@knock_wait:
+    cmp #4
+    bne @knock_last
+@knock_count:
+    dec ap_crouch_wait
+    bne @knock_after
+    lda #40
+    sta ap_crouch_wait
+    inc ap_kb_step
+    ; $8D22 with B = 2: the size class $050F goes from 1 to 2, which lowers the player
+    ; by 8 px (the $8D58 row).
+    lda #8
+    jsr ap_add_player_y
+@knock_last:
+    lda ap_crouch_wait
+    beq @knock_miss
+    dec ap_crouch_wait
+    jmp @knock_after
+@knock_miss:
+    lda #1
+    sta player_hit
+@knock_after:
+    ; $996B after every step: no crouch and no stick, and within 10 px of the screen
+    ; edge on the facing side the flight loses its direction ($93E5, $9405).
+    lda #0
+    sta ap_crouch
+    sta ap_stick
+    lda player_left
+    clc
+    adc #1
+    jsr ap_edge_room
+    bcc :+
+    bne @knock_done
+:
+    lda #0
+    sta ap_air_dir
+@knock_done:
+    rts
+.endif
 
 ; --- Horizontal movement with solid wall check ---
 ap_move_right_1px:
@@ -3061,6 +3209,47 @@ ap_check_items:
     rts
 
 ap_apply_player_damage:
+.ifdef REVG_STAGE1
+    ; $F0A1 keeps $AE = attacker X - player X: Arthur flies away from that side.
+    lda ap_probe_x
+    sec
+    sbc player_x
+    lda ap_probe_x+1
+    sbc player_x+1
+    ldx #2
+    bpl ap_hit_toward
+    dex
+; X = the direction to fly, 1 right or 2 left. The hit starts state 3 ($0503) for the
+; next update: with the armor on it is the knockback, without it the death ($995F reads
+; $AC). No hit lands during state 3 ($0500 is 2) or the miss.
+ap_hit_toward:
+    lda ap_state
+    cmp #ap_state_knockback
+    bcs @hit_ignored
+    stx ap_kb_dir
+    lda #ap_state_knockback
+    sta ap_state
+    lda #$ff
+    sta ap_riding_plat
+    lda #0
+    sta ap_shot_phase
+    sta ap_kb_dying
+    tax
+    lda ap_armor
+    cmp #ap_armor_full
+    beq :+
+    inc ap_kb_dying
+    inx                         ; the death starts with the direction ($9A12)
+:
+    stx ap_kb_step
+    ; The FC draws Arthur without the armor from the hit; the arcade $AC turns 1 on landing.
+    lda #ap_armor_naked
+    sta ap_armor
+    lda #snd_se_damage
+    jmp call_bank8_play_se
+@hit_ignored:
+    rts
+.endif
     lda #snd_se_damage
     jsr call_bank8_play_se
     lda ap_armor

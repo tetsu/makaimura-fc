@@ -19,6 +19,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 RIGHT, LEFT, DOWN, UP, SHOT, JUMP = 0x01, 0x02, 0x04, 0x08, 0x10, 0x20
+# Not buttons: an enemy on the right or the left hits the player before the next update.
+HIT_RIGHT, HIT_LEFT = 0x40, 0x80
 
 # Runs of (updates, arcade P1 bits). The start position is X 96 on flat ground and the
 # first tombstone's left edge is X 256, so the other trials stay between them.
@@ -75,6 +77,14 @@ TRIALS = {
                (4, UP), (12, DOWN), (30, 0)],
     # Walk into the first tombstone, jump onto it and walk off its far side.
     "tombstone": [(10, 0), (150, RIGHT), (10, 0), (1, RIGHT | JUMP), (60, RIGHT), (20, 0)],
+    # The knockback and the death ($995F). A hit from the right while crouching throws the
+    # player left toward the tombstone at X 48; walking during the blink; a hit from the
+    # left without the armor is the death, up to the miss ($90).
+    "hit": [(10, 0), (20, DOWN), (1, DOWN | HIT_RIGHT), (40, DOWN), (100, RIGHT), (20, 0),
+            (1, HIT_LEFT), (100, 0)],
+    # Hits in the air: during a forward jump, and the death during a straight jump.
+    "hit-air": [(10, 0), (20, RIGHT), (1, RIGHT | JUMP), (10, RIGHT), (1, RIGHT | HIT_LEFT),
+                (60, 0), (130, 0), (1, JUMP), (8, 0), (1, HIT_RIGHT), (100, 0)],
 }
 
 # Trials that show a known difference outside the player's movement. They run only when
@@ -115,15 +125,20 @@ emu.addEventCallback(function()
                 read(0x602c + slot) + 256 * read(0x602f + slot),
                 read(0x6032 + slot) + 256 * read(0x60b3 + slot))
         end
-        -- player_left $50 (0 right, 1 left) and ap_crouch $6013.
-        print(string.format("fc,%%d,%%d,%%d,%%d,%%d,%%d,%%s,%%d,%%d", step - 1,
+        -- player_left $50 (0 right, 1 left), ap_crouch $6013, ap_invuln $6012 and
+        -- player_hit $4F (the miss).
+        print(string.format("fc,%%d,%%d,%%d,%%d,%%d,%%d,%%s,%%d,%%d,%%d,%%d", step - 1,
             read(0x4c) + 256 * read(0x4d), read(0x4e) + 256 * read(0x60ac), read(0x6010),
             read(0x25) + 256 * read(0x26), read(0x6014), table.concat(shots, ";"),
-            read(0x50), read(0x6013)))
+            read(0x50), read(0x6013), read(0x6012), read(0x4f)))
     end
     if step >= #inputs + 2 then emu.stop(0) return end
     step = step + 1
     local bits = inputs[step] or 0
+    -- A hit lands after the player update of the next frame (ap_test_hit $60FD), which
+    -- the FC runs one step ahead of the MAME row of the same input.
+    local hit = (inputs[step + 1] or 0) & %(hits)d
+    if hit ~= 0 then emu.write(0x60fd, hit == %(hit_right)d and 2 or 1, cpu) end
 %(buttons)s
 end, emu.eventType.endFrame)
 """
@@ -161,8 +176,10 @@ def record_arcade(args, name, runs):
                 shots.append((slot, signed(sx), signed(sy)))
         # Mode 2 is the jump; phase 1 of mode 1 is the fall after walking off an edge.
         facing, crouch, ladder = int(part[11]) == 2, int(part[14]) != 0, int(part[15]) != 0
+        # Mode 3 is the knockback and the death; $90 ends the death.
         rows.append((step, x, y, camera, mode == 2 or (mode == 1 and phase == 1), timer,
-                     tuple(shots), facing, crouch, ladder))
+                     tuple(shots), facing, crouch, ladder, mode == 3, int(part[16]),
+                     int(part[17]) != 0))
     if not rows:
         sys.exit(f"{name}: MAME printed no trace\n{result.stdout}\n{result.stderr}")
     return rows
@@ -174,7 +191,9 @@ def record_fc(args, name, runs):
     inputs = ",".join(str(bits) for bits in expand(runs))
     script = ROOT / "build/player-trace" / f"{name}.lua"
     script.parent.mkdir(parents=True, exist_ok=True)
-    script.write_text(MESEN_SCRIPT % {"inputs": inputs, "buttons": buttons}, encoding="utf-8")
+    script.write_text(MESEN_SCRIPT % {"inputs": inputs, "buttons": buttons,
+                                      "hits": HIT_RIGHT | HIT_LEFT, "hit_right": HIT_RIGHT},
+                      encoding="utf-8")
     command = [str(args.mesen), "--doNotSaveSettings", "--testRunner", "--timeout=120",
                str(script), str(args.rom)]
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
@@ -190,8 +209,11 @@ def record_fc(args, name, runs):
             if active:
                 # ps_y is down-positive like player_feet; the arcade height is up-positive.
                 shots.append((slot, signed(sx), -signed(sy)))
+        # ap_state 3 is the knockback and the death, 4 the miss after it (the arcade stays
+        # in state 3 until the restart).
         rows.append((step, x, -feet, camera, state == 1, timer, tuple(shots),
-                     int(part[8]) != 0, int(part[9]) != 0, state == 2))
+                     int(part[8]) != 0, int(part[9]) != 0, state == 2, state >= 3,
+                     int(part[10]), int(part[11]) != 0))
     if not rows:
         sys.exit(f"{name}: Mesen printed no trace (exit {result.returncode})\n{result.stdout}")
     return rows
@@ -203,12 +225,13 @@ def signed(value):
 
 def relative(rows):
     """Per update: dx, dy and dcam from the start, air, pose timer, each active shot slot
-    with its X and height from the player's start, facing left, crouching, and on a
-    ladder."""
+    with its X and height from the player's start, facing left, crouching, on a ladder,
+    in state 3 (hit), the blink timer, and the miss."""
     _, x0, y0, c0, *_ = rows[0]
     return [(x - x0, y - y0, c - c0, air, timer,
-             tuple((slot, sx - x0, sy - y0) for slot, sx, sy in shots), left, crouch, ladder)
-            for _, x, y, c, air, timer, shots, left, crouch, ladder in rows]
+             tuple((slot, sx - x0, sy - y0) for slot, sx, sy in shots), left, crouch, ladder,
+             hurt, blink, miss)
+            for _, x, y, c, air, timer, shots, left, crouch, ladder, hurt, blink, miss in rows]
 
 
 FC_PAN_MAX = 4  # px per frame (ap_follow_camera)
@@ -231,7 +254,7 @@ def compare(name, runs, arcade, fc):
         if expected != f[step]:
             print(f"FAIL {name}: first difference at update {step}")
             print("  update input  (dx, dy, dcam, air, pose, shots (slot, dx, dy), left, crouch, "
-          "ladder)")
+          "ladder, hit, blink, miss)")
             for i in range(max(0, step - 4), min(count, step + 6)):
                 mark = ">" if i == step else " "
                 print(f"{mark} {i:6d}  ${inputs[i]:02x}   arcade {a[i]}")
