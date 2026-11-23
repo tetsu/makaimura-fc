@@ -26,7 +26,7 @@ mt_castle = 14
 ; Revision G real map (tools/convert-revg-section.py).
 mt_floor = 15       ; one-way floor, drawn as grass
 mt_dirt = 16        ; no collision, drawn as dirt
-mt_tomb = 17        ; solid tombstone
+mt_tomb = 17        ; tombstone art; its box is revg_tomb_* (ap_tomb_box)
 .endif
 
 ; Metatile collision attribute bits (bits 2-4 select terrain type).
@@ -312,7 +312,7 @@ metatile_attr:
     .byte tile_type_air     ; mt_castle
     .byte tile_type_oneway  ; mt_floor
     .byte tile_type_air     ; mt_dirt
-    .byte tile_type_solid   ; mt_tomb
+    .byte tile_type_air     ; mt_tomb
 .endif
 
 cliff_gravel = (terrain_tiles - glyphs) / 16

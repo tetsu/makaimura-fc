@@ -3,8 +3,9 @@
 Each trial is one input schedule. MAME plays it from the first controllable update of
 section 0 (tools/mame/record-revg-player.lua) and Mesen plays the same buttons in the
 game build (./build.ps1 -Hardware) from the first update after the start (a generated Lua script). Both
-traces are reduced to the change in X, in height and in camera X from the start and to
-whether the player is in the air, and must match on every update.
+traces are reduced to the change in X, in height and in camera X from the start, to
+whether the player is in the air, the shot pose and shots, the facing and the crouch, and
+must match on every update.
 
     python tools/compare-player-trace.py            # all trials
     python tools/compare-player-trace.py walk jump  # chosen trials
@@ -45,16 +46,40 @@ TRIALS = {
              (10, LEFT), (1, LEFT | SHOT), (20, LEFT), (10, 0), (1, JUMP), (5, 0), (1, SHOT),
              (40, 0), (1, RIGHT | JUMP), (20, RIGHT), (1, RIGHT | SHOT), (30, RIGHT),
              (60, 0)],
+    # The crouch ($908B, $9017, $98AB): a one-update press (too short); crouching and
+    # getting up with no direction (15 updates); getting up with a direction, which first
+    # turns and then counts 10, later 7; crouching while walking; a crouch jump (straight
+    # up); up to stand at once; pressing down again during the count; landing with down
+    # held.
+    "crouch": [(10, 0), (1, DOWN), (5, 0), (30, DOWN), (20, 0), (10, 0), (20, DOWN),
+               (30, 0), (20, DOWN), (15, LEFT), (10, 0),
+               (20, DOWN), (15, LEFT), (10, 0), (10, RIGHT), (20, RIGHT | DOWN),
+               (10, RIGHT), (10, 0), (20, DOWN), (1, DOWN | JUMP), (40, 0), (20, DOWN),
+               (1, UP), (10, 0), (20, DOWN), (5, 0), (3, DOWN), (20, 0), (10, 0), (1, JUMP),
+               (30, DOWN), (20, 0)],
+    # A crouch shot: the low lance, and the pose holding the crouch after down is let go.
+    # The low lance would stop at a tombstone (not yet in the FC), so the player first
+    # walks left to throw from further away, and the trial ends before the lance gets there.
+    "crouch-shot": [(10, 0), (20, LEFT), (2, RIGHT), (10, 0), (20, DOWN), (1, DOWN | SHOT),
+                    (3, DOWN), (30, 0)],
+    # The first ladder (X 704-735, from the ground to the floor at height 142; $908B,
+    # $9174, $91AD, $91CF, $90D2, $9101). Right-jumps clear the tombstones at X 256, 416
+    # and 528. Then: up to get on and climb, hang, the shot button (no shot on a ladder),
+    # down, up to the top and off (17 updates in place), down from the top (14 px lower,
+    # 17 updates in place, then down), a stop, down to the ground and off, and up then
+    # down to the ground again, which crouches because the ladder was taken with up.
+    "ladder": [(10, 0), (145, RIGHT), (1, RIGHT | JUMP), (50, RIGHT), (100, RIGHT),
+               (1, RIGHT | JUMP), (50, RIGHT), (70, RIGHT), (1, RIGHT | JUMP), (50, RIGHT),
+               (125, RIGHT), (10, 0), (8, UP), (10, 0), (1, UP | SHOT), (5, UP), (1, SHOT),
+               (5, 0), (6, DOWN), (80, UP), (20, 0), (40, DOWN), (5, 0), (70, DOWN), (20, 0),
+               (4, UP), (12, DOWN), (30, 0)],
     # Walk into the first tombstone, jump onto it and walk off its far side.
     "tombstone": [(10, 0), (150, RIGHT), (10, 0), (1, RIGHT | JUMP), (60, RIGHT), (20, 0)],
 }
 
 # Trials that show a known difference outside the player's movement. They run only when
 # named on the command line.
-KNOWN = {
-    "tombstone": "the arcade tombstone is a support object centred on X 256; the FC map "
-                 "puts a solid 16 px cell at X 256-271, so the player stops 6 px later",
-}
+KNOWN = {}
 
 FC_BUTTONS = [(RIGHT, "right"), (LEFT, "left"), (DOWN, "down"), (UP, "up"),
               (SHOT, "b"), (JUMP, "a")]
@@ -90,9 +115,11 @@ emu.addEventCallback(function()
                 read(0x602c + slot) + 256 * read(0x602f + slot),
                 read(0x6032 + slot) + 256 * read(0x60b3 + slot))
         end
-        print(string.format("fc,%%d,%%d,%%d,%%d,%%d,%%d,%%s", step - 1, read(0x4c) + 256 * read(0x4d),
-            read(0x4e) + 256 * read(0x60ac), read(0x6010), read(0x25) + 256 * read(0x26),
-            read(0x6014), table.concat(shots, ";")))
+        -- player_left $50 (0 right, 1 left) and ap_crouch $6013.
+        print(string.format("fc,%%d,%%d,%%d,%%d,%%d,%%d,%%s,%%d,%%d", step - 1,
+            read(0x4c) + 256 * read(0x4d), read(0x4e) + 256 * read(0x60ac), read(0x6010),
+            read(0x25) + 256 * read(0x26), read(0x6014), table.concat(shots, ";"),
+            read(0x50), read(0x6013)))
     end
     if step >= #inputs + 2 then emu.stop(0) return end
     step = step + 1
@@ -133,8 +160,9 @@ def record_arcade(args, name, runs):
             if active:
                 shots.append((slot, signed(sx), signed(sy)))
         # Mode 2 is the jump; phase 1 of mode 1 is the fall after walking off an edge.
+        facing, crouch, ladder = int(part[11]) == 2, int(part[14]) != 0, int(part[15]) != 0
         rows.append((step, x, y, camera, mode == 2 or (mode == 1 and phase == 1), timer,
-                     tuple(shots)))
+                     tuple(shots), facing, crouch, ladder))
     if not rows:
         sys.exit(f"{name}: MAME printed no trace\n{result.stdout}\n{result.stderr}")
     return rows
@@ -162,7 +190,8 @@ def record_fc(args, name, runs):
             if active:
                 # ps_y is down-positive like player_feet; the arcade height is up-positive.
                 shots.append((slot, signed(sx), -signed(sy)))
-        rows.append((step, x, -feet, camera, state == 1, timer, tuple(shots)))
+        rows.append((step, x, -feet, camera, state == 1, timer, tuple(shots),
+                     int(part[8]) != 0, int(part[9]) != 0, state == 2))
     if not rows:
         sys.exit(f"{name}: Mesen printed no trace (exit {result.returncode})\n{result.stdout}")
     return rows
@@ -173,22 +202,36 @@ def signed(value):
 
 
 def relative(rows):
-    """Per update: dx, dy and dcam from the start, air, pose timer, and each active shot
-    slot with its X and height from the player's start."""
+    """Per update: dx, dy and dcam from the start, air, pose timer, each active shot slot
+    with its X and height from the player's start, facing left, crouching, and on a
+    ladder."""
     _, x0, y0, c0, *_ = rows[0]
     return [(x - x0, y - y0, c - c0, air, timer,
-             tuple((slot, sx - x0, sy - y0) for slot, sx, sy in shots))
-            for _, x, y, c, air, timer, shots in rows]
+             tuple((slot, sx - x0, sy - y0) for slot, sx, sy in shots), left, crouch, ladder)
+            for _, x, y, c, air, timer, shots, left, crouch, ladder in rows]
+
+
+FC_PAN_MAX = 4  # px per frame (ap_follow_camera)
+
+
+def toward(value, target, limit):
+    return value + max(-limit, min(limit, target - value))
 
 
 def compare(name, runs, arcade, fc):
+    """Every field must match, except that the FC camera moves at most FC_PAN_MAX px per
+    update: where the arcade camera jumps further (the ladder snaps X by up to 15 px),
+    the FC camera must take the largest steps toward it."""
     inputs = expand(runs)
     a, f = relative(arcade), relative(fc)
     count = min(len(a), len(f), len(inputs))
     for step in range(count):
-        if a[step] != f[step]:
+        previous = f[step - 1][2] if step else a[0][2]
+        expected = a[step][:2] + (toward(previous, a[step][2], FC_PAN_MAX),) + a[step][3:]
+        if expected != f[step]:
             print(f"FAIL {name}: first difference at update {step}")
-            print("  update input  (dx, dy, dcam, air, pose, shots (slot, dx, dy))")
+            print("  update input  (dx, dy, dcam, air, pose, shots (slot, dx, dy), left, crouch, "
+          "ladder)")
             for i in range(max(0, step - 4), min(count, step + 6)):
                 mark = ">" if i == step else " "
                 print(f"{mark} {i:6d}  ${inputs[i]:02x}   arcade {a[i]}")

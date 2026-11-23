@@ -26,7 +26,7 @@ MT_SKY = 0
 MT_LADDER = 5
 MT_FLOOR = 15           # one-way floor drawn as grass
 MT_DIRT = 16            # no collision, drawn as dirt
-MT_TOMB = 17            # solid, drawn as a tombstone
+MT_TOMB = 17            # drawn as a tombstone; the box is in the tombstone table
 
 
 def floor_row(arcade_row, height):
@@ -105,6 +105,15 @@ def main():
     lines.append(f"{p}_palettes:")
     for start in range(0, width, 32):
         lines.append("    .byte " + ", ".join("0" for _ in range(start, min(start + 32, width))))
+    # The tombstones are arcade support objects ($9E14): boxes around their centre X and
+    # the feet of the floor they stand on. The map cell only draws them.
+    lines += [
+        "; Tombstones: centre X and the feet of the floor below (arcade Y = 254 - feet).",
+        f"{p}_tomb_count = {len(tombs)}",
+        f"{p}_tomb_x_lo: .byte " + ", ".join(f"<{x}" for x, _ in tombs),
+        f"{p}_tomb_x_hi: .byte " + ", ".join(f">{x}" for x, _ in tombs),
+        f"{p}_tomb_feet: .byte " + ", ".join(str(feet) for _, feet in tombs),
+    ]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"{args.output}: {width} columns, {len(pits)} pit columns, {len(tombs)} tombstones")

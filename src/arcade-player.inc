@@ -220,6 +220,11 @@ ap_shot_phase: .res 1           ; arcade $0505: 0 until the pose has been set up
 ps_x_frac: .res ap_max_shots    ; kept when a slot is reused, as in the arcade
 ps_start_lo: .res ap_max_shots  ; X where the shot was thrown, for its range
 ps_start_hi: .res ap_max_shots
+; The crouch follows the arcade too (game build): ap_crouch is $051F.
+ap_stick: .res 1                ; arcade $0525: 3 after up, 4 after down, 0 neither
+ap_crouch_wait: .res 1          ; arcade $0520: updates before standing up
+ap_tomb_above: .res 1           ; arcade $052C: the support probe needs the player on top
+ap_ladder_anim: .res 1          ; arcade $0527: getting on from above, getting off at the top
 
 .segment "BANK3"
     .byte bank_tag_base + 3
@@ -307,6 +312,12 @@ ap_init_stage:
     ldx #ap_max_shots - 1
     lda #0
     sta ap_shot_phase
+    sta ap_stick
+    lda #10                     ; $8F52
+    sta ap_crouch_wait
+    lda #0
+    sta ap_tomb_above
+    sta ap_ladder_anim
 :
     sta ps_active,x
     sta ps_y_hi,x
@@ -1106,6 +1117,9 @@ ap_carry_player_on_platform:
 
 ; --- Ground state: walk, crouch, ladder entry, shoot lock, jump ---
 ap_step_ground:
+.ifdef REVG_STAGE1
+    jmp ap_step_ground_revg
+.endif
     lda ap_pad
     and #$08                    ; Up
     beq @check_ladder_down
@@ -1122,18 +1136,10 @@ ap_step_ground:
 @enter_crouch:
     lda #1
     sta ap_crouch
-.ifdef REVG_STAGE1
-    jsr ap_shot_pose
-.endif
     jmp @check_ground_support
 @not_crouching:
     lda #0
     sta ap_crouch
-    ; Arcade order ($8FDF): shot ($8F71), direction ($9233), walk ($9265), ground ($9034),
-    ; jump ($907B).
-.ifdef REVG_STAGE1
-    jsr ap_shot_pose
-.endif
     jsr ap_update_move_dir
     bcs @check_ground_support
     lda ap_shoot_lock
@@ -1162,6 +1168,337 @@ ap_step_ground:
     sta ap_jump_phase
 @ground_done:
     rts
+
+.ifdef REVG_STAGE1
+; Arcade $8FDF standing: up and down ($908B), shot ($8F71), direction ($9233), walk
+; ($9265), ground ($9034), jump ($907B). Crouching ($9017): up and down, getting up
+; ($98AB), jump, shot, ground. Crouching does not walk, and its jump goes straight up.
+; The ladder is a flag of the ground state in the arcade ($0526); the FC keeps it as
+; ap_state_ladder and runs this same update for it. On the ladder the stick climbs
+; ($91CF) and nothing else happens: no walk, no jump, no shot.
+ap_step_ground_revg:
+    lda ap_crouch
+    bne @crouching
+    jsr ap_revg_stick
+    bcc @stick_done
+    lda ap_state
+    cmp #ap_state_ladder
+    beq @done
+@stick_done:
+    lda ap_state
+    cmp #ap_state_ladder
+    bne :+
+    jmp ap_ladder_move
+:
+    jsr ap_shot_pose
+    jsr ap_update_move_dir
+    bcs @support
+    lda ap_shoot_lock
+    bne @support
+    jsr ap_walk_step
+@support:
+    jsr ap_revg_ground
+    bcs :+
+    jmp ap_begin_fall
+:
+    jmp ap_revg_jump_check
+@crouching:
+    lda #0
+    sta ap_move_dir
+    jsr ap_revg_stick
+    bcs @release
+    lda ap_state
+    cmp #ap_state_ladder
+    bne @crouch_on
+    lda #0                      ; $9023
+    sta ap_shot_phase
+    sta ap_crouch
+    jmp ap_ladder_move
+@release:
+    jsr ap_crouch_release       ; $902A
+@crouch_on:
+    jsr ap_revg_jump_check
+    jsr ap_shot_pose
+    lda ap_state
+    cmp #ap_state_air
+    beq @done
+    jsr ap_revg_ground
+    bcs @done
+    jmp ap_begin_fall
+@done:
+    rts
+
+; Arcade $9034: C set when the player stands on something, and then the feet go onto its
+; surface ($904F).
+ap_revg_ground:
+    jsr ap_check_support
+    bcc :+
+    lda ap_tile_row_top
+    sta player_feet
+    lda ap_tile_row_top_hi
+    sta ap_player_y_hi
+    sec
+:
+    rts
+
+; Arcade $908B: up or down held in this update and the previous one, up first. Returns C
+; as the arcade does: set when neither is held, while a ladder is being entered or left,
+; and on entering a ladder with up; clear otherwise.
+; - Up ($909E): a ladder tile at the player's height ($9174) puts the player on it, once
+;   per press (ap_stick 3). Without one, on the ladder the top exit counts ($90D2);
+;   off it, up stands up from a crouch ($90BC).
+; - Down ($9133): a ladder tile 18 px lower ($91AD) puts a player who is not on a ladder
+;   onto it 14 px lower and starts the climb-down ($9101). Without one, the player is off
+;   the ladder and crouches, once per press (ap_stick 4) ($9157).
+ap_revg_stick:
+    jsr ap_held_buttons
+    and #$08
+    beq @not_up
+    lda #<-15                   ; the tile at the player's height
+    jsr ap_ladder_at
+    bcc @up_no_ladder
+    lda #3                      ; $90A3
+    cmp ap_stick
+    beq @clear
+    sta ap_stick
+    lda #ap_state_ladder
+    sta ap_state
+    lda #0
+    sta ap_shoot_lock
+    sta ap_move_dir
+    sec
+    rts
+@up_no_ladder:
+    lda ap_state
+    cmp #ap_state_ladder
+    beq @top_exit
+    lda #3                      ; $90BC
+    cmp ap_stick
+    beq @clear
+    sta ap_stick
+    lda #0
+    sta ap_crouch
+@clear:
+    clc
+    rts
+@top_exit:
+    ; $90D2: 17 updates in place, then off the ladder.
+    lda ap_ladder_anim
+    cmp #$11
+    beq :+
+    inc ap_ladder_anim
+    sec
+    rts
+:
+    lda #0
+    sta ap_ladder_anim
+    lda #ap_state_ground
+    sta ap_state
+    sec
+    rts
+@not_up:
+    jsr ap_held_buttons
+    and #$04
+    beq @neither
+    lda #3                      ; the tile 18 px lower
+    jsr ap_ladder_at
+    bcc @down_no_ladder
+    lda ap_stick                ; $9138
+    cmp #4
+    beq @on_ladder
+    lda ap_state
+    cmp #ap_state_ladder
+    beq @on_ladder
+    lda #4
+    sta ap_stick
+    lda #14
+    jsr ap_add_player_y
+    lda #ap_state_ladder
+    sta ap_state
+    lda #0
+    sta ap_move_dir
+    beq @climb_down_anim
+@on_ladder:
+    lda ap_ladder_anim          ; $916D
+    bne @climb_down_anim
+    clc
+    rts
+@climb_down_anim:
+    ; $9101: 17 updates from the first, then the climb.
+    lda ap_ladder_anim
+    bne :+
+    lda #$11
+    sta ap_ladder_anim
+:
+    dec ap_ladder_anim
+    beq @clear
+    sec
+    rts
+@down_no_ladder:
+    lda ap_state                ; $9157
+    cmp #ap_state_ladder
+    bne :+
+    lda #ap_state_ground
+    sta ap_state
+:
+    lda #4
+    cmp ap_stick
+    beq @clear
+    sta ap_stick
+    lda #1
+    sta ap_crouch
+    clc
+    rts
+@neither:
+    sta ap_stick
+    sec
+    rts
+
+; Arcade $9174/$91AD: C set when the map cell at player_feet + A (signed) is a ladder,
+; and then X moves onto the ladder's centre line, the edge it shares with the other ladder
+; column. The arcade tile at height Y is FC row (255 - Y) / 16 = (feet + 1) / 16, and the
+; converter puts each ladder cell one row higher, so the arcade's own height is A = -15
+; and 18 px lower is A = +3.
+ap_ladder_at:
+    tax
+    clc
+    adc player_feet
+    sta ap_probe_y
+    txa
+    and #$80
+    beq :+
+    lda #$ff
+:
+    adc ap_player_y_hi
+    sta ap_probe_y_hi
+    lda player_x
+    sta ap_probe_x
+    lda player_x+1
+    sta ap_probe_x+1
+    jsr ap_tile_type_at
+    cmp #tile_type_ladder
+    beq :+
+    clc
+    rts
+:
+    ; Snap to the left edge of this column, or to the right edge when the ladder
+    ; continues in the next column.
+    lda player_x
+    and #$f0
+    sta player_x
+    lda ap_probe_x
+    clc
+    adc #16
+    sta ap_probe_x
+    bcc :+
+    inc ap_probe_x+1
+:
+    jsr ap_tile_type_at
+    cmp #tile_type_ladder
+    bne :+
+    lda player_x
+    clc
+    adc #16
+    sta player_x
+    bcc :+
+    inc player_x+1
+:
+    sec
+    rts
+
+; Arcade $91CF: 1.375 px up ($0160) after up, else down ($FEA0).
+ap_ladder_move:
+    lda ap_stick
+    cmp #3
+    bne @down
+    lda ap_y_frac
+    clc
+    adc #$60
+    sta ap_y_frac
+    lda #$ff                    ; feet go up by 1, and by 2 with the carry
+    bcc :+
+    lda #$fe
+:
+    jmp ap_add_player_y
+@down:
+    lda ap_y_frac
+    clc
+    adc #$a0
+    sta ap_y_frac
+    lda #2                      ; height + $FE + carry
+    bcc :+
+    lda #1
+:
+    jmp ap_add_player_y
+
+; A = the buttons held in this update and the previous one.
+ap_held_buttons:
+    lda ap_pressed
+    eor #$ff
+    and ap_pad
+    rts
+
+; Arcade $98AB, crouching with neither up nor down held. A direction that the player does
+; not face turns them; the facing direction stands them up after ap_crouch_wait updates
+; (7 after the first time). With no direction they stand up 15 updates after the pose
+; ends. The count shares the shot phase ($0505) with the pose.
+ap_crouch_release:
+    jsr ap_held_dir
+    beq @no_dir
+    sec
+    sbc #1
+    cmp player_left
+    beq @facing
+    sta player_left
+    rts
+@facing:
+    lda ap_shoot_lock
+    bne @wait
+    lda ap_crouch_wait
+    beq @stand_now
+    dec ap_crouch_wait
+    bne @wait
+@stand_now:
+    lda #7
+    sta ap_crouch_wait
+    lda #0
+    sta ap_crouch
+@wait:
+    rts
+@no_dir:
+    lda ap_shoot_lock
+    bne @wait
+    lda ap_shot_phase
+    bne :+
+    lda #15
+    sta ap_crouch_wait
+    inc ap_shot_phase
+:
+    dec ap_crouch_wait
+    bne @wait
+    lda #0
+    sta ap_crouch
+    sta ap_shot_phase
+    rts
+
+; Arcade $907B: a jump press starts the jump in the walking direction and clears the shot
+; phase.
+ap_revg_jump_check:
+    lda ap_pressed
+    and #$80
+    beq @no_jump
+    lda ap_move_dir
+    sta ap_air_dir
+    lda #$ff
+    sta ap_riding_plat
+    lda #ap_state_air
+    sta ap_state
+    lda #0
+    sta ap_jump_phase
+    sta ap_shot_phase
+@no_jump:
+    rts
+.endif
 
 ; Arcade $9233: a direction counts once it is held in this update and the previous one,
 ; left before right.
@@ -1213,6 +1550,18 @@ ap_face_dir:
 ap_walk_speed_frac = $20
 ap_walk_step:
 .ifdef REVG_STAGE1
+    ; No step into a tombstone ($9271, $9298): the probe is 1 px ahead and 1 px up.
+    ldx #1
+    lda ap_move_dir
+    cmp #1
+    beq :+
+    ldx #$ff
+:
+    txa
+    jsr ap_tomb_probe_ahead
+    bcc :+
+    rts
+:
     ; No step within 10 px of the screen edge ($9283, $92A9).
     lda ap_move_dir
     jsr ap_edge_room
@@ -1263,7 +1612,9 @@ ap_begin_fall:
     sta ap_jump_phase
     lda #0
     sta ap_air_dir
-    sta ap_crouch
+.ifndef REVG_STAGE1
+    sta ap_crouch               ; the arcade keeps $051F while falling off ($9055)
+.endif
     lda #$ff
     sta ap_riding_plat
     jmp ap_reset_velocity
@@ -1275,9 +1626,14 @@ ap_jump_vy_max = 5
 ap_step_air:
 .ifdef REVG_STAGE1
     ; $93CA, before every phase: within 10 px of the screen edge the jump loses its
-    ; sideways direction.
+    ; sideways direction. A jump with a direction also clears the crouch and the stick
+    ; ($93FF); a straight-up jump from a crouch keeps the crouch.
     lda ap_air_dir
     beq :+
+    lda #0
+    sta ap_crouch
+    sta ap_stick
+    lda ap_air_dir
     jsr ap_edge_room
     bcc @air_edge
     bne :+
@@ -1483,6 +1839,9 @@ ap_air_move_x:
 
 ; --- Ladder state: vertical climbing only (16-bit Y safe) ---
 ap_step_ladder:
+.ifdef REVG_STAGE1
+    jmp ap_step_ground_revg
+.endif
     lda #0
     sta ap_crouch
     lda #$ff
@@ -1844,7 +2203,13 @@ ap_check_support:
     lda player_x+1
     adc #0
     sta ap_probe_x+1
+.ifdef REVG_STAGE1
+    jsr ap_probe_foot
+    bcs @supported
+    jmp ap_tomb_support
+.else
     jmp ap_probe_foot
+.endif
 @supported:
     rts
 
@@ -1862,6 +2227,16 @@ ap_probe_foot:
     sec
     rts
 @foot_oneway:
+.ifdef REVG_STAGE1
+    ; Arcade $8B0A: a floor tile holds the feet anywhere within its 14 px height ($448E),
+    ; not only when they come from above. The update then lifts them onto it ($904F).
+    lda player_feet
+    and #$0f
+    sta ap_tmp0
+    lda #14
+    cmp ap_tmp0
+    rts
+.endif
     lda ap_prev_feet_hi
     cmp ap_tile_row_top_hi
     bcc @foot_solid
@@ -1874,6 +2249,15 @@ ap_probe_foot:
     clc
     rts
 @foot_ladder_top:
+.ifdef REVG_STAGE1
+    lda player_feet             ; the top ladder tile is also a floor
+    and #$0f
+    sta ap_tmp0
+    lda #14
+    cmp ap_tmp0
+    bcs @check_above_ladder
+    rts
+.endif
     lda ap_prev_feet_hi
     cmp ap_tile_row_top_hi
     bcc @check_above_ladder
@@ -2408,6 +2792,109 @@ ap_step_lance:
     rts
 
 ap_revg_max_shots: .byte 3, 3, 2, 3 ; lance, dagger, torch, cross
+
+; Arcade $92BF/$92C9 then $9E14: A = +1 or -1. Probes X + A at 1 px above the feet.
+ap_tomb_probe_ahead:
+    tax
+    clc
+    adc player_x
+    sta ap_probe_x
+    txa
+    and #$80
+    beq :+
+    lda #$ff
+:
+    adc player_x+1
+    sta ap_probe_x+1
+    ldx player_feet
+    dex
+    stx ap_probe_y
+    jmp ap_tomb_box
+
+; Arcade $94D7 then $9E14, after the floor tiles found nothing: the player stands on a
+; tombstone when X is in its box 1 px below the feet and the player is not below its
+; centre. Returns C set with ap_tile_row_top at the (possibly lifted) feet.
+ap_tomb_support:
+    lda #1
+    sta ap_tomb_above
+    lda player_x
+    sta ap_probe_x
+    lda player_x+1
+    sta ap_probe_x+1
+    ldx player_feet
+    inx
+    stx ap_probe_y
+    jsr ap_tomb_box
+    bcc @off
+    lda player_feet
+    sta ap_tile_row_top
+    lda ap_player_y_hi
+    sta ap_tile_row_top_hi
+@off:
+    rts
+
+; Arcade $9E14 for the tombstones (support type 1, box $9EB8: 12, 24, 19, 38). C set when
+; the probe (ap_probe_x, feet ap_probe_y) is within 12 px of a tombstone's centre X and
+; 19 px of its centre height (the feet of its floor). With ap_tomb_above set, the player
+; must not be below the centre. A player more than 3 px from the centre height is put
+; on top, 19 px above it. A miss clears ap_tomb_above ($9EAD).
+ap_tomb_box:
+    lda ap_player_y_hi
+    bne @miss                   ; section 0 is one row of pages
+    ldx #revg_tomb_count - 1
+@loop:
+    lda ap_probe_x
+    sec
+    sbc revg_tomb_x_lo,x
+    tay
+    lda ap_probe_x+1
+    sbc revg_tomb_x_hi,x
+    sta ap_tmp1
+    tya
+    clc
+    adc #12
+    tay
+    lda ap_tmp1
+    adc #0
+    bne @next
+    cpy #25
+    bcs @next
+    ; Height above the centre = centre feet - probe feet.
+    lda revg_tomb_feet,x
+    sec
+    sbc ap_probe_y
+    clc
+    adc #19
+    cmp #39
+    bcs @next
+    lda ap_tomb_above
+    beq @inside
+    lda revg_tomb_feet,x
+    cmp player_feet
+    bcc @next
+@inside:
+    lda revg_tomb_feet,x
+    sec
+    sbc player_feet
+    clc
+    adc #3
+    cmp #6
+    bcc @hit
+    lda revg_tomb_feet,x
+    sec
+    sbc #19
+    sta player_feet
+@hit:
+    sec
+    rts
+@next:
+    dex
+    bpl @loop
+@miss:
+    lda #0
+    sta ap_tomb_above
+    clc
+    rts
 .endif
 
 ; Carry set if shot slot ap_loop_idx hits any tombstone platform.

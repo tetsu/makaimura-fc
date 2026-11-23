@@ -26,11 +26,12 @@ local TITLE, CLEAR = 7, 5
 
 local STATE_GROUND, STATE_LADDER, STATE_MISS = 0, 2, 4
 local FLOOR, HILL = 192, 112
--- Left edges of the solid tombstone cells, by the height the player walks at.
+-- Tombstone centres by the height the player walks at. Walking stops 13 px before one
+-- (the arcade box is the centre +-12), so the jump window ends just short of that.
 local TOMBS = {[FLOOR] = {256, 416, 528, 1264, 1520}, [HILL] = {768, 864, 960}}
 -- Left edges of the 32 px pits after the lake.
 local PITS = {1952, 2016, 2464, 2784}
-local LADDER_X = 712            -- Centre of the first ladder's left column (44)
+local LADDER_X = 720            -- Centre line of the first ladder (columns 44 and 45)
 local LAKE_STOP = 1628          -- Stand back from the lake edge (column 103 is water)
 local RAFT_BOARD = 1712         -- Raft X, heading left, that meets a jump from the edge
 local RAFT_LEAVE = 1772         -- Raft X, heading right, to jump to the far bank

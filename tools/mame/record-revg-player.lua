@@ -47,7 +47,7 @@ local function shots()
     return table.concat(out, ";")
 end
 
-print("type,step,input,x,x_fraction,y,y_fraction,mode,phase,direction,camera_x,facing,shot_timer,shots")
+print("type,step,input,x,x_fraction,y,y_fraction,mode,phase,direction,camera_x,facing,shot_timer,shots,crouch,ladder")
 revg_frame = emu.add_machine_frame_notifier(function()
     frame = frame + 1
     if frame >= 1000 then mem:write_u8(0x0093, 0) end
@@ -59,10 +59,13 @@ revg_frame = emu.add_machine_frame_notifier(function()
     -- Rows read RAM after the update that used the input of the same step.
     local step = frame - first - 1
     if step >= 0 and step <= #schedule then
-        print(string.format("arcade,%d,%02x,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s", step,
+        -- $051E is the facing (1 right, 2 left), $051F the crouch flag and $0526 the
+        -- ladder flag.
+        print(string.format("arcade,%d,%02x,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%d,%d", step,
             schedule[step + 1] or 0, word(0x0506), mem:read_u8(0x0508), word(0x0509),
             mem:read_u8(0x050b), mem:read_u8(0x0503), mem:read_u8(0x0504), mem:read_u8(0x050e),
-            word(0x009c), mem:read_u8(0x051e), mem:read_u8(0x052a), shots()))
+            word(0x009c), mem:read_u8(0x051e), mem:read_u8(0x052a), shots(),
+            mem:read_u8(0x051f), mem:read_u8(0x0526)))
     end
     if frame == last then
         machine:exit()
