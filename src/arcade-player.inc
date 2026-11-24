@@ -230,6 +230,12 @@ ap_kb_dying: .res 1             ; state 3 is the death (arcade $AC was 1 at the 
 ; Test hook for tools/compare-player-trace.py: 1 or 2 hits the player after the next
 ; player update, flying right or left, as if an enemy had touched him.
 ap_test_hit: .res 1
+.ifdef REVG_STAGE1
+ap_clear_seq: .res 1            ; 0 playing, 1 key hold, 2 time bonus tally, 3 final hold
+ap_clear_timer: .res 1
+ap_clear_key_slot: .res 1       ; ob_* slot holding the raised key sprite
+ap_clear_key_y: .res 1          ; base arcade Y of the raised key
+.endif
 
 .segment "BANK3"
     .byte bank_tag_base + 3
@@ -329,6 +335,9 @@ ap_init_stage:
     sta ap_ladder_anim
     sta ap_kb_dying
     sta ap_test_hit
+.ifdef REVG_STAGE1
+    sta ap_clear_seq
+.endif
 :
     sta ps_active,x
     sta ps_y_hi,x
@@ -795,6 +804,10 @@ ap_update_frame:
     jsr draw_sprites
     jmp submit_frame
 :
+    lda ap_clear_seq
+    beq :+
+    jmp call_bank6_clear_seq
+:
 .endif
     lda ap_pad
     eor #$ff
@@ -940,6 +953,10 @@ ap_update_frame:
     plp
     lda ap_key_collected
     beq @camera_and_submit
+.ifdef REVG_STAGE1
+    lda ap_clear_seq
+    bne @camera_and_submit
+.endif
     jmp show_course_clear
 @non_boss_goal:
     plp
@@ -3472,7 +3489,7 @@ ap_time_up:
     rts
 
 ; $9A12, $EC81, $F6E0: the miss song $31, or the game over song $2F for the last life
-; ($9A17). (The FC takes the life away when the death ends.)
+; ($9A17), plus the APU death SFX so the hit/fall is clearly audible immediately.
 ap_miss_song:
     lda campaign_lives
     cmp #2
@@ -3480,7 +3497,9 @@ ap_miss_song:
     bcs :+
     lda #snd_song_gameover
 :
-    jmp call_bank8_play_song
+    jsr call_bank8_play_song
+    lda #snd_se_death
+    jmp call_bank8_play_se
 .endif
     lda #snd_se_damage
     jsr call_bank8_play_se

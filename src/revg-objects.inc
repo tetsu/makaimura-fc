@@ -154,6 +154,11 @@ call_bank6_objects:
     lda #4
     jmp select_bank2
 
+call_bank6_clear_seq:
+    lda #6
+    jsr select_bank2
+    jmp revg_step_clear_seq
+
 .segment "BANK3"
 ; Forget every sprite tile (the slots' contents are not known any more) and Arthur's
 ; animation. Called with the stage visuals.

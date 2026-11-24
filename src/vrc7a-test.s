@@ -359,10 +359,10 @@ same_scene:
     inc death_timer+1
 :
     lda death_timer+1
-    cmp #>121
+    cmp #>45
     bcc @no_auto_restart
     lda death_timer
-    cmp #<121
+    cmp #<45
     bcc @no_auto_restart
     lda #0
     sta death_timer

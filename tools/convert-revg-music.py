@@ -170,12 +170,19 @@ def convert_voice(voice, harmonic=False):
     # A modulator below the carrier (the lead voice 6: S3 x0.5 into S4 x2) puts the
     # spectrum on a grid of its own frequency. The arcade modulates lightly, so the
     # carrier's pitch is heard; the OPLL copy, driven far harder (above), was heard two
-    # octaves down, with the band above 800 Hz 6-10 dB short of MAME's. The modulator
-    # takes the nearest whole multiple of the carrier instead. (The built-in patches are
-    # matched on the voice as it is: they have such ratios of their own.)
+    # octaves down, with the band above 800 Hz 6-10 dB short of MAME's. When an upstream
+    # operator has a high multiplier (e.g. voice 6 / 29 S2 x5), place the modulator an
+    # octave above the carrier (2 * car_mul) so the bright high-octave harmonic cuts
+    # through on VRC7; otherwise take the nearest whole multiple of the carrier.
     ratio = OPN_MUL[mod["mul"]] / OPN_MUL[car["mul"]]
     if harmonic and ratio < 1:
-        mod = dict(mod, mul=OPN_MUL.index(OPN_MUL[car["mul"]] * max(1, round(ratio))))
+        up_muls = [OPN_MUL[voice.ops[i]["mul"]] for i in UPSTREAM.get(voice.alg, {}).get(mod_index, [])]
+        target_mul = OPN_MUL[car["mul"]] * (2 if max(up_muls, default=0) >= 4 else max(1, round(ratio)))
+        if target_mul in OPN_MUL:
+            mod = dict(mod, mul=OPN_MUL.index(target_mul))
+            if target_mul == OPN_MUL[car["mul"]] * 2:
+                tl = max(0, min(63, tl + 4))
+                fb = min(fb, 5)
     mf, mad, msr = opll_operator(mod, mod["sr"] == 0)
     cf, cad, csr = opll_operator(car, sustained)
     patch = bytes([mf, cf, tl, fb, mad, cad, msr, csr])
@@ -485,7 +492,10 @@ def main():
                 # the 6 dB cut and 3 dB lift used before were for the lead sounding low.
                 heard = sorted(pitches.get((layer, voice), [60]))
                 sounding = heard[len(heard) // 2] + 12 * math.log2(OPN_MUL[opn.ops[S4]["mul"]])
-                volume = min(15, volume + 1) if sounding < 48 else volume
+                if sounding < 48:
+                    volume = min(15, volume + 1)
+                elif sounding >= 66:
+                    volume = max(0, volume - 1)
                 # Headroom: with several channels at volume 0 the VRC7 output clipped
                 # (heard as crackle), so every voice goes 6 dB down from there.
                 volume = min(15, volume + 2)

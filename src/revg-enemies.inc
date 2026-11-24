@@ -618,8 +618,11 @@ oz_range_check:
 ; next page's group as the camera reaches it); one page a frame.
 oz_register_pages:
     lda camera_high
+    cmp #8
+    bcs @use_cur_page           ; pages 9-12 use world X; register when camera enters them
     clc
     adc #1
+@use_cur_page:
     cmp #revg_page_count
     bcc :+
     lda #revg_page_count - 1
@@ -864,7 +867,30 @@ oz_sched_spawn:
 @not_zombie:
     lda oz_sch_once,x
     and #1
-    bne @put
+    beq @add_cam
+    ; World-coordinate spawns (e.g. Stage 1 second-half forest ghosts on pages 9-11):
+    ; hold the record until the camera is close enough that oz_range_check keeps it alive
+    ; (X - camera X < 320). The unicorn boss is exempt from oz_range_check.
+    lda revg_sched_kind,x
+    cmp #ok_unicorn
+    beq @put
+    lda oz_t0
+    sec
+    sbc camera_low
+    tay
+    lda oz_t1
+    sbc camera_high
+    bmi @put                    ; behind or at camera
+    beq @put                    ; 0..255 px ahead
+    cmp #1
+    bne @hold_world
+    cpy #112                    ; < 368 px ahead (inside oz_range_check's 384 limit)?
+    bcc @put
+@hold_world:
+    lda #8
+    sta oz_sch_wait,x
+    rts
+@add_cam:
     jsr @add_camera_x
 @put:
     ; The record's variant, then the next record; the pattern ends after its last.
@@ -1356,6 +1382,8 @@ oz_disc:
     inc ob_state,x
     lda #31
     sta ob_t0,x
+    lda #snd_se_pickup
+    jsr call_bank8_play_se
     lda ob_var,x
     cmp #3
     beq :+
@@ -1378,9 +1406,9 @@ oz_disc:
 oz_trigger:
     jsr oz_rel_player
     jsr oz_abs_d
-    cmp #13
+    cmp #17
     bcs @out
-    cpy #9
+    cpy #17
     bcs @out
     lda #0
     sta ob_kind,x
@@ -1392,7 +1420,9 @@ oz_trigger:
     lda #0
     jsr oz_drop_item
     bcs @out
-    jmp oz_push_right
+    jsr oz_push_right
+    lda #snd_se_rise
+    jmp call_bank8_play_se
 @bonus:
     lda #19
     jsr oz_drop_item
@@ -1401,9 +1431,12 @@ oz_trigger:
     clc
     adc #128
     sta ob_yl,x
-    bcc oz_push_right
+    bcc :+
     inc ob_yh,x
-    jmp oz_push_right
+:
+    jsr oz_push_right
+    lda #snd_se_rise
+    jmp call_bank8_play_se
 @out:
     rts
 
@@ -1449,7 +1482,11 @@ oz_key_wait:
 
 oz_key:
     lda ob_state,x
-    bne @landed
+    beq @falling
+    cmp #1
+    beq @landed
+    rts                         ; state 2: held above Arthur during clear celebration
+@falling:
     jsr oz_fall
     bcc @out
     inc ob_state,x
@@ -1465,14 +1502,138 @@ oz_key:
     bcs @out
     cpy #17
     bcs @out
+    ; Clear all other objects and shots, then raise the key above Arthur for the clear
+    ; celebration and time-bonus tally.
+    stx ap_clear_key_slot
+    ldy #ob_max - 1
     lda #0
-    sta ob_kind,x
+@clear_others:
+    cpy ap_clear_key_slot
+    beq :+
+    sta ob_kind,y
+:
+    dey
+    bpl @clear_others
+    ldy #ap_max_shots - 1
+@clear_shots:
+    sta ps_active,y
+    dey
+    bpl @clear_shots
+    ldx ap_clear_key_slot
+    lda #2
+    sta ob_state,x
+    lda player_x
+    sta ob_xl,x
+    lda player_x+1
+    sta ob_xh,x
+    lda oz_py
+    clc
+    adc #28
+    sta ob_yl,x
+    sta ap_clear_key_y
+    lda oz_py+1
+    adc #0
+    sta ob_yh,x
+    lda #0
+    sta player_left
+    sta ap_crouch
+    sta ap_shoot_lock
+    lda #ap_state_ground
+    sta ap_state
     lda #1
     sta ap_key_collected
-    lda #ap_score_key
+    sta ap_clear_seq
+    lda #90
+    sta ap_clear_timer
+    lda #20                     ; 2,000 pts for grabbing the key
     jsr ap_add_score
+    lda #snd_song_clear
+    jsr call_bank8_play_song
     lda #snd_se_key
     jmp call_bank8_play_se
+
+; Stage 1 key-grab celebration animation and rapid time-bonus tally (runs in Bank 6).
+revg_step_clear_seq:
+    ; Keep Arthur in place facing right and bob the raised key above his head.
+    ldx ap_clear_key_slot
+    lda ap_clear_timer
+    and #$08
+    beq :+
+    lda ap_clear_key_y
+    clc
+    adc #2
+    bne @set_key_y
+:
+    lda ap_clear_key_y
+@set_key_y:
+    sta ob_yl,x
+    lda ap_clear_seq
+    cmp #1
+    bne @clear_not_hold
+    dec ap_clear_timer
+    bne @clear_draw
+    lda #2
+    sta ap_clear_seq
+    lda #2
+    sta ap_clear_timer
+    bne @clear_draw
+@clear_not_hold:
+    cmp #2
+    bne @clear_final_hold
+    dec ap_clear_timer
+    bne @clear_draw
+    lda #2
+    sta ap_clear_timer
+    ; Check if campaign_clock == 000.
+    lda campaign_clock
+    cmp #campaign_zero
+    bne @tally_tick
+    lda campaign_clock+1
+    cmp #campaign_zero
+    bne @tally_tick
+    lda campaign_clock+2
+    cmp #campaign_zero
+    bne @tally_tick
+    lda #3
+    sta ap_clear_seq
+    lda #45
+    sta ap_clear_timer
+    bne @clear_draw
+@tally_tick:
+    ; Decrement 3-digit HUD clock by 1 second and add 100 points.
+    dec campaign_clock+2
+    lda campaign_clock+2
+    cmp #campaign_zero
+    bcs @tally_score
+    lda #campaign_zero + 9
+    sta campaign_clock+2
+    dec campaign_clock+1
+    lda campaign_clock+1
+    cmp #campaign_zero
+    bcs @tally_score
+    lda #campaign_zero + 9
+    sta campaign_clock+1
+    dec campaign_clock
+@tally_score:
+    lda #1
+    jsr ap_add_score
+    lda campaign_clock+2
+    sec
+    sbc #campaign_zero
+    and #3
+    bne @clear_draw
+    lda #snd_se_pickup
+    jsr call_bank8_play_se
+    jmp @clear_draw
+@clear_final_hold:
+    dec ap_clear_timer
+    bne @clear_draw
+    lda #0
+    sta ap_clear_seq
+    jmp show_course_clear
+@clear_draw:
+    jsr draw_sprites
+    jmp submit_frame
 
 ; --- Enemy shots -------------------------------------------------------------------------
 ; Spawn a shot at (oz_t0..oz_t3) aimed at the player at about 2.26 px (16 directions),

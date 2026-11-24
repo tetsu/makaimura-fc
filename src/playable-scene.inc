@@ -624,6 +624,11 @@ show_game_over:
 show_course_clear:
     lda arcade_mode
     beq :+
+.ifdef REVG_STAGE1
+    lda snd_song_id
+    cmp #snd_song_clear
+    beq :+
+.endif
     lda #snd_song_clear
     jsr call_bank8_play_song
 :
