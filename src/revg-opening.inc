@@ -101,6 +101,16 @@ op_tick_b7:
 @blackout_wait:
     rts
 @not_blackout:
+    ; End the cutscene at frame 515 (right after Arthur finishes walking forward to X=129
+    ; and pauses), before revg_opening_track's final 39F tail snaps him back to X=96.
+    lda op_time+1
+    cmp #>515
+    bcc @run_track
+    bne @enter_blackout
+    lda op_time
+    cmp #<515
+    bcs @enter_blackout
+@run_track:
     jsr op_sound_b7
     lda op_count
     beq :+
@@ -118,6 +128,9 @@ op_tick_b7:
     ldy #0
     lda (rs_lptr),y
     bne :+
+    pla
+    jsr select_bank0
+@enter_blackout:
     ; Track finished: hide sprites, hold arcade blackout briefly before Stage 1 begins.
     ldx #op_objects - 1
     lda #0
@@ -135,8 +148,7 @@ op_tick_b7:
 @already_dark:
     lda #45                     ; ~0.75s arcade blackout pause before Stage 1 starts
     sta op_blackout
-    pla
-    jmp select_bank0
+    rts
 :
     sta op_count
     dec op_count                ; this frame is the first of them
@@ -177,13 +189,14 @@ op_tick_b7:
     pla
     jmp select_bank0
 ; The opening's sounds at the frames the arcade sends them (MAME 0.289, counted from the
-; first frame of $792D): 1P START chime + opening music $36 at 0 (carrying $3C, $3D and $3A
-; at 125, 189, 322, ending at 516), and the armour $10 at 407. After the post-cutscene
-; blackout finishes, op_finish_to_play_b7 restores the Stage 1 palette and starts $30/$2B.
-op_sound_time_lo: .byte <0, <407
-op_sound_time_hi: .byte >0, >407
+; first frame of $792D): arcade $35 coin/start trill + opening music $36 at 0 (carrying
+; $3A kidnapping at 322, ending at 506), thunder rumble at 125 ($3C) and 189 ($3D), and
+; the armour $10 at 407. After the post-cutscene blackout finishes, op_finish_to_play_b7
+; restores the Stage 1 palette and starts $30/$2B.
+op_sound_time_lo: .byte <0, <125, <189, <407
+op_sound_time_hi: .byte >0, >125, >189, >407
 op_sound_b7:
-    ldx #1
+    ldx #3
 @check:
     lda op_time
     cmp op_sound_time_lo,x
@@ -191,8 +204,14 @@ op_sound_b7:
     lda op_time+1
     cmp op_sound_time_hi,x
     bne @next
-    cpx #1
+    cpx #0
+    beq @start
+    cpx #3
     beq @armour
+    lda #snd_se_thunder
+    jsr call_bank8_play_se
+    jmp @count
+@start:
     lda #snd_song_title
     jsr call_bank8_play_song
     lda #snd_se_start

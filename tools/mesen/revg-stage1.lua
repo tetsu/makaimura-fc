@@ -200,6 +200,9 @@ emu.addEventCallback(function()
             if findKind(15) ~= nil then
                 sawKey = true
                 phase = "key"
+            elseif x < 3300 then
+                -- Arcade $72CC: advance toward the gate (X >= 3280) to trigger key drop.
+                input = {right = true}
             end
         end
     elseif phase == "key" then

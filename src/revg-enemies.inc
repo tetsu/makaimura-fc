@@ -56,6 +56,7 @@ oz_sch_rec: .res 4
 oz_sch_end: .res 4
 oz_sch_wait: .res 4
 oz_sch_once: .res 4
+oz_cd_idx: .res 4               ; arcade bank4:$5DED wave cooldown table index per scheduler
 oz_spawns: .res 1
 oz_drop_sel: .res 1
 oz_key_timer: .res 1
@@ -88,6 +89,16 @@ ok_update_hi:
 
 ; Types the schedulers count, with their limits (bank4:$4240 row 0; the zombie at 2,
 ; the FC's sprite budget, docs/revision-g-sprites.md).
+; Arcade bank4:$5DED inter-wave cooldown tables (row 0, 7 entries each, wrapping):
+;   sched 0 (zombie $0B, $5EED): 60, 100, 20, 80, 20, 60, 80
+;   sched 1 (knight $03, $5E9F): 20, 20, 20, 20, 20, 20, 20
+;   sched 2 (ghost  $00, $5E6D): 60, 100, 120, 80, 100, 60, 240
+oz_cd_base: .byte 0, 7, 14, 7
+oz_cd_table:
+    .byte 60, 100, 20, 80, 20, 60, 80
+    .byte 20, 20, 20, 20, 20, 20, 20
+    .byte 60, 100, 120, 80, 100, 60, 240
+
 oz_sch_limit: .byte 2, 3, 3, 1
 
 ; round(127 * sin(i * 90 / 64)), i = 0-64.
@@ -711,6 +722,8 @@ oz_register_pages:
     ldy oz_t2
     lda revg_page_groups+2,y
     sta oz_sch_once,x
+    lda #0
+    sta oz_cd_idx,x
     lda #1
     sta oz_sch_wait,x
 @skip_entry:
@@ -966,9 +979,23 @@ oz_sched_spawn:
     lda oz_sch_once,x
     and #2
     bne @end_pat
+    ; Arcade $EC36-$EC5B: pause for the type's inter-wave cooldown (bank4:$5DED)
+    ; before wrapping back to the start of the page's spawn pattern.
     ldy oz_sch_pat,x
     lda revg_pat_start,y
     sta oz_sch_rec,x
+    lda oz_cd_base,x
+    clc
+    adc oz_cd_idx,x
+    tay
+    lda oz_cd_table,y
+    sta oz_sch_wait,x
+    inc oz_cd_idx,x
+    lda oz_cd_idx,x
+    cmp #7
+    bcc :+
+    lda #0
+    sta oz_cd_idx,x
     jmp :+
 @end_pat:
     lda #$ff
@@ -1172,6 +1199,17 @@ oz_kill:
     sta ob_aux,x
     lda #1
     sta oz_key_timer            ; the key comes after the boss
+    ; Arcade $E796: stop the boss BGM ($3F) immediately when the last boss dies.
+    txa
+    pha
+    tya
+    pha
+    lda #snd_song_none
+    jsr call_bank8_play_song
+    pla
+    tay
+    pla
+    tax
 :
     lda oz_kind_cnt,y
     sec
@@ -1580,76 +1618,97 @@ oz_push_right:
 :
     rts
 
-; The key falls after the unicorn, in the middle of the screen, and ends the stage.
+; Arcade $72CC-$7478: after the unicorn dies, wait until player X >= cam_max - 48 (3280),
+; then spawn the key at (cam_max + 37 = 3365, Y = $00B0 = 176) with fanfare $3E and the
+; 30-frame sparkle animation rf_7422, then descend at constant -1.24 px/F ($FE.C3) as rf_7430.
+revg_key_trigger_x = 3328 - 48  ; $0CD0
+revg_key_spawn_x   = 3328 + 37  ; $0D25 (3365)
+revg_key_spawn_y   = $B0        ; 176 (arcade $7416 for section 0)
+
 oz_key_wait:
     lda oz_key_timer
     beq @done
+    cmp #24                     ; wait 21F boss explosion + 3F before checking player X
+    bcs @check_pos
     inc oz_key_timer
-    lda oz_key_timer
-    cmp #24                     ; arcade $7409: 21-frame explosion + 3 frames
+    rts
+@check_pos:
+    ; Arcade $72D8: player X >= camera_X_limit - $30 (3280).
+    lda player_x
+    cmp #<revg_key_trigger_x
+    lda player_x+1
+    sbc #>revg_key_trigger_x
     bcc @done
-    lda camera_low
-    clc
-    adc #128
+    lda #<revg_key_spawn_x
     sta oz_t0
-    lda camera_high
-    adc #0
+    lda #>revg_key_spawn_x
     sta oz_t1
-    lda #200
+    lda #revg_key_spawn_y
     sta oz_t2
     lda #0
     sta oz_t3
     tay
     lda #ok_key
     jsr oz_spawn
-    bcs @retry                  ; retry next frame if object table is full
+    bcs @done                   ; retry next frame if object table is full
     lda #0
     sta oz_key_timer
     sta ob_carry,x
-    lda #<rf_7430
-    ldy #>rf_7430
+    sta ob_state,x              ; state 0: 30-frame sparkle before descending
+    lda #30                     ; arcade $740C: $1E frames
+    sta ob_t0,x
+    lda #<rf_7422               ; arcade $7411: key appearance sparkle
+    ldy #>rf_7422
     jsr ob_anim
-    lda #snd_se_key
-    jmp call_bank8_play_se
-@retry:
-    lda #23
-    sta oz_key_timer
+    lda #snd_song_key           ; arcade $7409: $3E key appearance fanfare
+    jmp call_bank8_play_song
 @done:
     rts
 
 oz_key:
     lda ob_state,x
-    beq @falling
+    beq @sparkle
     cmp #1
-    beq @landed
-    rts                         ; state 2: held above Arthur during clear celebration
+    beq @falling
+    jmp @landed
+@sparkle:
+    ; Arcade $743B: hold rf_7422 for 30 frames, then switch to rf_7430 and fall at -$01.3D.
+    dec ob_t0,x
+    bne @out
+    inc ob_state,x              ; -> state 1: falling
+    lda #$c3                    ; arcade $7479: $FE.$C3 = -1.238 px/F constant descent
+    sta ob_vyf,x
+    lda #$fe
+    sta ob_vyi,x
+    lda #<rf_7430
+    ldy #>rf_7430
+    jmp ob_anim
 @falling:
-    jsr oz_fall
+    jsr ob_move
+    jsr oz_on_ground
     bcc @out
-    inc ob_state,x
+    jsr oz_snap_ground
+    jsr ob_stop
+    inc ob_state,x              ; -> state 2: landed
 @out:
     rts
 @landed:
+    ; Arcade $730D-$733E: ground only, |dx| <= 8, |dy| <= 16.
     lda ap_state
     cmp #ap_state_air
     beq @out
     jsr oz_rel_player
     jsr oz_abs_d
-    cmp #13
+    cmp #9
     bcs @out
     cpy #17
     bcs @out
-    ; Clear all other objects and shots, then raise the key above Arthur for the clear
-    ; celebration and time-bonus tally.
-    stx ap_clear_key_slot
+    ; Arcade $7472: key disappears on pickup; clear all objects and shots.
     ldy #ob_max - 1
     lda #0
 @clear_others:
-    cpy ap_clear_key_slot
-    beq :+
     sta ob_kind,y
     sta ob_flags,y
-:
     dey
     bpl @clear_others
     ldy #ok_kinds - 1
@@ -1657,136 +1716,96 @@ oz_key:
     sta oz_kind_cnt,y
     dey
     bpl @clear_cnts
-    inc oz_kind_cnt + ok_key
     ldy #ap_max_shots - 1
 @clear_shots:
     sta ps_active,y
     dey
     bpl @clear_shots
-    ldx ap_clear_key_slot
-    lda #2
-    sta ob_state,x
-    lda player_x
-    sta ob_xl,x
-    lda player_x+1
-    sta ob_xh,x
-    lda oz_py
-    clc
-    adc #14                     ; start at Arthur's hands and rise above his head
-    sta ob_yl,x
-    clc
-    adc #16
-    sta ap_clear_key_y
-    lda oz_py+1
-    adc #0
-    sta ob_yh,x
+    ; Arcade $7341: face right, walk 50F -> pause 60F in rf_7374 ($3B) -> walk 70F into gate.
     lda #0
     sta player_left
     sta ap_crouch
     sta ap_shoot_lock
+    sta ap_clear_key_y          ; subpixel X accumulator for 1.125 px/F walk ($01.$20)
     lda #ap_state_ground
     sta ap_state
     lda #1
     sta ap_key_collected
     sta ap_clear_seq
-    lda #175                    ; full $3E stage-clear fanfare celebration hold
+    lda #50                     ; arcade $7345: $32 frames walk to gate
     sta ap_clear_timer
-    lda #20                     ; 2,000 pts for grabbing the key
-    jsr ap_add_score
-    lda #snd_song_clear
-    jsr call_bank8_play_song
-    lda #snd_se_key
-    jmp call_bank8_play_se
+    lda #2                      ; 200 pts on key pickup
+    jmp ap_add_score
 
-; Stage 1 key-grab celebration animation and rapid time-bonus tally (runs in Bank 6).
+; Arcade $7350-$7399 Stage Clear animation (runs in Bank 6, total 181 frames):
+;   ap_clear_seq = 1: walk right at +1.125 px/F for 50 frames (rf_9596 / rf_95F2)
+;   ap_clear_seq = 2: play $3B (snd_song_clear), hold arcade pose rf_7374 for 60 frames
+;   ap_clear_seq = 3: walk right at +1.125 px/F for 70 frames into the castle gate
 revg_step_clear_seq:
-    ; Keep Arthur in place facing right: smoothly lift key above his head, then bob it.
-    ldx ap_clear_key_slot
-    lda ob_yl,x
-    cmp ap_clear_key_y
-    bcs @key_raised
-    inc ob_yl,x
-    jmp @key_pos_done
-@key_raised:
-    lda ap_clear_timer
-    and #$08
-    beq :+
-    lda ap_clear_key_y
-    clc
-    adc #2
-    bne @set_key_y
-:
-    lda ap_clear_key_y
-@set_key_y:
-    sta ob_yl,x
-@key_pos_done:
     lda ap_clear_seq
     cmp #1
-    bne @clear_not_hold
+    beq @walk_step1
+    cmp #2
+    beq @pose_wait
+    jmp @walk_step3
+@walk_step1:
+    jsr @step_walk_right
     dec ap_clear_timer
     bne @clear_draw
+    ; Arcade $735E: stop key jingle, start $3B clear cadence, hold rf_7374 for 60 frames.
     lda #2
     sta ap_clear_seq
-    lda #2
+    lda #60                     ; arcade $7370: $3C frames
     sta ap_clear_timer
-    bne @clear_draw
-@clear_not_hold:
-    cmp #2
-    bne @clear_final_hold
+    lda #snd_song_clear
+    jsr call_bank8_play_song
+    jmp @clear_draw
+@pose_wait:
     dec ap_clear_timer
     bne @clear_draw
-    lda #2
-    sta ap_clear_timer
-    ; Check if campaign_clock == 0:00.
-    lda campaign_clock
-    cmp #campaign_zero
-    bne @tally_tick
-    lda campaign_clock+1
-    cmp #campaign_zero
-    bne @tally_tick
-    lda campaign_clock+2
-    cmp #campaign_zero
-    bne @tally_tick
+    ; Arcade $737E: resume walking right for 70 frames into the gate.
     lda #3
     sta ap_clear_seq
-    lda #60
+    lda #70                     ; arcade $7383: $46 frames
     sta ap_clear_timer
-    bne @clear_draw
-@tally_tick:
-    ; Decrement arcade M:SS HUD clock by 1 second and add 100 points.
-    dec campaign_clock+2
-    lda campaign_clock+2
-    cmp #campaign_zero
-    bcs @tally_score
-    lda #campaign_zero + 9
-    sta campaign_clock+2
-    dec campaign_clock+1
-    lda campaign_clock+1
-    cmp #campaign_zero
-    bcs @tally_score
-    lda #campaign_zero + 5      ; arcade M:SS wraps tens-of-seconds to 5 (e.g. 2:00 -> 1:59)
-    sta campaign_clock+1
-    dec campaign_clock
-@tally_score:
-    lda #1
-    jsr ap_add_score
-    lda campaign_clock+2
-    sec
-    sbc #campaign_zero
-    and #3
-    bne @clear_draw
-    lda #snd_se_pickup
-    jsr call_bank8_play_se
     jmp @clear_draw
-@clear_final_hold:
+@walk_step3:
+    jsr @step_walk_right
     dec ap_clear_timer
     bne @clear_draw
+    ; Arcade $7552: award Stage 1 BONUS 5000 and advance to course clear.
+    lda #50
+    jsr ap_add_score
     lda #0
     sta ap_clear_seq
     sec                         ; signal call_bank6_clear_seq to call show_course_clear
     rts
 @clear_draw:
-    clc                         ; keep celebrating: draw_sprites + submit_frame in FIXED
+    clc                         ; keep animating: draw_sprites + submit_frame in FIXED
+    rts
+
+; Advance player_x right by +1.125 px/F (arcade $93B6: $01.$20), clamped to revg_goal_x.
+@step_walk_right:
+    lda ap_clear_key_y
+    clc
+    adc #$20
+    sta ap_clear_key_y
+    lda player_x
+    adc #1
+    sta player_x
+    lda player_x+1
+    adc #0
+    sta player_x+1
+    lda player_x
+    cmp #<revg_goal_x
+    lda player_x+1
+    sbc #>revg_goal_x
+    bcc :+
+    lda #<revg_goal_x
+    sta player_x
+    lda #>revg_goal_x
+    sta player_x+1
+:
     rts
 
 ; --- Enemy shots -------------------------------------------------------------------------

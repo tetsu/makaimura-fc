@@ -56,7 +56,7 @@ emu.addEventCallback(function()
         if read(SND_SE_ID) == 11 then sawStartSe = true end
         local demo = read(DEMO_ACTIVE)
         local pal1 = emu.read(1, emu.memType.nesPaletteRam)
-        if phaseFrame > 550 and demo == 1 and pal1 == 0x0f then
+        if phaseFrame > 515 and demo == 1 and pal1 == 0x0f then
             blackoutFrames = blackoutFrames + 1
         end
         if phaseFrame > 500 and demo == 0 then

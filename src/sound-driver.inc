@@ -15,7 +15,8 @@ snd_song_gameover = 5   ; $2F
 snd_song_stage3   = 6   ; $30 then $33: sections 2-3
 snd_song_stage5   = 7   ; $30 then $29: sections 4-5
 snd_song_miss     = 8   ; $31: a death with lives left
-snd_song_max      = 8
+snd_song_key      = 9   ; $3E: key appearance fanfare
+snd_song_max      = 9
 
 snd_se_none       = 0
 snd_se_shot      = 1
@@ -30,7 +31,8 @@ snd_se_efire     = 9
 snd_se_rise      = 10
 snd_se_start     = 11
 snd_se_stomp     = 12
-snd_se_max        = 12
+snd_se_thunder   = 13
+snd_se_max       = 13
 
 snd_fm_channels   = 6
 
@@ -607,19 +609,19 @@ snd_update_fm_bgm:
 ; frame is $400C control and the $400E period index. $FF ends the stream.
 ; ---------------------------------------------------------------------------
 snd_se_pri:
-    .byte 0, 1, 5, 4, 3, 2, 3, 2, 6, 1, 1, 5, 2
+    .byte 0, 1, 5, 4, 3, 2, 3, 2, 6, 1, 1, 5, 2, 4
 snd_se_ch_a:
-    .byte $ff, $01, $02, $00, $00, $02, $02, $01, $00, $02, $02, $00, $02
+    .byte $ff, $01, $02, $00, $00, $02, $02, $01, $00, $02, $02, $00, $02, $02
 snd_se_ch_b:
-    .byte $ff, $ff, $00, $ff, $ff, $01, $ff, $02, $ff, $ff, $ff, $01, $01
+    .byte $ff, $ff, $00, $ff, $ff, $01, $ff, $02, $ff, $ff, $ff, $01, $01, $ff
 snd_se_ptr_a_lo:
-    .byte 0, <snd_se_shot_0, <snd_se_damage_0, <snd_se_key_0, <snd_se_pickup_0, <snd_se_hit_0, <snd_se_kill_0, <snd_se_clank_0, <snd_se_death_0, <snd_se_efire_0, <snd_se_rise_0, <snd_se_start_0, <snd_se_stomp_0
+    .byte 0, <snd_se_shot_0, <snd_se_damage_0, <snd_se_key_0, <snd_se_pickup_0, <snd_se_hit_0, <snd_se_kill_0, <snd_se_clank_0, <snd_se_death_0, <snd_se_efire_0, <snd_se_rise_0, <snd_se_start_0, <snd_se_stomp_0, <snd_se_thunder_0
 snd_se_ptr_a_hi:
-    .byte 0, >snd_se_shot_0, >snd_se_damage_0, >snd_se_key_0, >snd_se_pickup_0, >snd_se_hit_0, >snd_se_kill_0, >snd_se_clank_0, >snd_se_death_0, >snd_se_efire_0, >snd_se_rise_0, >snd_se_start_0, >snd_se_stomp_0
+    .byte 0, >snd_se_shot_0, >snd_se_damage_0, >snd_se_key_0, >snd_se_pickup_0, >snd_se_hit_0, >snd_se_kill_0, >snd_se_clank_0, >snd_se_death_0, >snd_se_efire_0, >snd_se_rise_0, >snd_se_start_0, >snd_se_stomp_0, >snd_se_thunder_0
 snd_se_ptr_b_lo:
-    .byte 0, <snd_se_none_stream, <snd_se_damage_1, <snd_se_none_stream, <snd_se_none_stream, <snd_se_hit_1, <snd_se_none_stream, <snd_se_clank_1, <snd_se_none_stream, <snd_se_none_stream, <snd_se_none_stream, <snd_se_start_1, <snd_se_stomp_1
+    .byte 0, <snd_se_none_stream, <snd_se_damage_1, <snd_se_none_stream, <snd_se_none_stream, <snd_se_hit_1, <snd_se_none_stream, <snd_se_clank_1, <snd_se_none_stream, <snd_se_none_stream, <snd_se_none_stream, <snd_se_start_1, <snd_se_stomp_1, <snd_se_none_stream
 snd_se_ptr_b_hi:
-    .byte 0, >snd_se_none_stream, >snd_se_damage_1, >snd_se_none_stream, >snd_se_none_stream, >snd_se_hit_1, >snd_se_none_stream, >snd_se_clank_1, >snd_se_none_stream, >snd_se_none_stream, >snd_se_none_stream, >snd_se_start_1, >snd_se_stomp_1
+    .byte 0, >snd_se_none_stream, >snd_se_damage_1, >snd_se_none_stream, >snd_se_none_stream, >snd_se_hit_1, >snd_se_none_stream, >snd_se_clank_1, >snd_se_none_stream, >snd_se_none_stream, >snd_se_none_stream, >snd_se_start_1, >snd_se_stomp_1, >snd_se_none_stream
 snd_se_none_stream:
     .byte $ff
 snd_se_shot_0:
@@ -685,21 +687,42 @@ snd_se_efire_0:
 snd_se_rise_0:
     .byte $3d, $0d, $3d, $0d, $3b, $0d, $3b, $0d, $39, $0d, $39, $0d
     .byte $37, $0d, $37, $0d, $35, $0d, $34, $0d, $ff
-; Title START chime (bright arcade coin/start two-note chime, Pulse 1 + Pulse 2 harmony).
+; Title START chime (modeled directly on arcade $35 coin/start bell trill:
+; C#7 ($31) / D7 ($2F) alternating every 4 frames on Pulse 1, with 6-frame echo on Pulse 2).
 snd_se_start_0:
-    .byte $bf, $ca, $00, $bf, $ca, $00, $be, $ca, $00, $bd, $ca, $00
-    .byte $bf, $97, $00, $bf, $97, $00, $be, $97, $00, $bd, $97, $00
-    .byte $bc, $97, $00, $bb, $97, $00, $ba, $97, $00, $b9, $97, $00
-    .byte $b8, $97, $00, $b7, $97, $00, $b5, $97, $00, $b3, $97, $00
+    .byte $7f, $31, $00, $7c, $31, $00, $79, $31, $00, $76, $31, $00
+    .byte $7f, $2f, $00, $7c, $2f, $00, $79, $2f, $00, $76, $2f, $00
+    .byte $7e, $31, $00, $7b, $31, $00, $78, $31, $00, $75, $31, $00
+    .byte $7e, $2f, $00, $7b, $2f, $00, $78, $2f, $00, $75, $2f, $00
+    .byte $7d, $31, $00, $7a, $31, $00, $77, $31, $00, $74, $31, $00
+    .byte $7c, $2f, $00, $79, $2f, $00, $76, $2f, $00, $73, $2f, $00
+    .byte $7b, $31, $00, $78, $31, $00, $75, $31, $00, $72, $31, $00
+    .byte $7a, $2f, $00, $77, $2f, $00, $74, $2f, $00, $71, $2f, $00
+    .byte $78, $31, $00, $75, $31, $00, $73, $31, $00, $71, $31, $00
+    .byte $76, $2f, $00, $74, $2f, $00, $72, $2f, $00, $70, $2f, $00
     .byte $ff
 snd_se_start_1:
-    .byte $7c, $65, $00, $7c, $65, $00, $7b, $65, $00, $7a, $65, $00
-    .byte $7d, $4b, $00, $7d, $4b, $00, $7c, $4b, $00, $7b, $4b, $00
-    .byte $7a, $4b, $00, $79, $4b, $00, $78, $4b, $00, $77, $4b, $00
-    .byte $76, $4b, $00, $75, $4b, $00, $73, $4b, $00, $72, $4b, $00
+    .byte $30, $31, $00, $30, $31, $00, $30, $31, $00, $30, $31, $00
+    .byte $30, $31, $00, $30, $31, $00
+    .byte $3b, $31, $00, $39, $31, $00, $37, $31, $00, $35, $31, $00
+    .byte $3b, $2f, $00, $39, $2f, $00, $37, $2f, $00, $35, $2f, $00
+    .byte $3a, $31, $00, $38, $31, $00, $36, $31, $00, $34, $31, $00
+    .byte $3a, $2f, $00, $38, $2f, $00, $36, $2f, $00, $34, $2f, $00
+    .byte $39, $31, $00, $37, $31, $00, $35, $31, $00, $33, $31, $00
+    .byte $38, $2f, $00, $36, $2f, $00, $34, $2f, $00, $32, $2f, $00
+    .byte $37, $31, $00, $35, $31, $00, $33, $31, $00, $32, $31, $00
+    .byte $36, $2f, $00, $34, $2f, $00, $32, $2f, $00, $31, $2f, $00
+    .byte $34, $31, $00, $33, $31, $00, $32, $31, $00, $31, $31, $00
     .byte $ff
 ; Boss stomp (arcade $0C: heavy low noise + deep pulse thud).
 snd_se_stomp_0:
     .byte $3f, $0e, $3d, $0f, $3a, $0f, $37, $0f, $34, $0f, $ff
 snd_se_stomp_1:
     .byte $bf, $80, $03, $bd, $c0, $03, $ba, $10, $04, $b6, $60, $04, $ff
+; Opening thunder rumble (arcade $3C/$3D noise crash & rolling rumble).
+snd_se_thunder_0:
+    .byte $3f, $06, $3f, $07, $3e, $08, $3f, $09, $3e, $0a, $3d, $0b
+    .byte $3e, $0a, $3d, $0b, $3c, $0c, $3d, $0b, $3c, $0c, $3b, $0d
+    .byte $3c, $0c, $3b, $0d, $3a, $0e, $3a, $0d, $39, $0e, $38, $0f
+    .byte $38, $0e, $37, $0f, $36, $0e, $36, $0f, $35, $0f, $34, $0f
+    .byte $33, $0f, $32, $0f, $31, $0f, $ff

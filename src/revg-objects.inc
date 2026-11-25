@@ -792,40 +792,36 @@ rp_kind_fly_dead = 10
 rp_kind_fall_apart = 11
 rp_kind_bones = 12
 rp_kind_frog = 13
+rp_kind_clear = 14
 
 ; Animation starts by kind, armoured then naked. The hurt flies as $9913 (one frame, naked);
 ; the death's flight $9927 turns to bones every other frame ($992D).
 rp_start_lo:
     .byte <rf_9596, <rf_9596, <rf_965A, <rf_9732, <rf_966E, <rf_96DE, <rf_970A, <rf_9213, <rf_9213
-    .byte <rf_9913, <rf_9927, <rf_9947, <rf_9ABE, <rf_9779
+    .byte <rf_9913, <rf_9927, <rf_9947, <rf_9ABE, <rf_9779, <rf_7374
     .byte <rf_95F2, <rf_95F2, <rf_969A, <rf_9746, <rf_96A8, <rf_96F2, <rf_96F2, <rf_91FF, <rf_91FF
-    .byte <rf_9913, <rf_9927, <rf_9947, <rf_9ABE, <rf_9779
+    .byte <rf_9913, <rf_9927, <rf_9947, <rf_9ABE, <rf_9779, <rf_7374
 rp_start_hi:
     .byte >rf_9596, >rf_9596, >rf_965A, >rf_9732, >rf_966E, >rf_96DE, >rf_970A, >rf_9213, >rf_9213
-    .byte >rf_9913, >rf_9927, >rf_9947, >rf_9ABE, >rf_9779
+    .byte >rf_9913, >rf_9927, >rf_9947, >rf_9ABE, >rf_9779, >rf_7374
     .byte >rf_95F2, >rf_95F2, >rf_969A, >rf_9746, >rf_96A8, >rf_96F2, >rf_96F2, >rf_91FF, >rf_91FF
-    .byte >rf_9913, >rf_9927, >rf_9947, >rf_9ABE, >rf_9779
+    .byte >rf_9913, >rf_9927, >rf_9947, >rf_9ABE, >rf_9779, >rf_7374
 ; Kinds that show their first frame only.
 rp_still:
-    .byte 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1
+    .byte 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1
 
 ; A = Arthur's kind this frame.
 rp_choose:
     lda ap_clear_seq
     beq @not_clear
-    cmp #1
-    bne @clear_tally_pose
-    ; Key-grab celebration: alternate triumphant raised-arm pose & standing every 16 frames.
-    lda ap_clear_timer
-    and #$10
-    bne @clear_stand
-    lda #rp_kind_jump_up
+    cmp #2
+    beq @clear_pose
+    ; Steps 1 & 3 ($7350 / $738B): walk right toward and through the castle door.
+    lda #rp_kind_walk
     rts
-@clear_tally_pose:
-    lda #rp_kind_throw
-    rts
-@clear_stand:
-    lda #rp_kind_stand
+@clear_pose:
+    ; Step 2 ($7369): wait 60 frames in the arcade $7374 pose while the door opens.
+    lda #rp_kind_clear
     rts
 @not_clear:
     lda ap_state
@@ -929,7 +925,7 @@ rp_draw_player:
     lda ap_armor
     cmp #ap_armor_full
     beq :+
-    ldx #14                     ; naked table offset (14 kinds)
+    ldx #15                     ; naked table offset (15 kinds)
 :
     txa
     clc

@@ -60,11 +60,12 @@ SONGS = [
     ("title", [(0, 0x36), (125 * 4, 0x3C), (189 * 4, 0x3D), (322 * 4, 0x3A)], False),   # opening demo
     ("stage", [(0, 0x30), (1, 0x2B)], True),      # sections 0-1, after the start jingle
     ("boss", [(0, 0x2D)], True),                  # sections 0-1 boss pages
-    ("clear", [(0, 0x3E), (168 * 4, 0x3B)], False),  # key/stage clear fanfare $3E + cadence $3B
+    ("clear", [(0, 0x3B)], False),                # stage clear cadence ($7361)
     ("gameover", [(0, 0x2F)], False),
     ("stage3", [(0, 0x30), (1, 0x33)], True),     # sections 2-3
     ("stage5", [(0, 0x30), (1, 0x29)], True),     # sections 4-5
     ("miss", [(0, 0x31)], False),                 # Arthur dies with lives left
+    ("key", [(0, 0x3E)], False),                  # key appearance fanfare ($7409)
 ]
 
 # The VRC7 built-in patches (the 2019 die dump, as in Mesen's MesenCore.dll).
@@ -502,14 +503,7 @@ def main():
                 elif sounding >= 66:
                     volume = max(0, volume - 1)
                 if name == "title" and custom is None:
-                    # Keep the opening kidnapping arpeggio ($3A, voice 8) crisp and prominent.
-                    patch = bytes([
-                        patch[0], patch[1], patch[2], patch[3],
-                        (max(14, patch[4] >> 4) << 4) | (patch[4] & 15),
-                        (max(14, patch[5] >> 4) << 4) | (patch[5] & 15),
-                        patch[6],
-                        (min(4, patch[7] >> 4) << 4) | min(5, patch[7] & 15),
-                    ])
+                    # Keep $3A (kidnapping strings/brass, voice 8) rich and prominent.
                     volume = max(0, volume - 1)
                 # Headroom & BGM/SFX balance: VRC7 FM sits louder than NES APU on hardware
                 # and Mesen, so attenuate BGM voices by 12 dB (+4) so APU SFX cut through.
@@ -526,11 +520,15 @@ def main():
                     instruments[(layer, voice)] = (0, volume, 0)
                     notes.append(f"${layer:04x} voice {voice}: custom {patch_index} vol {volume} pitch {sounding:.0f}")
                 elif name == "title" and voice == 31:
-                    # Voice 31 ($3C/$3D) is a low-frequency FM thunder/rumble effect
-                    # (muls=[0,0,0,0], fb=7); keep it deep percussive bass without transposing
-                    # it up into a melodic organ chord.
-                    instruments[(layer, voice)] = (15, min(15, volume + 2), 0)
-                    notes.append(f"${layer:04x} voice {voice}: built-in 15 +0 vol {min(15, volume + 2)} pitch {sounding:.0f}")
+                    # Voice 31 ($3C/$3D thunder rumble) is played by APU noise (snd_se_thunder)
+                    # in revg-opening.inc at frames 125 and 189; mute the FM rumble substitute.
+                    instruments[(layer, voice)] = (15, 15, 0)
+                    notes.append(f"${layer:04x} voice {voice}: muted (APU thunder)")
+                elif name == "title" and voice == 13:
+                    # Voice 13 ($3A kidnapping bass/chords) is a heavy sustained low brass/organ;
+                    # use VRC7 Organ (8) +12 instead of Clarinet (5).
+                    instruments[(layer, voice)] = (8, min(15, volume + 1), 12)
+                    notes.append(f"${layer:04x} voice {voice}: built-in 8 +12 vol {min(15, volume + 1)} pitch {sounding:.0f}")
                 else:
                     number, transpose = nearest_builtin(patch)
                     # Avoid transposing low melodic voices (e.g. $3A bass voice 13) below C1
