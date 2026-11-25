@@ -1,6 +1,14 @@
 ; Bank 8 audio diagnostics. Keep the selected IDs independent of playback.
 ; The screen runs from Bank 3 ($A000) with Bank 8 at $C000; callers select Bank 3.
 ; Only commit_sound_test, which the NMI calls, stays in the fixed bank.
+.ifdef REVG_STAGE1
+st_song_max = snd_song_max
+st_se_max   = 9                 ; single-digit display (1..9)
+.else
+st_song_max = 7                 ; prototype sound test (1..7 / 1..3)
+st_se_max   = 3
+.endif
+
 .segment "BSS"
 sound_test_song: .res 1
 sound_test_se: .res 1
@@ -77,13 +85,13 @@ select_sound_test_ids:
     bne @select_se
     dec sound_test_song
     bne @select_se
-    lda #snd_song_max
+    lda #st_song_max
     bne @save_song
 @next_song:
     lda sound_test_song
     clc
     adc #1
-    cmp #snd_song_max + 1
+    cmp #st_song_max + 1
     bcc @save_song
     lda #1
 @save_song:
@@ -97,13 +105,13 @@ select_sound_test_ids:
     bne @done
     dec sound_test_se
     bne @done
-    lda #snd_se_max
+    lda #st_se_max
     bne @save_se
 @next_se:
     lda sound_test_se
     clc
     adc #1
-    cmp #snd_se_max + 1
+    cmp #st_se_max + 1
     bcc @save_se
     lda #1
 @save_se:

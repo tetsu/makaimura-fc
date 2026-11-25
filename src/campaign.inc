@@ -232,4 +232,8 @@ upload_campaign_hud:
 
 .segment "RODATA"
 campaign_checkpoint_glyphs: .byte $0e, $17 ; N, Y
+.ifdef REVG_STAGE1
 campaign_weapon_glyphs: .byte $0c, $05, $13, $04, $02 ; L (Lance), D (Dagger), T (Torch), C (Cross), A (Axe)
+.else
+campaign_weapon_glyphs: .byte $0c, $05, $13, $12 ; L (Lance), D (Dagger), T (Torch), S (Shield)
+.endif

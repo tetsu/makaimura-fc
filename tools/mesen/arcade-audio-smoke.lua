@@ -133,7 +133,7 @@ emu.addEventCallback(function()
             input = { start = true }
         elseif phaseFrame == 16 then
             check(read(SND_SONG_ID) == 2 and read(SND_PLAYING) == 1, 11, "stage BGM did not start")
-            check(read(SND_CUSTOM_PATCH) == 0, 12, "custom FM patch 0 not retained")
+            check(read(SND_CUSTOM_PATCH) == 1, 12, "custom FM patch 1 not loaded for stage")
             startTicks = read(SND_TICK_COUNT)
             nextPhase("test_shot_se")
         end

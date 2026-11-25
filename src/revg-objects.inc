@@ -511,8 +511,13 @@ rs_emit_mapped:
     ora rs_pal
 :
     ldx rs_oam
+    ldy rs_pyl
+    cpy #208                    ; arcade BG attr bit 3: rows 13-14 (grass/water foreground)
+    bcc :+
+    ora #$20                    ; OAM behind-BG priority for underground/underwater pieces
+:
     sta sprites+2,x
-    lda rs_pyl
+    tya
     sta sprites,x
     lda rs_ptile
     sta sprites+1,x

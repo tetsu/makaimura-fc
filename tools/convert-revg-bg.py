@@ -61,6 +61,7 @@ NES_RGB = {
 BLACK = 0x0F
 CONTRAST_WEIGHT = float(__import__("os").environ.get("REVG_CONTRAST", 2))
 WATER_WEIGHT = 8
+WOOD_WEIGHT = 3             # preserve multi-shade wood grain on graveyard dead trees & forest trunks
 GROUND_PALETTE = 6          # the arcade palette of the grass and earth
 HUD_COLOUR = 0x10          # light grey HUD text, also the lightest stone colour
 # Palette 0 is shared by both halves and the HUD: the HUD colour and a darker grey, so
@@ -309,10 +310,12 @@ def main():
         for key in col:
             weights[index_of[key]] += 1
 
-    # Water covers few tiles but must stay blue, so its tiles count more.
+    # Water covers few tiles but must stay blue, and tree bark must keep multi-shade wood grain.
     for i, tile in enumerate(tiles):
         if any(b > r + 40 and b > g for (r, g, b) in tile.hist):
             weights[i] *= WATER_WEIGHT
+        elif len(tile.hist) >= 3 and any(r > b + 35 and r > g for (r, g, b) in tile.hist):
+            weights[i] *= WOOD_WEIGHT
         if unique[i][3]:
             weights[i] *= TOMBSTONE_WEIGHT
     rgb_lab = {rgb: lab(rgb) for t in tiles for rgb in t.hist}
