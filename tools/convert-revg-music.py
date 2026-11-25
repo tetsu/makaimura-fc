@@ -53,13 +53,14 @@ DATA_BANKS = (9, 5)            # $8000 banks for the song streams (src/vrc7a-512
 
 # (name, sound commands as (tick, command), looping). The order is the song id - 1
 # (src/sound-driver.inc).
-# The opening demo sends $3C, $3D and $3A 64 and 197 frames apart (measured with
-# tools/mame/log-revg-sound.lua and measure-revg-stage1-end.lua: frames 630, 694, 827).
+# The opening demo starts with $36 on 1P START (Arthur & Princess in the graveyard),
+# then sends $3C (thunder), $3D (Satan appears), and $3A (kidnapping) at 125, 189, and
+# 322 frames (measured with tools/mame/log-revg-sound.lua; total 516 frames).
 SONGS = [
-    ("title", [(0, 0x3C), (64 * 4, 0x3D), (197 * 4, 0x3A)], False),   # opening demo
+    ("title", [(0, 0x36), (125 * 4, 0x3C), (189 * 4, 0x3D), (322 * 4, 0x3A)], False),   # opening demo
     ("stage", [(0, 0x30), (1, 0x2B)], True),      # sections 0-1, after the start jingle
     ("boss", [(0, 0x2D)], True),                  # sections 0-1 boss pages
-    ("clear", [(0, 0x3B)], False),                # after the key is taken
+    ("clear", [(0, 0x3E), (168 * 4, 0x3B)], False),  # key/stage clear fanfare $3E + cadence $3B
     ("gameover", [(0, 0x2F)], False),
     ("stage3", [(0, 0x30), (1, 0x33)], True),     # sections 2-3
     ("stage5", [(0, 0x30), (1, 0x29)], True),     # sections 4-5
@@ -119,6 +120,10 @@ def nearest_opll_mul(value):
 def opll_operator(op, sustained):
     """(byte $00/$01, AR/DR, SL/RR) of one OPLL operator from an OPN operator."""
     ar = min(15, round(op["ar"] / 2))
+    # On OPLL, AR 8-10 takes several frames to reach peak volume, which swallows short
+    # 2-frame staccato notes (such as the opening kidnapping arpeggio $3A, voice 8).
+    if op["ar"] >= 16:
+        ar = max(13, ar)
     dr = min(15, round(op["dr"] / 2))
     rr = op["rr"]
     if not sustained:
@@ -496,9 +501,19 @@ def main():
                     volume = min(15, volume + 1)
                 elif sounding >= 66:
                     volume = max(0, volume - 1)
-                # Headroom: with several channels at volume 0 the VRC7 output clipped
-                # (heard as crackle), so every voice goes 6 dB down from there.
-                volume = min(15, volume + 2)
+                if name == "title" and custom is None:
+                    # Keep the opening kidnapping arpeggio ($3A, voice 8) crisp and prominent.
+                    patch = bytes([
+                        patch[0], patch[1], patch[2], patch[3],
+                        (max(14, patch[4] >> 4) << 4) | (patch[4] & 15),
+                        (max(14, patch[5] >> 4) << 4) | (patch[5] & 15),
+                        patch[6],
+                        (min(4, patch[7] >> 4) << 4) | min(5, patch[7] & 15),
+                    ])
+                    volume = max(0, volume - 1)
+                # Headroom & BGM/SFX balance: VRC7 FM sits louder than NES APU on hardware
+                # and Mesen, so attenuate BGM voices by 12 dB (+4) so APU SFX cut through.
+                volume = min(15, volume + 4)
                 if custom is None:
                     custom = patch
                     if patch not in patches:
@@ -510,8 +525,18 @@ def main():
                         marks[layer_start[layer]] = patch_index
                     instruments[(layer, voice)] = (0, volume, 0)
                     notes.append(f"${layer:04x} voice {voice}: custom {patch_index} vol {volume} pitch {sounding:.0f}")
+                elif name == "title" and voice == 31:
+                    # Voice 31 ($3C/$3D) is a low-frequency FM thunder/rumble effect
+                    # (muls=[0,0,0,0], fb=7); keep it deep percussive bass without transposing
+                    # it up into a melodic organ chord.
+                    instruments[(layer, voice)] = (15, min(15, volume + 2), 0)
+                    notes.append(f"${layer:04x} voice {voice}: built-in 15 +0 vol {min(15, volume + 2)} pitch {sounding:.0f}")
                 else:
                     number, transpose = nearest_builtin(patch)
+                    # Avoid transposing low melodic voices (e.g. $3A bass voice 13) below C1
+                    # (MIDI 24), where VRC7 drops into sub-audible clicks.
+                    while heard and heard[0] + transpose < 24 and heard[-1] + transpose + 12 <= NOTE_MAX + NOTE_BASE:
+                        transpose += 12
                     instruments[(layer, voice)] = (number, volume, transpose)
                     notes.append(f"${layer:04x} voice {voice}: built-in {number} {transpose:+d} vol {volume} pitch {sounding:.0f}")
         body = [f"; {index + 1} {name}: " + "; ".join(notes)]

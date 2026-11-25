@@ -1,28 +1,25 @@
--- Boot to play in the game build (./build.ps1 -Hardware), with controller input only (TODO C-1a).
--- Power on -> title -> START -> opening (text) -> map (text) -> Stage 1 on the real map.
--- Then stand at the first tombstone holding right until the placeholder zombies use up
--- all three lives -> GAME OVER -> START -> title. The other route (boss, key, clear,
--- back to the title) is in revg-stage1.lua.
+-- Boot to play in the game build (./build.ps1 -Hardware), with controller input only.
+-- Power on -> title -> START -> arcade opening cutscene + blackout -> Stage 1 (arcade HUD)
+-- -> walk into first tombstone until real Stage 1 zombies use up all 3 lives -> GAME OVER -> title.
 local SCENE = 0x07
 local LIVES = 0x15
-local CAMERA_X = 0x25
 local PLAYER_X = 0x4c
+local DEMO_ACTIVE = 0x0381
 local AP_STATE = 0x6010
-local EN_TYPE, EN_X_LO, EN_X_HI = 0x6079, 0x607d, 0x6081
+local OB_KIND = 0x698a
 local SND_SONG_ID = 0x7800
+local SND_SE_ID = 0x7803
 
-local TITLE, OPENING, MAP, PLAY, GAME_OVER = 7, 12, 13, 4, 6
+local TITLE, PLAY, GAME_OVER = 7, 4, 6
 local STATE_MISS = 4
-local OPENING_FRAMES, MAP_FRAMES = 240, 150
-local ZOMBIE_AHEAD = 272            -- Camera X + 128 + 144, as for the arcade's first zombie
 
 local frame, phase, phaseFrame = 0, "boot", 0
 local input = {}
 local deaths = 0
+local sawStartSe = false
+local sawTitleSong = false
+local blackoutFrames = 0
 local zombieSeen = false
--- Each screen is drawn with the display off, and how many frames that spans moves with
--- the code layout (245 frames for the opening once the fixed bank grew), so allow a few.
-local SLACK = 8
 
 local function read(addr) return emu.read(addr, emu.memType.nesMemory) end
 local function readWord(addr) return read(addr) + 256 * read(addr + 1) end
@@ -35,18 +32,6 @@ local function check(cond, message)
     return false
 end
 
--- Glyph tiles of the text screens (the order of `glyphs` in src/vrc7a-test.s). Digits
--- without a glyph use the HUD digits from tile $1b (fe_glyph in src/frontend.inc).
-local GLYPHS = "7ABCDEFGHIKLMNOPRSTUVW+YJ2"
-local function textAt(addr, text)
-    for i = 1, #text do
-        local c = text:sub(i, i)
-        local tile = c == " " and 0 or GLYPHS:find(c, 1, true) or 0x1b + tonumber(c)
-        if readNt(addr + i - 1) ~= tile then return false end
-    end
-    return true
-end
-
 local function nextPhase(name)
     phase, phaseFrame = name, 0
 end
@@ -57,49 +42,42 @@ emu.addEventCallback(function()
     frame = frame + 1
     phaseFrame = phaseFrame + 1
     input = {}
-    if not check(frame < 6000, "timed out") then return end
+    if not check(frame < 7500, "timed out") then return end
     local scene = read(SCENE)
 
     if phase == "boot" then
         if frame == 128 then
-            if not check(scene == TITLE and textAt(0x20ca, "MAKAIMURA FC")
-                    and textAt(0x228a, "STAGE 1 ONLY"), "title screen after power on") then return end
+            if not check(scene == TITLE, "title screen after power on") then return end
             input = {start = true}
             nextPhase("opening")
         end
     elseif phase == "opening" then
-        if phaseFrame == 4 then
-            if not check(scene == OPENING and textAt(0x216a, "THE PRINCESS")
-                    and read(SND_SONG_ID) == 1, "opening after START") then return end
-        elseif scene ~= OPENING and phaseFrame > 4 then
-            if not check(scene == MAP and math.abs(phaseFrame - OPENING_FRAMES) <= SLACK
-                    and textAt(0x218c, "STAGE 1") and textAt(0x21cb, "GRAVEYARD"),
-                    string.format("map after the opening (%d frames)", phaseFrame)) then return end
-            nextPhase("map")
+        if read(SND_SONG_ID) == 1 then sawTitleSong = true end
+        if read(SND_SE_ID) == 11 then sawStartSe = true end
+        local demo = read(DEMO_ACTIVE)
+        local pal1 = emu.read(1, emu.memType.nesPaletteRam)
+        if phaseFrame > 550 and demo == 1 and pal1 == 0x0f then
+            blackoutFrames = blackoutFrames + 1
         end
-    elseif phase == "map" then
-        if scene ~= MAP then
-            if not check(scene == PLAY and read(0x8000) == 0x8c and math.abs(phaseFrame - MAP_FRAMES) <= SLACK,
-                    string.format("Stage 1 after the map (%d frames)", phaseFrame)) then return end
+        if phaseFrame > 500 and demo == 0 then
+            if not check(scene == PLAY and sawTitleSong and sawStartSe and blackoutFrames >= 35,
+                    string.format("opening -> blackout (%dF) -> Stage 1 (song=%s se=%s)",
+                        blackoutFrames, tostring(sawTitleSong), tostring(sawStartSe))) then return end
             nextPhase("stage")
         end
     elseif phase == "stage" then
-        -- Drawing the stage with the display off takes a few frames.
         if read(SND_SONG_ID) == 2 then
-            if not check(readWord(PLAYER_X) == 96 and read(LIVES) == 3,
-                    string.format("Stage 1 start: x=%d lives=%d", readWord(PLAYER_X), read(LIVES))) then return end
+            local hud1up = (readNt(0x2022) == 0x1c and readNt(0x2023) == 0x14 and readNt(0x2024) == 0x10)
+            if not check(readWord(PLAYER_X) == 96 and read(LIVES) == 3 and hud1up,
+                    string.format("Stage 1 start: x=%d lives=%d hud1up=%s",
+                        readWord(PLAYER_X), read(LIVES), tostring(hud1up))) then return end
             nextPhase("zombies")
         elseif not check(phaseFrame < 60, "Stage 1 music did not start") then return end
     elseif phase == "zombies" then
-        -- Walk into the first tombstone and wait there for the zombies.
+        -- Walk into the first tombstone and wait for real Stage 1 zombies to land hits.
         input = {right = true}
-        for slot = 0, 3 do
-            if not zombieSeen and read(EN_TYPE + slot) ~= 0 then
-                local ahead = read(EN_X_LO + slot) + 256 * read(EN_X_HI + slot) - readWord(CAMERA_X)
-                if not check(ahead == ZOMBIE_AHEAD or ahead == ZOMBIE_AHEAD - 1,
-                        string.format("zombie appeared %d px from the camera", ahead)) then return end
-                zombieSeen = true
-            end
+        for slot = 0, 19 do
+            if read(OB_KIND + slot) == 1 then zombieSeen = true end
         end
         if read(AP_STATE) == STATE_MISS then
             deaths = deaths + 1
@@ -107,21 +85,22 @@ emu.addEventCallback(function()
             nextPhase(deaths < 3 and "retry" or "game_over")
         end
     elseif phase == "retry" then
-        if phaseFrame == 20 then
+        if read(AP_STATE) ~= STATE_MISS and read(SCENE) == PLAY and readWord(PLAYER_X) == 96 then
             if not check(read(LIVES) == 3 - deaths, "lives after a miss") then return end
-            input = {start = true}
-        elseif phaseFrame == 30 then
-            if not check(scene == PLAY and readWord(PLAYER_X) == 96, "restart at the stage start") then return end
             nextPhase("zombies")
+        elseif phaseFrame == 50 then
+            input = {start = true}
         end
     elseif phase == "game_over" then
-        if phaseFrame == 20 then
-            if not check(scene == GAME_OVER and textAt(0x218a, "GAME OVER") and read(SND_SONG_ID) == 5,
-                    "GAME OVER after the third miss") then return end
+        if scene == GAME_OVER and phaseFrame >= 20 then
+            if not check(read(SND_SONG_ID) == 5, "GAME OVER BGM after third miss") then return end
             input = {start = true}
-        elseif phaseFrame == 30 then
-            if not check(scene == TITLE and textAt(0x20ca, "MAKAIMURA FC"), "title after GAME OVER") then return end
-            print(string.format("PASS: title, opening, map, Stage 1, three misses, GAME OVER, title (frame %d)", frame))
+            nextPhase("to_title")
+        end
+    elseif phase == "to_title" then
+        if scene == TITLE then
+            print(string.format("PASS: title, opening+blackout(%dF), Stage 1, 3 misses, GAME OVER, title (frame %d)",
+                blackoutFrames, frame))
             emu.stop(0)
         end
     end

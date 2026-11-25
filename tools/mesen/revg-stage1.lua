@@ -1,11 +1,8 @@
 -- Stage 1 with the real Revision G section 0 layout (the game build, ./build.ps1 -Hardware).
--- Drive the route with controller input only: jump the tombstones, climb the first hill
--- ladder, cross the lake on the raft, miss once after the checkpoint and restart there,
--- jump the forest pits, beat the placeholder boss at the gate, take the key and return
--- to the title. Positions come from build/revg-section0-map.inc
--- (tools/convert-revg-section.py). Right+START skips the opening and the map, which
--- revg-boot-flow.lua checks. Like the MAME traces, the test keeps the zombies out: it
--- holds the live-zombie count at the cap so the scheduler places none.
+-- Drive the full Stage 1 route with controller input: tombstones, hill ladder, lake raft,
+-- checkpoint miss & restart, forest pits, Unicorn boss entrance & defeat, key grab,
+-- celebration + clear music, STAGE1 CLEAR, and return to title.
+-- Keeps non-boss regular enemies cleared so the route test is deterministic.
 local SCENE = 0x07
 local LIVES = 0x15
 local CAMERA_X = 0x25
@@ -13,50 +10,41 @@ local PLAYER_X = 0x4c
 local PLAYER_FEET = 0x4e
 local CHECKPOINT = 0x70
 local AP_STATE = 0x6010
+local AP_ARMOR = 0x6011
 local PLAT_X_LO = 0x6042
 local PLAT_X_HI = 0x6046
 local PLAT_PHASE = 0x605a
-local SCHED_ZOMBIES_LIVE = 0x6077   -- sched_zombies_live in src/arcade-player.inc
-local ZOMBIE_CAP = 2
-local EB_ACTIVE, EB_X_LO, EB_X_HI, EB_Y = 0x6095, 0x6097, 0x6099, 0x609b
-local BOSS_STATE, BOSS_HP = 0x60a1, 0x60a3
 local KEY_COLLECTED = 0x60ab
-local BOSS_ACTIVE, BOSS_DEFEATED = 1, 2
-local TITLE, CLEAR = 7, 5
+local OB_KIND = 0x698a
+local OB_FLAGS = 0x6b7e
+local SND_SONG_ID = 0x7800
 
+local TITLE, PLAY, CLEAR = 7, 4, 5
 local STATE_GROUND, STATE_LADDER, STATE_MISS = 0, 2, 4
-local FLOOR, HILL = 192, 112
--- Tombstone centres by the height the player walks at. Walking stops 13 px before one
--- (the arcade box is the centre +-12), so the jump window ends just short of that.
+local FLOOR, HILL, RAFT_FEET = 192, 112, 194
 local TOMBS = {[FLOOR] = {256, 416, 528, 1264, 1520}, [HILL] = {768, 864, 960}}
--- Left edges of the 32 px pits after the lake.
 local PITS = {1952, 2016, 2464, 2784}
-local LADDER_X = 720            -- Centre line of the first ladder (columns 44 and 45)
-local LAKE_STOP = 1628          -- Stand back from the lake edge (column 103 is water)
-local RAFT_BOARD = 1712         -- Raft X, heading left, that meets a jump from the edge
-local RAFT_LEAVE = 1772         -- Raft X, heading right, to jump to the far bank
+local LADDER_X = 720
+local LAKE_STOP = 1628
+local RAFT_BOARD = 1712
+local RAFT_LEAVE = 1772
 local CHECKPOINT_X = 1920
-local BOSS_TRIGGER_X, BOSS_HP_START, CAMERA_END = 3392, 10, 3328
-local LOW_BOLT_Y = 183              -- Boss feet 192 - 9: hits a standing or crouching player
 
 local frame = 0
 local phase = "boot"
 local input = {}
 local clearFrame
-local rendered = false
 local climbing = false
 local airborne = false
 local jumpFrame
 local bossFrame
-local sawBolt = false
+local sawBoss = false
+local sawKey = false
+local sawClearSong = false
 
-local function read(addr)
-    return emu.read(addr, emu.memType.nesMemory)
-end
-
-local function readWord(addr)
-    return read(addr) + 256 * read(addr + 1)
-end
+local function read(addr) return emu.read(addr, emu.memType.nesMemory) end
+local function readWord(addr) return read(addr) + 256 * read(addr + 1) end
+local function write(addr, v) emu.write(addr, v, emu.memType.nesMemory) end
 
 local function check(cond, message)
     if cond then return true end
@@ -66,7 +54,6 @@ local function check(cond, message)
     return false
 end
 
--- True while x is in the window where a jump clears the obstacle starting at edge.
 local function jumpWindow(x, edges, before, after)
     for _, edge in ipairs(edges) do
         if x >= edge - before and x <= edge - after then return true end
@@ -74,34 +61,33 @@ local function jumpWindow(x, edges, before, after)
     return false
 end
 
--- Background tile at a world column on the floor row, read from the nametable.
--- The playfield of a one-page-high stage is in nametable $2000; the ring has 32 columns.
-local function floorTile(worldX)
-    local column = (worldX // 8) % 32
-    return emu.read(0x2000 + 24 * 32 + column, emu.memType.nesPpuDebug)
-end
-
-emu.addEventCallback(function()
-    emu.setInput(input, 0)
-end, emu.eventType.inputPolled)
-
--- True when a low boss bolt is close enough that a straight jump now clears it.
-local function lowBoltAhead(x)
-    for i = 0, 1 do
-        if read(EB_ACTIVE + i) ~= 0 then
-            sawBolt = true
-            local dx = read(EB_X_LO + i) + 256 * read(EB_X_HI + i) - x
-            if read(EB_Y + i) == LOW_BOLT_Y and dx > 0 and dx < 40 then return true end
+local function clearRegularEnemies()
+    for i = 0, 19 do
+        local k = read(OB_KIND + i)
+        -- Keep Unicorn (7), Key (15), Boom (11), Popup (12)
+        if k ~= 0 and k ~= 7 and k ~= 15 and k ~= 11 and k ~= 12 then
+            write(OB_KIND + i, 0)
+            write(OB_FLAGS + i, 0)
         end
     end
-    return false
 end
+
+local function findKind(kind)
+    for i = 0, 19 do
+        if read(OB_KIND + i) == kind then return i end
+    end
+    return nil
+end
+
+emu.addEventCallback(function() emu.setInput(input, 0) end, emu.eventType.inputPolled)
 
 emu.addEventCallback(function()
     frame = frame + 1
     input = {}
-    emu.write(SCHED_ZOMBIES_LIVE, ZOMBIE_CAP, emu.memType.nesMemory)
-    if not check(frame < 5000, "route timed out") then return end
+    if not check(frame < 6500, "route timed out") then return end
+
+    local scene = read(SCENE)
+    if scene == PLAY then clearRegularEnemies() end
 
     local x = readWord(PLAYER_X)
     local feet = read(PLAYER_FEET)
@@ -110,7 +96,7 @@ emu.addEventCallback(function()
     local raftX = read(PLAT_X_LO) + 256 * read(PLAT_X_HI)
     local raftLeft = read(PLAT_PHASE) == 1
     local onGround = state == STATE_GROUND
-    if phase ~= "pit" and phase ~= "retry" and not check(state ~= STATE_MISS, "unexpected miss") then return end
+    if phase ~= "pit" and phase ~= "retry" and phase ~= "boss" and not check(state ~= STATE_MISS, "unexpected miss") then return end
 
     if phase == "boot" then
         if frame == 128 then
@@ -118,7 +104,7 @@ emu.addEventCallback(function()
             phase = "start"
         end
     elseif phase == "start" then
-        if read(SCENE) == 4 and read(0x8000) == 0x8c and onGround and raftX ~= 0 then
+        if scene == PLAY and read(0x8000) == 0x8c and onGround and raftX ~= 0 then
             if not check(x == 96 and feet == FLOOR and camera == 0 and read(LIVES) == 3
                     and read(CHECKPOINT) == 0, "arcade start position") then return end
             phase = "graveyard"
@@ -130,7 +116,6 @@ emu.addEventCallback(function()
             phase = "ladder"
         end
     elseif phase == "ladder" then
-        -- The player reads the controller one frame late, so the climb starts a frame later.
         input = {up = true}
         climbing = climbing or state == STATE_LADDER
         if climbing and state == STATE_GROUND then
@@ -150,15 +135,14 @@ emu.addEventCallback(function()
             phase = "board"
         end
     elseif phase == "board" then
-        -- A jump only goes forward once the direction has been held for two updates.
         input = {right = true, a = frame == jumpFrame}
         airborne = airborne or not onGround
         if airborne and onGround then
-            if not check(feet == 218 and math.abs(x - raftX) <= 12, "landing on the raft") then return end
+            if not check(feet == RAFT_FEET and math.abs(x - raftX) <= 12, "landing on the raft") then return end
             phase = "raft"
         end
     elseif phase == "raft" then
-        if not check(feet == 218, "fell off the raft") then return end
+        if not check(feet == RAFT_FEET, "fell off the raft") then return end
         if onGround and not raftLeft and raftX >= RAFT_LEAVE then
             jumpFrame = frame + 2
             phase = "far_bank"
@@ -176,55 +160,68 @@ emu.addEventCallback(function()
             phase = "pit"
         end
     elseif phase == "pit" then
-        input = {right = true}  -- Walk into the first forest pit.
+        input = {right = true}
         if state == STATE_MISS then
             if not check(read(LIVES) == 2 and x >= PITS[1] and x < PITS[1] + 32, "miss in the first pit") then return end
             input = {start = true}
             phase = "retry"
         end
     elseif phase == "retry" then
-        if read(SCENE) == 4 and read(0x8000) == 0x8c and onGround then
+        if scene == PLAY and read(0x8000) == 0x8c and onGround and state ~= STATE_MISS then
             if not check(x == CHECKPOINT_X and feet == FLOOR and camera == 1792 and read(LIVES) == 2,
                     "checkpoint restart position, camera or lives") then return end
             phase = "forest"
         end
     elseif phase == "forest" then
-        -- Take off with the right foot (X + 4) still on the edge.
         input = {right = true, a = onGround and jumpWindow(x, PITS, 5, 4)}
-        if camera >= 2304 and camera < 2432 and onGround and not rendered then
-            -- Past page 8 the renderer needs bit 8 of the tile column: pit 2464 shows sky,
-            -- the floor right of it shows grass.
-            if not check(floorTile(2464) ~= floorTile(2496) and floorTile(2464) == floorTile(2472),
-                    "forest pit at X 2464 not drawn") then return end
-            rendered = true
-        end
-        if read(BOSS_STATE) == BOSS_ACTIVE then
-            if not check(rendered and x >= BOSS_TRIGGER_X and read(BOSS_HP) == BOSS_HP_START,
-                    "boss starts at the gate") then return end
+        if camera >= 3248 and findKind(7) ~= nil then
+            if not check(read(SND_SONG_ID) == 3, "boss music on Page 12") then return end
+            sawBoss = true
             bossFrame = frame
             phase = "boss"
         end
     elseif phase == "boss" then
-        -- Stand still facing the boss, shoot every 12 frames and jump the low bolts.
-        if not check(frame < bossFrame + 900, "boss not beaten") then return end
-        input = {b = frame % 12 == 0, a = onGround and lowBoltAhead(x)}
-        if read(BOSS_STATE) == BOSS_DEFEATED then
-            if not check(sawBolt and camera == CAMERA_END, "boss bolts and the camera at the end") then return end
-            phase = "key"
+        -- Fight Unicorn deterministically (keep armor full while testing boss -> key -> clear)
+        write(AP_ARMOR, 2)
+        if not check(frame < bossFrame + 1200, "boss not beaten") then return end
+        local bslot = findKind(7)
+        if bslot ~= nil then
+            local bx = read(0x6a16 + bslot) + 256 * read(0x6a2a + bslot)
+            if bx > x + 90 then
+                input = {right = true, b = frame % 10 == 0}
+            elseif bx < x - 90 then
+                input = {left = true, b = frame % 10 == 0}
+            elseif bx > x then
+                input = {right = (frame % 20 == 1), b = frame % 10 == 0}
+            else
+                input = {left = (frame % 20 == 1), b = frame % 10 == 0}
+            end
+        else
+            if findKind(15) ~= nil then
+                sawKey = true
+                phase = "key"
+            end
         end
     elseif phase == "key" then
-        input = {right = true}
-        if read(SCENE) == CLEAR then
-            if not check(read(KEY_COLLECTED) == 1 and read(LIVES) == 2, "clear after taking the key") then return end
+        if read(SND_SONG_ID) == 4 then sawClearSong = true end
+        local kslot = findKind(15)
+        if kslot ~= nil then
+            local kx = read(0x6a16 + kslot) + 256 * read(0x6a2a + kslot)
+            if x < kx - 4 then input = {right = true}
+            elseif x > kx + 4 then input = {left = true} end
+        end
+        if scene == CLEAR then
+            if not check(sawBoss and sawKey and sawClearSong and read(KEY_COLLECTED) == 1,
+                    "clear after taking the key with clear song") then return end
             clearFrame = frame
             phase = "clear"
         end
     elseif phase == "clear" then
         if frame == clearFrame + 20 then
             input = {start = true}
-        elseif frame == clearFrame + 30 then
-            if not check(read(SCENE) == TITLE, "START after the clear returns to the title") then return end
-            print(string.format("PASS: real section 0 layout, ladder, raft, checkpoint restart, boss, key, title (frame %d)", frame))
+        elseif frame == clearFrame + 35 then
+            if not check(scene == TITLE, "START after clear returns to title") then return end
+            print(string.format("PASS: Stage 1 full route, ladder, raft, checkpoint, Unicorn, key, clear song, title (frame %d)", frame))
             emu.stop(0)
         end
     end

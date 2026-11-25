@@ -230,11 +230,17 @@ ap_kb_dying: .res 1             ; state 3 is the death (arcade $AC was 1 at the 
 ; Test hook for tools/compare-player-trace.py: 1 or 2 hits the player after the next
 ; player update, flying right or left, as if an enemy had touched him.
 ap_test_hit: .res 1
+ap_top_score: .res 4            ; 4 decimal digits (d3..d0, x100 pts; arcade default 010000)
 .ifdef REVG_STAGE1
 ap_clear_seq: .res 1            ; 0 playing, 1 key hold, 2 time bonus tally, 3 final hold
 ap_clear_timer: .res 1
 ap_clear_key_slot: .res 1       ; ob_* slot holding the raised key sprite
 ap_clear_key_y: .res 1          ; base arcade Y of the raised key
+ap_tomb_hits: .res revg_tomb_count ; hits remaining per tombstone (15 -> Magician spawns)
+ap_mag_req: .res 1              ; 1 when a tombstone reached 15 hits
+ap_mag_x: .res 2
+ap_mag_y: .res 1                ; arcade Y (tombstone Y + 16)
+ap_frog_timer: .res 2           ; 360..1 while transformed into a frog, 0 otherwise
 .endif
 
 .segment "BANK3"
@@ -250,6 +256,15 @@ ap_init_stage:
     sta ap_score+1
     sta ap_score+2
     sta ap_score+3
+    lda ap_top_score+0
+    ora ap_top_score+1
+    ora ap_top_score+2
+    ora ap_top_score+3
+    bne :+
+    lda #1                      ; arcade default TOP SCORE = 010000
+    sta ap_top_score+1
+:
+    lda #0
     sta ap_score_units+0
     sta ap_score_units+1
     sta ap_rank
@@ -662,7 +677,7 @@ ap_load_stage_visuals:
 .ifdef REVG_STAGE1
     ; The arcade sprites: an empty tile cache and their palettes.
     jsr rs_init
-    jsr op_start
+    jsr op_start                ; also uploads ':' colon tile in BANK7
     lda #$3f
     sta $2006
     lda #$10
@@ -788,6 +803,25 @@ ap_add_score:
     lda #snd_se_key
     jsr call_bank8_play_se
 @score_dirty:
+    ; Update TOP SCORE if 1UP score exceeds it.
+    ldx #0
+@top_cmp:
+    lda ap_score,x
+    cmp ap_top_score,x
+    bcc @top_done
+    bne @top_copy
+    inx
+    cpx #4
+    bne @top_cmp
+    beq @top_done
+@top_copy:
+    ldx #3
+:
+    lda ap_score,x
+    sta ap_top_score,x
+    dex
+    bpl :-
+@top_done:
     inc campaign_hud_dirty
     rts
 
@@ -822,7 +856,34 @@ ap_update_frame:
     beq @alive
     jmp @camera_and_submit
 @alive:
-.ifndef REVG_STAGE1
+.ifdef REVG_STAGE1
+    ; Frog transformation countdown (360 frames): walk + jump only (no fire/crouch/ladder).
+    lda ap_frog_timer
+    ora ap_frog_timer+1
+    beq @not_frog
+    lda ap_frog_timer
+    bne :+
+    dec ap_frog_timer+1
+:
+    dec ap_frog_timer
+    lda ap_frog_timer
+    ora ap_frog_timer+1
+    bne @frog_mask
+    inc campaign_hud_dirty      ; restore HUD weapon icon when frog ends
+    lda #snd_se_pickup
+    jsr call_bank8_play_se
+    jmp @not_frog
+@frog_mask:
+    lda ap_pad
+    and #$b3                    ; mask out B ($40), Up ($08), Down ($04)
+    sta ap_pad
+    lda ap_pressed
+    and #$b3
+    sta ap_pressed
+    lda #0
+    sta ap_crouch
+@not_frog:
+.else
     lda ap_invuln
     beq :+
     dec ap_invuln
@@ -3154,21 +3215,21 @@ ap_tomb_support:
 ap_tomb_box:
     lda ap_player_y_hi
     bne @miss                   ; section 0 is one row of pages
+    lda ap_probe_x
+    clc
+    adc #12
+    sta ap_tmp0
+    lda ap_probe_x+1
+    adc #0
+    sta ap_tmp1
     ldx #revg_tomb_count - 1
 @loop:
-    lda ap_probe_x
+    lda ap_tmp0
     sec
     sbc revg_tomb_x_lo,x
     tay
-    lda ap_probe_x+1
-    sbc revg_tomb_x_hi,x
-    sta ap_tmp1
-    tya
-    clc
-    adc #12
-    tay
     lda ap_tmp1
-    adc #0
+    sbc revg_tomb_x_hi,x
     bne @next
     cpy #25
     bcs @next
@@ -3220,24 +3281,23 @@ ap_shot_hits_tombstone:
     ldx ap_loop_idx
     lda ps_y_hi,x
     bne @revg_miss
-    ldy #revg_tomb_count - 1
-@revg_loop:
     lda ps_x_lo,x
-    sec
-    sbc revg_tomb_x_lo,y
+    clc
+    adc #14
     sta ap_tmp0
     lda ps_x_hi,x
-    sbc revg_tomb_x_hi,y
-    sta ap_tmp1
-    lda ap_tmp0
-    clc
-    adc #14
-    lda ap_tmp1
     adc #0
-    bne @revg_next
+    sta ap_tmp1
+    ldy #revg_tomb_count - 1
+@revg_loop:
     lda ap_tmp0
-    clc
-    adc #14
+    sec
+    sbc revg_tomb_x_lo,y
+    sta ap_tmp2
+    lda ap_tmp1
+    sbc revg_tomb_x_hi,y
+    bne @revg_next
+    lda ap_tmp2
     cmp #29
     bcs @revg_next
     lda ps_y,x
@@ -3247,6 +3307,26 @@ ap_shot_hits_tombstone:
     adc #4
     cmp #13
     bcs @revg_next
+    ; Arcade $F656: decrement tombstone hit counter; on 15th hit request Magician ($07).
+    lda ap_tomb_hits,y
+    beq @tomb_hit_se
+    sec
+    sbc #1
+    sta ap_tomb_hits,y
+    bne @tomb_hit_se
+    lda revg_tomb_x_lo,y
+    sta ap_mag_x
+    lda revg_tomb_x_hi,y
+    sta ap_mag_x+1
+    lda #254
+    sec
+    sbc revg_tomb_feet,y
+    clc
+    adc #16
+    sta ap_mag_y
+    lda #1
+    sta ap_mag_req
+@tomb_hit_se:
     lda #snd_se_hit
     jsr call_bank8_play_se
     sec
@@ -3257,7 +3337,7 @@ ap_shot_hits_tombstone:
 @revg_miss:
     clc
     rts
-.endif
+.else
     ldy #0
 @tomb_loop:
     lda plat_type,y
@@ -3300,6 +3380,7 @@ ap_shot_hits_tombstone:
     bne @tomb_loop
     clc
     rts
+.endif
 
 ; --- Item / weapon drop pickup (16-bit X and Y safe) ---
 ap_check_items:
@@ -3434,6 +3515,9 @@ ap_apply_player_damage:
 ; next update: with the armor on it is the knockback, without it the death ($995F reads
 ; $AC). No hit lands during state 3 ($0500 is 2) or the miss.
 ap_hit_toward:
+    lda #0                      ; Arcade: taking damage as a frog cancels frog form
+    sta ap_frog_timer
+    sta ap_frog_timer+1
     lda ap_state
     cmp #ap_state_knockback
     bcs @hit_ignored

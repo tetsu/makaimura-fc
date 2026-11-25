@@ -703,3 +703,82 @@ ap_item_tile_tbl:
     .byte $75, $73, $61, $63, $09, $71, $67
 ap_item_pal_tbl:
     .byte 1, 0, 0, 1, 0, 1, 1
+
+; Cold HUD label draw (placed in BANK7 after bank_tag_base + 7 so FIXED keeps headroom).
+draw_campaign_hud_b7:
+.ifdef REVG_STAGE1
+    lda arcade_mode
+    bne @draw_arcade_hud
+.endif
+    lda #$20
+    sta $2006
+    lda #$23
+    sta $2006
+    ldx #0
+:
+    lda campaign_hud_labels,x
+    sta $2007
+    inx
+    cpx #campaign_hud_length
+    bne :-
+    lda #$20
+    sta $2006
+    lda #$43
+    sta $2006
+    ldx #0
+.ifndef REVG_STAGE1
+    lda arcade_mode
+    bne @draw_score_label
+.endif
+:
+    lda campaign_controls,x
+    sta $2007
+    inx
+    cpx #campaign_controls_length
+    bne :-
+    rts
+.ifdef REVG_STAGE1
+@draw_arcade_hud:
+    lda #$20
+    sta $2006
+    lda #$22
+    sta $2006
+    ldx #0
+:
+    lda arcade_hud_labels,x
+    sta $2007
+    inx
+    cpx #arcade_hud_length
+    bne :-
+    rts
+arcade_hud_labels: ; 1UP      TOP SCORE    TIME
+    .byte $1c, $14, $10, 0, 0, 0, 0, 0, $13, $0f, $10, 0, $12, $04, $0f, $11, $06, 0, 0
+    .byte $13, $0a, $0d, $06
+arcade_hud_length = * - arcade_hud_labels
+.else
+@draw_score_label:
+    lda campaign_score_label,x
+    sta $2007
+    inx
+    cpx #campaign_score_label_length
+    bne @draw_score_label
+    lda #$20
+    sta $2006
+    lda #$53
+    sta $2006
+    lda #$0c            ; L
+    sta $2007
+    lda #$10            ; P
+    sta $2007
+    rts
+campaign_score_label: .byte $12, $04, $0f, $11, $06, $00 ; SCORE 
+campaign_score_label_length = * - campaign_score_label
+.endif
+campaign_hud_labels: ; STG # LIFE # TIME ### CP #
+    .byte $12, $13, $08, 0, 0, 0, $0c, $0a, $07, $06, 0, 0, 0
+    .byte $13, $0a, $0d, $06, 0, 0, 0, 0, 0, $04, $10, 0, 0
+campaign_hud_length = * - campaign_hud_labels
+campaign_controls: ; A JUMP  B FIRE  START RETRY
+    .byte $02, 0, $18, $14, $0d, $10, 0, 0, $03, 0, $07, $0a, $11, $06, 0, 0
+    .byte $12, $13, $02, $11, $13, 0, $11, $06, $13, $11, $17
+campaign_controls_length = * - campaign_controls

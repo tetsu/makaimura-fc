@@ -31,7 +31,9 @@ ofl_shootable = $01
 ofl_harmful = $02
 ofl_shield = $80
 
-.segment "WRAM"
+.segment "ZEROPAGE"
+oz_mul: .res 2
+.assert <oz_mul <> $ff, error, "Indirect jump pointer must not straddle page boundary"
 oz_t0: .res 1
 oz_t1: .res 1
 oz_t2: .res 1
@@ -39,11 +41,16 @@ oz_t3: .res 1
 oz_dx: .res 2                   ; player X - object X
 oz_dy: .res 2                   ; object Y - player Y (arcade, up)
 oz_py: .res 2                   ; the player's arcade Y
+oz_obj: .res 1
+
+.segment "WRAM"
 oz_rng: .res 1
 oz_reg_page: .res 1
 oz_fix_used: .res 2
 oz_fix_next: .res 1
 oz_sup_used: .res 2
+oz_sup_next: .res 1
+oz_kind_cnt: .res ok_kinds
 oz_sch_pat: .res 4              ; $ff: idle
 oz_sch_rec: .res 4
 oz_sch_end: .res 4
@@ -53,8 +60,6 @@ oz_spawns: .res 1
 oz_drop_sel: .res 1
 oz_key_timer: .res 1
 oz_boss_seen: .res 1
-oz_obj: .res 1
-oz_mul: .res 2
 
 .segment "BANK6"
 ; --- Per-kind tables -----------------------------------------------------------------
@@ -98,6 +103,12 @@ revg_objects_init:
     lda #0
 :
     sta ob_kind,x
+    sta ob_flags,x
+    dex
+    bpl :-
+    ldx #ok_kinds - 1
+:
+    sta oz_kind_cnt,x
     dex
     bpl :-
     sta oz_fix_used
@@ -105,10 +116,20 @@ revg_objects_init:
     sta oz_sup_used
     sta oz_sup_used+1
     sta oz_fix_next
+    sta oz_sup_next
     sta oz_spawns
     sta oz_drop_sel
     sta oz_key_timer
     sta oz_boss_seen
+    sta ap_mag_req
+    sta ap_frog_timer
+    sta ap_frog_timer+1
+    ldx #revg_tomb_count - 1
+    lda #15                     ; arcade $E26D: 15 hits per tombstone spawns Magician
+:
+    sta ap_tomb_hits,x
+    dex
+    bpl :-
     lda #$ff
     sta oz_reg_page
     ldx #3
@@ -129,6 +150,7 @@ revg_update_objects:
     jsr oz_register_pages
     jsr oz_place_fixed
     jsr oz_run_schedulers
+    jsr oz_check_magician
     ldx #0
 @obj:
     stx oz_obj
@@ -525,19 +547,25 @@ ob_alloc:
     clc
     rts
 
-; Count the objects of kind A: Y = count.
+; Release object slot X, updating live kind count and clearing collision flags. Preserves X.
+ob_free:
+    ldy ob_kind,x
+    beq @already
+    lda oz_kind_cnt,y
+    sec
+    sbc #1
+    sta oz_kind_cnt,y
+@already:
+    lda #0
+    sta ob_kind,x
+    sta ob_flags,x
+    rts
+
+; Count the objects of kind A: Y = count in O(1).
 oz_count_kind:
-    sta oz_t0
-    ldy #0
-    ldx #ob_max - 1
-:
-    lda ob_kind,x
-    cmp oz_t0
-    bne :+
-    iny
-:
-    dex
-    bpl :--
+    tay
+    lda oz_kind_cnt,y
+    tay
     rts
 
 ; Spawn kind A with variant Y at (oz_t0/oz_t1 = X, oz_t2/oz_t3 = Y). X = the object or
@@ -563,6 +591,10 @@ oz_spawn:
     lda oz_t3
     sta ob_yh,x
     ldy ob_kind,x
+    lda oz_kind_cnt,y
+    clc
+    adc #1
+    sta oz_kind_cnt,y
     lda ok_hp,y
     sta ob_hp,x
     cpy #ok_magician + 1
@@ -593,6 +625,8 @@ oz_range_check:
     beq @keep
     cmp #ok_arremer
     beq @keep
+    cmp #ok_key
+    beq @keep
     lda ob_xl,x
     sec
     sbc camera_low
@@ -608,29 +642,29 @@ oz_range_check:
     adc #0
     cmp #2
     bcc @keep
-    lda #0
-    sta ob_kind,x
+    jmp ob_free
 @keep:
     rts
 
 ; --- Placement -------------------------------------------------------------------------
-; The group of the page right of the camera starts its patterns (the arcade reads the
-; next page's group as the camera reaches it); one page a frame.
+; When camera_high enters a new page (forward or backward), replace active schedulers
+; with that page's arcade group so previous zones (zombies, knights, ghosts) stop cleanly.
 oz_register_pages:
     lda camera_high
-    cmp #8
-    bcs @use_cur_page           ; pages 9-12 use world X; register when camera enters them
-    clc
-    adc #1
-@use_cur_page:
     cmp #revg_page_count
     bcc :+
     lda #revg_page_count - 1
 :
     cmp oz_reg_page
     beq @done
-    bmi @done
-    inc oz_reg_page
+    sta oz_reg_page
+    ; Clear previous page's schedulers before loading the new page's group.
+    ldx #3
+    lda #$ff
+:
+    sta oz_sch_pat,x
+    dex
+    bpl :-
     lda oz_reg_page
     asl a
     asl a
@@ -646,6 +680,25 @@ oz_register_pages:
     sec
     sbc #1
     tax                         ; scheduler
+    lda revg_page_groups+2,y
+    and #2                      ; once-only entry (e.g. Page 12 boss)?
+    beq @load_entry
+    lda oz_boss_seen
+    ora oz_kind_cnt + ok_unicorn
+    ora ap_key_collected
+    bne @skip_entry
+    ; Arcade $8DE7: entering Page 12 ($00C) immediately starts the boss theme ($2D).
+    txa
+    pha
+    tya
+    pha
+    lda #snd_song_boss
+    jsr call_bank8_play_song
+    pla
+    tay
+    pla
+    tax
+@load_entry:
     lda revg_page_groups+1,y
     sta oz_sch_pat,x
     sty oz_t2
@@ -660,6 +713,7 @@ oz_register_pages:
     sta oz_sch_once,x
     lda #1
     sta oz_sch_wait,x
+@skip_entry:
     iny
     iny
     iny
@@ -756,10 +810,15 @@ oz_in_spawn_window:
     sec
     rts
 
-; The touch triggers come in the same way.
+; Check one touch trigger / bonus disc per frame (round-robin, like oz_place_fixed).
 oz_place_supports:
-    ldy #revg_sup_count - 1
-@each:
+    ldy oz_sup_next
+    iny
+    cpy #revg_sup_count
+    bcc :+
+    ldy #0
+:
+    sty oz_sup_next
     tya
     and #7
     tax
@@ -772,7 +831,7 @@ oz_place_supports:
     tax
     lda oz_sup_used,x
     and oz_t0
-    bne @next
+    bne @done
     lda revg_sup_x_lo,y
     sec
     sbc camera_low
@@ -781,17 +840,18 @@ oz_place_supports:
     sbc camera_high
     sta oz_t2
     jsr oz_in_spawn_window
-    bcs @next
+    bcs @done
+    stx oz_t3
     lda oz_t0
-    ora oz_sup_used,x
-    sta oz_sup_used,x
-    sty oz_obj
+    pha
     lda revg_sup_x_lo,y
     sta oz_t0
     lda revg_sup_x_hi,y
     sta oz_t1
     lda revg_sup_y_lo,y
     sta oz_t2
+    lda oz_t3
+    pha
     lda #0
     sta oz_t3
     lda revg_sup_var,y
@@ -802,14 +862,15 @@ oz_place_supports:
     lda #ok_disc
 :
     jsr oz_spawn
-    bcs :+
+    pla
+    tay
+    pla
+    bcs @done
+    ora oz_sup_used,y
+    sta oz_sup_used,y
     lda #0
     sta ob_carry,x
-:
-    ldy oz_obj
-@next:
-    dey
-    bpl @each
+@done:
     rts
 
 ; Each scheduler counts down its wait while its type has room, then puts the next record.
@@ -884,7 +945,7 @@ oz_sched_spawn:
     beq @put                    ; 0..255 px ahead
     cmp #1
     bne @hold_world
-    cpy #112                    ; < 368 px ahead (inside oz_range_check's 384 limit)?
+    cpy #64                     ; < 320 px ahead?
     bcc @put
 @hold_world:
     lda #8
@@ -893,7 +954,8 @@ oz_sched_spawn:
 @add_cam:
     jsr @add_camera_x
 @put:
-    ; The record's variant, then the next record; the pattern ends after its last.
+    ; The record's variant, then the next record; once-only (flags bit 1) ends,
+    ; repeating patterns wrap to the start of the page's pattern.
     ldy oz_sch_rec,x
     lda revg_rec_var,y
     pha
@@ -901,6 +963,14 @@ oz_sched_spawn:
     lda oz_sch_rec,x
     cmp oz_sch_end,x
     bcc :+
+    lda oz_sch_once,x
+    and #2
+    bne @end_pat
+    ldy oz_sch_pat,x
+    lda revg_pat_start,y
+    sta oz_sch_rec,x
+    jmp :+
+@end_pat:
     lda #$ff
     sta oz_sch_pat,x
 :
@@ -1103,6 +1173,11 @@ oz_kill:
     lda #1
     sta oz_key_timer            ; the key comes after the boss
 :
+    lda oz_kind_cnt,y
+    sec
+    sbc #1
+    sta oz_kind_cnt,y
+    inc oz_kind_cnt + ok_boom
     lda #ok_boom
     sta ob_kind,x
     lda #0
@@ -1127,25 +1202,44 @@ oz_player_contact:
 :
     ldx #0
 @obj:
-    stx oz_obj
     lda ob_flags,x
     and #ofl_harmful
-    beq @next
-    jsr oz_rel_player
+    bne :+
+    jmp @next
+:
+    ; Check horizontal overlap first (full 16-bit sbc, then 16-bit +ok_px).
     ldy ob_kind,x
-    ; |dX| <= px
-    lda oz_dx
+    lda player_x
+    sec
+    sbc ob_xl,x
+    sta oz_t0
+    lda player_x+1
+    sbc ob_xh,x
+    sta oz_t1
+    lda oz_t0
     clc
     adc ok_px,y
     sta oz_t0
-    lda oz_dx+1
+    lda oz_t1
     adc #0
-    bne @next
+    beq :+
+    jmp @next
+:
     lda ok_px,y
     asl a
     cmp oz_t0
-    bcc @next
+    bcs :+
+    jmp @next
+:
+    stx oz_obj
     ; pylo <= dY <= pyhi (6 px less above a crouching player)
+    lda ob_yl,x
+    sec
+    sbc oz_py
+    sta oz_dy
+    lda ob_yh,x
+    sbc oz_py+1
+    sta oz_dy+1
     lda ok_pyhi,y
     sta oz_t1
     lda ap_crouch
@@ -1161,12 +1255,12 @@ oz_player_contact:
     sta oz_t0
     lda oz_dy+1
     sbc #$ff
-    bne @next
+    bne @next_rest
     lda oz_t1
     sec
     sbc ok_pylo,y
     cmp oz_t0
-    bcc @next
+    bcc @next_rest
     ; Hit.
     lda ob_xl,x
     sta ap_probe_x
@@ -1174,16 +1268,31 @@ oz_player_contact:
     sta ap_probe_x+1
     lda ob_kind,x
     cmp #ok_shot
-    bne :+
+    bne @dmg_player
+    lda ob_var,x
+    beq @shot_dmg               ; ob_var == 0: normal shot; ob_var == 1: Magician frog spell
+    jsr ob_free
+    lda #<360
+    sta ap_frog_timer
+    lda #>360
+    sta ap_frog_timer+1
     lda #0
-    sta ob_kind,x               ; a shot is used up
-:
+    sta ap_crouch
+    sta ap_shoot_lock
+    inc campaign_hud_dirty      ; blank HUD weapon slot while transformed
+    lda #snd_se_rise
+    jmp call_bank8_play_se
+@shot_dmg:
+    jsr ob_free                 ; a shot is used up
+@dmg_player:
     jmp ap_apply_player_damage
-@next:
+@next_rest:
     ldx oz_obj
+@next:
     inx
     cpx #ob_max
-    bne @obj
+    beq @done
+    jmp @obj
 @done:
     rts
 
@@ -1194,6 +1303,8 @@ oz_item_anim_lo: .byte <rf_5B0C, <rf_5B12, <rf_5B20, <rf_5B32, <rf_5B40, <rf_5B4
 oz_item_anim_hi: .byte >rf_5B0C, >rf_5B12, >rf_5B20, >rf_5B32, >rf_5B40, >rf_5B4E, >rf_5B5C
 ; The FC weapon for arcade kinds 1-5.
 oz_item_weapon: .byte 0, ap_weapon_torch, ap_weapon_lance, ap_weapon_axe, ap_weapon_shield, ap_weapon_dagger
+; Loop 1 Stage 1 drops only torch, lance, axe, dagger (no Cross / shield until Loop 2).
+oz_loop1_weapons: .byte 1, 2, 3, 5
 
 ; The pot's item ($EB34): selections 2 and 6 of 0-6 are a weapon other than the one held,
 ; the rest the bonus.
@@ -1212,10 +1323,32 @@ oz_pick_drop:
     lda #6
     rts
 @weapon:
+    lda ap_loop
+    bne @weapon_loop2
+    jsr oz_random
+    and #3
+    sta oz_t1
+    tay
+    lda oz_loop1_weapons,y
+    tay
+    lda oz_item_weapon,y
+    cmp ap_weapon
+    bne @ret_y
+    lda oz_t1
+    clc
+    adc #1
+    and #3
+    tay
+    lda oz_loop1_weapons,y
+    rts
+@ret_y:
+    tya
+    rts
+@weapon_loop2:
     jsr oz_random
     and #3
     clc
-    adc #1                      ; 1-4, then skip the weapon held
+    adc #1                      ; 1-4 (includes Cross), then skip the weapon held
     sta oz_t0
     tay
     lda oz_item_weapon,y
@@ -1285,8 +1418,7 @@ oz_item:
     cpy #17
     bcs @out
     ; Taken.
-    lda #0
-    sta ob_kind,x
+    jsr ob_free
     ldy ob_var,x
     bne @not_armour
     lda #ap_armor_full
@@ -1319,13 +1451,14 @@ oz_boom:
     beq :+
     jsr oz_pick_drop
     pha
-    lda #0
-    sta ob_kind,x
+    jsr ob_free
     pla
     jmp oz_drop_item
 :
     lda ob_aux,x
     beq @free
+    dec oz_kind_cnt + ok_boom
+    inc oz_kind_cnt + ok_popup
     lda #ok_popup
     sta ob_kind,x
     lda #63
@@ -1341,16 +1474,14 @@ oz_boom:
     ldy #>rf_E87C
     jmp ob_anim
 @free:
-    lda #0
-    sta ob_kind,x
+    jmp ob_free
 @out:
     rts
 
 oz_popup:
     dec ob_t0,x
     bne :+
-    lda #0
-    sta ob_kind,x
+    jmp ob_free
 :
     rts
 
@@ -1410,8 +1541,7 @@ oz_trigger:
     bcs @out
     cpy #17
     bcs @out
-    lda #0
-    sta ob_kind,x
+    jsr ob_free
     lda ob_var,x
     bne @bonus
     lda ap_armor
@@ -1450,19 +1580,20 @@ oz_push_right:
 :
     rts
 
-; The key falls after the unicorn, in the middle of the last screen, and ends the stage.
+; The key falls after the unicorn, in the middle of the screen, and ends the stage.
 oz_key_wait:
     lda oz_key_timer
     beq @done
     inc oz_key_timer
     lda oz_key_timer
-    cmp #100
-    bne @done
-    lda #0
-    sta oz_key_timer
-    lda #<(3328 + 128)
+    cmp #24                     ; arcade $7409: 21-frame explosion + 3 frames
+    bcc @done
+    lda camera_low
+    clc
+    adc #128
     sta oz_t0
-    lda #>(3328 + 128)
+    lda camera_high
+    adc #0
     sta oz_t1
     lda #200
     sta oz_t2
@@ -1471,12 +1602,18 @@ oz_key_wait:
     tay
     lda #ok_key
     jsr oz_spawn
-    bcs @done
+    bcs @retry                  ; retry next frame if object table is full
     lda #0
+    sta oz_key_timer
     sta ob_carry,x
     lda #<rf_7430
     ldy #>rf_7430
-    jmp ob_anim
+    jsr ob_anim
+    lda #snd_se_key
+    jmp call_bank8_play_se
+@retry:
+    lda #23
+    sta oz_key_timer
 @done:
     rts
 
@@ -1511,9 +1648,16 @@ oz_key:
     cpy ap_clear_key_slot
     beq :+
     sta ob_kind,y
+    sta ob_flags,y
 :
     dey
     bpl @clear_others
+    ldy #ok_kinds - 1
+@clear_cnts:
+    sta oz_kind_cnt,y
+    dey
+    bpl @clear_cnts
+    inc oz_kind_cnt + ok_key
     ldy #ap_max_shots - 1
 @clear_shots:
     sta ps_active,y
@@ -1528,8 +1672,10 @@ oz_key:
     sta ob_xh,x
     lda oz_py
     clc
-    adc #28
+    adc #14                     ; start at Arthur's hands and rise above his head
     sta ob_yl,x
+    clc
+    adc #16
     sta ap_clear_key_y
     lda oz_py+1
     adc #0
@@ -1543,7 +1689,7 @@ oz_key:
     lda #1
     sta ap_key_collected
     sta ap_clear_seq
-    lda #90
+    lda #175                    ; full $3E stage-clear fanfare celebration hold
     sta ap_clear_timer
     lda #20                     ; 2,000 pts for grabbing the key
     jsr ap_add_score
@@ -1554,8 +1700,14 @@ oz_key:
 
 ; Stage 1 key-grab celebration animation and rapid time-bonus tally (runs in Bank 6).
 revg_step_clear_seq:
-    ; Keep Arthur in place facing right and bob the raised key above his head.
+    ; Keep Arthur in place facing right: smoothly lift key above his head, then bob it.
     ldx ap_clear_key_slot
+    lda ob_yl,x
+    cmp ap_clear_key_y
+    bcs @key_raised
+    inc ob_yl,x
+    jmp @key_pos_done
+@key_raised:
     lda ap_clear_timer
     and #$08
     beq :+
@@ -1567,6 +1719,7 @@ revg_step_clear_seq:
     lda ap_clear_key_y
 @set_key_y:
     sta ob_yl,x
+@key_pos_done:
     lda ap_clear_seq
     cmp #1
     bne @clear_not_hold
@@ -1584,7 +1737,7 @@ revg_step_clear_seq:
     bne @clear_draw
     lda #2
     sta ap_clear_timer
-    ; Check if campaign_clock == 000.
+    ; Check if campaign_clock == 0:00.
     lda campaign_clock
     cmp #campaign_zero
     bne @tally_tick
@@ -1596,11 +1749,11 @@ revg_step_clear_seq:
     bne @tally_tick
     lda #3
     sta ap_clear_seq
-    lda #45
+    lda #60
     sta ap_clear_timer
     bne @clear_draw
 @tally_tick:
-    ; Decrement 3-digit HUD clock by 1 second and add 100 points.
+    ; Decrement arcade M:SS HUD clock by 1 second and add 100 points.
     dec campaign_clock+2
     lda campaign_clock+2
     cmp #campaign_zero
@@ -1611,7 +1764,7 @@ revg_step_clear_seq:
     lda campaign_clock+1
     cmp #campaign_zero
     bcs @tally_score
-    lda #campaign_zero + 9
+    lda #campaign_zero + 5      ; arcade M:SS wraps tens-of-seconds to 5 (e.g. 2:00 -> 1:59)
     sta campaign_clock+1
     dec campaign_clock
 @tally_score:
@@ -1630,10 +1783,11 @@ revg_step_clear_seq:
     bne @clear_draw
     lda #0
     sta ap_clear_seq
-    jmp show_course_clear
+    sec                         ; signal call_bank6_clear_seq to call show_course_clear
+    rts
 @clear_draw:
-    jsr draw_sprites
-    jmp submit_frame
+    clc                         ; keep celebrating: draw_sprites + submit_frame in FIXED
+    rts
 
 ; --- Enemy shots -------------------------------------------------------------------------
 ; Spawn a shot at (oz_t0..oz_t3) aimed at the player at about 2.26 px (16 directions),
@@ -1771,9 +1925,7 @@ oz_shot:
     bcs @gone
     rts
 @gone:
-    lda #0
-    sta ob_kind,x
-    rts
+    jmp ob_free
 
 ; --- Zombie (type $0B) ---------------------------------------------------------------------
 ; States: 0 coming down to the ground, 1 rising (87 frames), 2 walking, 3 sinking (36).
@@ -1792,8 +1944,7 @@ oz_zombie:
 :
     lda ob_yh,x
     bpl :+
-    lda #0                      ; no ground: gone
-    sta ob_kind,x
+    jmp ob_free                 ; no ground: gone
 :
     rts
 @grounded:
@@ -1851,6 +2002,9 @@ oz_zombie:
     cmp #2
     bne @sinking
     ; Walk at 0.81 px; after passing the player walk on for 40-110 frames, then sink.
+    ; Only probe the floor metatile when X crosses a 16-px metatile column boundary.
+    lda ob_xl,x
+    sta oz_t3
     jsr ob_move
     lda ob_aux,x
     bne @past
@@ -1878,13 +2032,22 @@ oz_zombie:
     dec ob_t1,x                 ; the 180-step walk time ($0A)
     beq @sink
 :
-    ; The ground ends: sink.
+    ; The ground ends: sink (only possible when crossing a 16-px metatile column).
+    lda ob_xl,x
+    eor oz_t3
+    and #$f0
+    beq @walk_rts
     jsr oz_on_ground
     bcc @sink
+@walk_rts:
     rts
 @past:
     dec ob_t0,x
     beq @sink
+    lda ob_xl,x
+    eor oz_t3
+    and #$f0
+    beq @walk_rts
     jsr oz_on_ground
     bcc @sink
     rts
@@ -1893,8 +2056,6 @@ oz_zombie:
     sta ob_state,x
     lda #36
     sta ob_t0,x
-    lda #ofl_harmful
-    sta ob_flags,x
     lda #0
     sta ob_flags,x
     jsr ob_stop
@@ -1920,7 +2081,7 @@ oz_zombie:
 :
     lda ob_t0,x
     bne :+
-    sta ob_kind,x
+    jmp ob_free
 :
     rts
 
@@ -2165,25 +2326,70 @@ oz_plant:
     sta ob_state,x
     jmp @idle_anim
 
-; --- Woody Pig? (type $00) --------------------------------------------------------------
-; Flies across at 1.55 px; every 16 frames may loop toward the player or, when above
-; the player and more than 16 px away, stop and shoot (26 frames, then 10 + 10).
-oz_pig:
-    lda ob_state,x
-    bne @not_init
-    lda #1
-    sta ob_state,x
-    lda #ofl_shootable | ofl_harmful
-    sta ob_flags,x
-    jsr oz_face_player
-    lda ob_yl,x
-    sta ob_by_l,x
-    lda ob_yh,x
-    sta ob_by_h,x
-@fly_set:
-    lda #$8d                    ; 1.55 px
-    ldy #1
-    jsr ob_set_vx_dir
+; --- Woody Pig / Forest Ghost (type $00, arcade $9F41) ----------------------------------
+; Follows docs/revision-g-enemy-behaviour.md (difficulty row 0):
+;   state 0: init ($0000) -> invulnerable, pick loop count (0-7), speed (1.55 or 2.25)
+;   state 1: variant 0 off-screen fast entry ($0001: 2x move until screen X in 16..240)
+;   state 2: variant 1 tree-trunk glowing eyes ($0002: 48 frames of rf_475A/rf_4764)
+;   state 3: horizontal flight ($0100: every 16F check $A07D loop acc & $A1F9 shoot)
+;   state 4: 180-deg circular loop ($0101: 8 steps of 16-dir circle, 31F or 50F; extra
+;            180-deg turn if heading toward far half of screen)
+;   state 5: shoot aim wait ($0102.1: 26F stopped, facing player)
+;   state 6: shoot pose ($0102.2: 10F rf_4992/rf_49A0, then fires strictly H or V 2.27 px)
+;   state 7: shoot recovery ($0102.3: 10F, then resumes state 3)
+; Fields: ob_by_l (bit 0: fast 2.25 px, bit 1: 50F slow loop, bit 7: extra turn done),
+;   ob_by_h (loops left 0-7), ob_aux (16-dir angle 0..15: 0=R, 4=U, 8=L, 12=D),
+;   ob_aux2 ($A07D loop accumulator), ob_t0 (state timer), ob_t1 (16F tick),
+;   ob_t2 (loop delta +1 CCW / $FF CW), ob_step (loop steps left 8..1).
+oz_pig_cos_f:
+    .byte $8d, $6f, $19, $98, $00, $68, $e7, $91, $73, $91, $e7, $68, $00, $98, $19, $6f
+oz_pig_cos_i:
+    .byte $01, $01, $01, $00, $00, $ff, $fe, $fe, $fe, $fe, $fe, $ff, $00, $00, $01, $01
+oz_pig_loop_add:
+    .byte $4c, $50, $26, $19    ; $A07D: |dx| 0-31, 32-63, 64-95, 96-127
+
+oz_pig_set_vel:
+    lda ob_aux,x
+    and #$0f
+    sta ob_aux,x
+    tay
+    ; Fast horizontal speed (2.25 px = $0240) when ob_by_l bit 0 is set and angle is 0 or 8.
+    lda ob_by_l,x
+    and #1
+    beq @norm_vx
+    cpy #0
+    bne @chk_fast_l
+    lda #$40
+    sta ob_vxf,x
+    lda #$02
+    sta ob_vxi,x
+    jmp @set_vy
+@chk_fast_l:
+    cpy #8
+    bne @norm_vx
+    lda #$c0
+    sta ob_vxf,x
+    lda #$fd
+    sta ob_vxi,x
+    jmp @set_vy
+@norm_vx:
+    lda oz_pig_cos_f,y
+    sta ob_vxf,x
+    lda oz_pig_cos_i,y
+    sta ob_vxi,x
+@set_vy:
+    tya
+    sec
+    sbc #4
+    and #$0f
+    tay
+    lda oz_pig_cos_f,y
+    sta ob_vyf,x
+    lda oz_pig_cos_i,y
+    sta ob_vyi,x
+    rts
+
+oz_pig_fly_anim:
     lda #<rf_4974
     ldy #>rf_4974
     sta oz_t2
@@ -2191,47 +2397,299 @@ oz_pig:
     lda #<rf_4966
     ldy #>rf_4966
     jmp oz_anim_lr
-@not_init:
+
+oz_pig_enter_fly:
+    lda #3
+    sta ob_state,x
+    lda #ofl_shootable | ofl_harmful
+    sta ob_flags,x
+    lda #0
+    ldy ob_dir,x
+    beq :+
+    lda #8
+:
+    sta ob_aux,x
+    jsr oz_pig_set_vel
+    jmp oz_pig_fly_anim
+
+oz_pig_loop_step_time:
+    lda ob_by_l,x
+    and #2
+    beq :+
+    lda #6                      ; 50-frame loop
+    rts
+:
+    lda #4                      ; 31-frame loop
+    rts
+
+oz_pig:
+    lda ob_state,x
+    beq @init
     cmp #1
-    beq @flying
+    bne :+
+    jmp @entry_v0
+:
+    cmp #2
+    bne :+
+    jmp @entry_v1
+:
+    cmp #3
+    bne :+
+    jmp @flying
+:
+    cmp #4
+    bne :+
+    jmp @looping
+:
     jmp @shooting
+
+@init:
+    lda #0
+    sta ob_flags,x              ; invulnerable while emerging ($0000)
+    sta ob_aux2,x
+    sta ob_t1,x
+    jsr oz_face_player
+    jsr oz_random
+    and #7
+    sta ob_by_h,x               ; loops remaining (0-7)
+    jsr oz_random
+    and #3
+    bne :+
+    lda #1                      ; 1 in 4 uses fast 2.25 px horizontal speed
+    bne @set_spd
+:
+    lda #0
+@set_spd:
+    sta oz_t0
+    jsr oz_random
+    and #2                      ; bit 1: 50F (6F/step) vs 31F (4F/step) loop
+    ora oz_t0
+    sta ob_by_l,x
+    lda #0
+    ldy ob_dir,x
+    beq :+
+    lda #8
+:
+    sta ob_aux,x
+    lda ob_var,x
+    bne @start_v1
+    ; Variant 0 ($0001): fly in at 2x speed until on-screen (screen X in 16..240).
+    lda #1
+    sta ob_state,x
+    jsr oz_pig_set_vel
+    jmp oz_pig_fly_anim
+@start_v1:
+    ; Variant 1 ($0002): glowing red eyes in the tree trunk for 48 frames.
+    lda #2
+    sta ob_state,x
+    lda #48
+    sta ob_t0,x
+    jsr ob_stop
+    lda #<rf_4764
+    ldy #>rf_4764
+    sta oz_t2
+    sty oz_t3
+    lda #<rf_475A
+    ldy #>rf_475A
+    jmp oz_anim_lr
+
+@entry_v0:
+    jsr ob_move
+    jsr ob_move                 ; moves twice a frame while outside screen X 16..240
+    lda ob_xl,x
+    sec
+    sbc camera_low
+    tay
+    lda ob_xh,x
+    sbc camera_high
+    bne @out_early
+    cpy #16
+    bcc @out_early
+    cpy #241
+    bcs @out_early
+    jmp oz_pig_enter_fly
+@out_early:
+    rts
+
+@entry_v1:
+    dec ob_t0,x
+    bne @out_early
+    jsr oz_face_player
+    jmp oz_pig_enter_fly
+
 @flying:
     jsr ob_move
-    ; The loop (a dive toward the player's height): a swing of the base Y.
-    lda ob_aux,x
-    beq :+
-    clc
-    adc #8
-    sta ob_aux,x
-    ldy #24
-    jsr oz_swing
-    jsr oz_set_y_from_base
-:
     inc ob_t1,x
     lda ob_t1,x
     and #15
-    bne @out
+    bne @out_early
     jsr oz_rel_player
     jsr oz_abs_d
+    sta oz_t0                   ; |dx|
+    ; 1) $A07D loop check: accumulate by |dx| bucket (0-31, 32-63, 64-95, 96-127).
+    lda ob_by_h,x
+    beq @chk_shoot
+    lda oz_t0
+    cmp #128
+    bcs @chk_shoot
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a                       ; 0..3
+    tay
+    lda ob_aux2,x
+    clc
+    adc oz_pig_loop_add,y
     sta ob_aux2,x
-    ; Shoot when above the player and more than 16 px away, one shot at a time.
-    cmp #17
-    bcc @no_shot
+    bcc @chk_shoot
+    ; Start 180-degree circular loop ($0101)!
+    dec ob_by_h,x
+    lda ob_by_l,x
+    and #$7f                    ; clear extra-turn flag
+    sta ob_by_l,x
+    ; Choose dive (down) vs climb (up) from oz_dy = ghost Y - player Y:
+    ;   32..64 px above -> dive down; < 32 px above (or below) -> loop up;
+    ;   > 64 px above -> ~85% dive down, ~15% loop up.
     lda oz_dy+1
-    bmi @no_shot
+    bmi @want_up
+    bne @high_above
+    lda oz_dy
+    cmp #32
+    bcc @want_up
+    cmp #65
+    bcc @want_down
+@high_above:
+    jsr oz_random
+    cmp #38                     ; ~15%
+    bcc @want_up
+@want_down:
+    ; Going right (dir=0): down is CW (-1, angle 0->15->12->8). Going left (dir=1): down is CCW (+1, angle 8->9->12->0).
+    lda #$ff
+    ldy ob_dir,x
+    beq @set_turn
+    lda #$01
+    bne @set_turn
+@want_up:
+    ; Going right (dir=0): up is CCW (+1, angle 0->1->4->8). Going left (dir=1): up is CW (-1, angle 8->7->4->0).
+    lda #$01
+    ldy ob_dir,x
+    beq @set_turn
+    lda #$ff
+@set_turn:
+    sta ob_t2,x
+    lda #4
+    sta ob_state,x
+    lda #8
+    sta ob_step,x
+    jsr oz_pig_loop_step_time
+    sta ob_t0,x
+    rts
+
+@chk_shoot:
+    ; 2) $A1F9 shoot check: on-screen, |dx| > 16, above player (oz_dy >= 0), enemy shots < 1.
+    lda ob_xl,x
+    sec
+    sbc camera_low
+    lda ob_xh,x
+    sbc camera_high
+    bne @out_fly                ; do not stop off-screen to shoot
+    lda oz_t0
+    cmp #17
+    bcc @out_fly
+    lda oz_dy+1
+    bmi @out_fly
     lda #ok_shot
     jsr oz_count_kind
     ldx oz_obj
     cpy #1
-    bcs @no_shot
-    jsr oz_random
-    and #3
-    bne @no_shot
-    lda #2
+    bcs @out_fly
+    lda #5
     sta ob_state,x
-    lda #26
+    lda #26                     ; $A19E[0]: 26 frames wait before shoot pose
     sta ob_t0,x
     jsr ob_stop
+    jsr oz_face_player
+    jmp oz_pig_fly_anim
+@out_fly:
+    rts
+
+@looping:
+    jsr ob_move
+    dec ob_t0,x
+    bne @out_fly
+    lda ob_aux,x
+    clc
+    adc ob_t2,x
+    and #$0f
+    sta ob_aux,x
+    jsr oz_pig_set_vel
+    ; Update facing sprite when crossing vertical (angle 4 or 12).
+    lda ob_aux,x
+    cmp #5
+    bcc @face_r
+    cmp #13
+    bcs @face_r
+    lda #1
+    bne @upd_face
+@face_r:
+    lda #0
+@upd_face:
+    cmp ob_dir,x
+    beq :+
+    sta ob_dir,x
+    jsr oz_pig_fly_anim
+:
+    dec ob_step,x
+    beq @loop_half_done
+    jsr oz_pig_loop_step_time
+    sta ob_t0,x
+    rts
+@loop_half_done:
+    ; If heading away from screen center (toward far half), do one more 180-deg turn (360-deg loop).
+    lda ob_by_l,x
+    bmi @loop_finish
+    lda ob_xl,x
+    sec
+    sbc camera_low
+    tay
+    lda ob_xh,x
+    sbc camera_high
+    bne @loop_finish
+    ; Left half (screen X < 128) & heading left (dir=1), or right half (>= 128) & heading right (dir=0):
+    cpy #128
+    bcs @right_half
+    lda ob_dir,x
+    beq @loop_finish
+    bne @loop_again
+@right_half:
+    lda ob_dir,x
+    bne @loop_finish
+@loop_again:
+    lda ob_by_l,x
+    ora #$80
+    sta ob_by_l,x
+    lda #8
+    sta ob_step,x
+    jsr oz_pig_loop_step_time
+    sta ob_t0,x
+    rts
+@loop_finish:
+    jmp oz_pig_enter_fly
+
+@shooting:
+    dec ob_t0,x
+    beq :+
+    rts
+:
+    lda ob_state,x
+    cmp #5
+    bne @chk_fire
+    ; $0102.2: switch to shoot pose for 10 frames.
+    lda #6
+    sta ob_state,x
+    lda #10
+    sta ob_t0,x
     jsr oz_face_player
     lda #<rf_49A0
     ldy #>rf_49A0
@@ -2240,41 +2698,16 @@ oz_pig:
     lda #<rf_4992
     ldy #>rf_4992
     jmp oz_anim_lr
-@no_shot:
-    ; Turn back toward the player when far past it.
-    lda ob_aux2,x
-    cmp #128
-    bcc :+
-    lda ob_dir,x
-    pha
-    jsr oz_face_player
-    pla
-    cmp ob_dir,x
+@chk_fire:
+    cmp #6
     beq :+
-    jsr @fly_set
+    jmp @shoot_resume
 :
-    lda ob_aux2,x
-    cmp #96
-    bcs @out
-    lda ob_aux,x
-    bne @out
-    jsr oz_random
-    and #1
-    beq @out
-    lda #8
-    sta ob_aux,x
-@out:
-    rts
-@shooting:
-    dec ob_t0,x
-    bne @out
-    inc ob_state,x
-    lda ob_state,x
-    cmp #3
-    bne :+
+    ; $0102.3: fire strictly horizontal or strictly vertical spear at 2.27 px ($0245), wait 10F.
+    lda #7
+    sta ob_state,x
     lda #10
     sta ob_t0,x
-    ; The shot (type 4): along the longer axis at about 2.27 px.
     lda ob_xl,x
     sta oz_t0
     lda ob_xh,x
@@ -2284,25 +2717,77 @@ oz_pig:
     lda ob_yh,x
     sta oz_t3
     stx oz_obj
-    lda #<rf_FD19
-    ldy #>rf_FD19
-    jsr oz_aimed_shot
-    bcs @shot_done
+    lda #ok_shot
+    ldy #0
+    jsr oz_spawn
+    bcc :+
+    jmp @shot_done
+:
+    lda #ofl_harmful
+    sta ob_flags,x
+    lda #0
+    sta ob_carry,x
     jsr oz_rel_player
     jsr oz_abs_d
-    sty oz_t1
+    sty oz_t1                   ; |dy|
     cmp oz_t1
-    bcs @shot_done
-    lda #<rf_FD20               ; vertical
+    bcc @shot_vert
+    ; Horizontal at +-2.27 px ($0245).
+    lda #0
+    sta ob_vyf,x
+    sta ob_vyi,x
+    lda oz_dx+1
+    bmi @shot_left
+    lda #$45
+    sta ob_vxf,x
+    lda #$02
+    sta ob_vxi,x
+    lda #0
+    sta ob_mirror,x
+    beq @shot_h_anim
+@shot_left:
+    lda #$bb
+    sta ob_vxf,x
+    lda #$fd
+    sta ob_vxi,x
+    lda #$40
+    sta ob_mirror,x
+@shot_h_anim:
+    lda #<rf_FD19
+    ldy #>rf_FD19
+    jsr ob_anim
+    jmp @shot_sfx
+@shot_vert:
+    ; Vertical at +-2.27 px ($0245): oz_dy >= 0 means player is below (vy negative).
+    lda #0
+    sta ob_vxf,x
+    sta ob_vxi,x
+    sta ob_mirror,x
+    lda oz_dy+1
+    bmi @shot_up
+    lda #$bb
+    sta ob_vyf,x
+    lda #$fd
+    sta ob_vyi,x
+    bne @shot_v_anim
+@shot_up:
+    lda #$45
+    sta ob_vyf,x
+    lda #$02
+    sta ob_vyi,x
+@shot_v_anim:
+    lda #<rf_FD20
     ldy #>rf_FD20
     jsr ob_anim
+@shot_sfx:
+    lda #snd_se_efire
+    jsr call_bank8_play_se
 @shot_done:
     ldx oz_obj
+@out_shoot:
     rts
-:
-    lda #1
-    sta ob_state,x
-    jmp @fly_set
+@shoot_resume:
+    jmp oz_pig_enter_fly
 
 ; --- Flying knight (type $03) --------------------------------------------------------------
 ; Left at 1.06 px on a swing of 50 px (86 frames a period); the shield holds while it is
@@ -3001,9 +3486,9 @@ oz_arremer_power:
     rts
 
 ; --- Unicorn (type $08) -------------------------------------------------------------------
-; 0 waiting for the screen, 1 landing and waking (2-4 x 16 frames), 2 walking (0.53 px),
-; 3 jumping, 4 charging (1.80 px to 16 px past the player), 5 aiming (25 frames), then
-; a shot at 3.0 px. Ten hits.
+; 0 waiting for the screen, 1 dropping in & waking (48F, or early wake after 4 hits),
+; 2 walking (0.53 px), 3 jumping, 4 charging (1.80 px to 16 px past the player),
+; 5 aiming (25 frames), then a shot at 3.0 px. Ten hits.
 oz_unicorn:
     lda ob_state,x
     bne @not_wait
@@ -3012,15 +3497,21 @@ oz_unicorn:
     lda ob_xl,x
     sec
     sbc camera_low
+    tay
     lda ob_xh,x
     sbc camera_high
     bne @out
+    cpy #248                    ; wait until Unicorn enters the right side of the screen
+    bcs @out
     lda #1
     sta ob_state,x
-    jsr oz_random
-    and #$30
-    clc
-    adc #32
+    lda #0
+    sta ob_step,x               ; 0 = dropping in from above, 1 = landed & ready
+    lda #180                    ; dramatic drop-in from top of the boss gate
+    sta ob_yl,x
+    lda #0
+    sta ob_yh,x
+    lda #48                     ; arcade measured 48-frame landing/wake-up pause
     sta ob_t0,x
     lda oz_boss_seen
     bne :+
@@ -3028,8 +3519,8 @@ oz_unicorn:
     lda #snd_song_boss
     jsr call_bank8_play_song
 :
-    lda #<rf_4FAB
-    ldy #>rf_4FAB
+    lda #<rf_4FEC               ; leap/drop-in pose facing left
+    ldy #>rf_4FEC
     jsr ob_anim
 @out:
     rts
@@ -3037,8 +3528,23 @@ oz_unicorn:
     cmp #1
     bne @active
     jsr oz_fall
+    bcc @wait_check
+    lda ob_step,x
+    bne @wait_check
+    inc ob_step,x
+    lda #<rf_4FAB               ; landed: imposing ready stance
+    ldy #>rf_4FAB
+    jsr ob_anim
+    lda #snd_se_stomp
+    jsr call_bank8_play_se
+@wait_check:
+    ; Arcade $C470: 4 hits during wake-up (hp 9 -> 5) immediately triggers battle!
+    lda ob_hp,x
+    cmp #6
+    bcc @wake_now
     dec ob_t0,x
     bne @out
+@wake_now:
     jmp oz_unicorn_walk
 @active:
     cmp #2
@@ -3102,13 +3608,15 @@ oz_unicorn_walking:
     jmp oz_anim_lr
 :
     dec ob_t0,x
-    bne @out
+    bne @walk_stomp
     jsr oz_random
     and #1
     beq oz_unicorn_leap
     ; Charge.
     lda #4
     sta ob_state,x
+    lda #0
+    sta ob_t2,x
     jsr oz_face_player
     lda #$cd                    ; 1.80 px
     ldy #1
@@ -3120,6 +3628,12 @@ oz_unicorn_walking:
     lda #<rf_4FFF
     ldy #>rf_4FFF
     jmp oz_anim_lr
+@walk_stomp:
+    lda ob_t0,x
+    and #31                     ; arcade $C5E8: stomp SFX every 32 frames while walking
+    bne @out
+    lda #snd_se_stomp
+    jmp call_bank8_play_se
 @out:
     rts
 
@@ -3217,12 +3731,21 @@ oz_unicorn_jump:
     jsr oz_on_ground
     bcc @out
     jsr oz_snap_ground
+    lda #snd_se_stomp           ; arcade $C858: heavy stomp on landing
+    jsr call_bank8_play_se
     jmp oz_unicorn_walk
 @out:
     rts
 
 oz_unicorn_charge:
     jsr oz_fall
+    inc ob_t2,x
+    lda ob_t2,x
+    and #15                     ; arcade $C949: stomp SFX every 16 frames while charging
+    bne :+
+    lda #snd_se_stomp
+    jsr call_bank8_play_se
+:
     jsr oz_rel_player
     lda ob_dir,x
     beq :+
@@ -3292,8 +3815,141 @@ oz_unicorn_aim:
 @out:
     rts
 
-; --- Magician (type $07): not placed yet (it needs the tombstone hit count) -----------
-oz_magician:
+; --- Magician (type $07): appears above a tombstone after 15 hits, casts frog spell ---
+oz_check_magician:
+    lda ap_mag_req
+    beq @done
+    lda oz_kind_cnt + ok_magician
+    bne @done                   ; Stage 1 limit: 1 Magician at a time
     lda #0
-    sta ob_kind,x
+    sta ap_mag_req
+    lda ap_mag_x
+    sta oz_t0
+    lda ap_mag_x+1
+    sta oz_t1
+    lda ap_mag_y
+    sta oz_t2
+    lda #0
+    sta oz_t3
+    tay
+    lda #ok_magician
+    jsr oz_spawn
+    bcs @done
+    lda #0
+    sta ob_carry,x
+    sta ob_flags,x              ; invulnerable while blinking in
+    lda #60
+    sta ob_t0,x
+    jsr oz_face_player
+    lda #<rf_4EFB
+    ldy #>rf_4EFB
+    jsr ob_anim
+    lda #snd_se_rise
+    jmp call_bank8_play_se
+@done:
+    rts
+
+; State 0: blink in 60F; State 1: wait 20F & cast frog spell; State 2: wait 20F;
+; State 3: blink out 60F and free. Shootable in states 1-2 for 2,000 pts.
+oz_magician:
+    lda ob_state,x
+    beq @appear
+    cmp #1
+    beq @windup
+    cmp #2
+    bne @vanish
+    jmp @post_cast
+@vanish:
+    ; State 3: blinking out (60F)
+    lda ob_t0,x
+    and #3
+    bne :+
+    lda #2
+    sta ob_flash,x
+:
+    dec ob_t0,x
+    bne @ret0
+    jmp ob_free
+@ret0:
+    rts
+@appear:
+    lda ob_t0,x
+    and #3
+    bne :+
+    lda #2
+    sta ob_flash,x
+:
+    dec ob_t0,x
+    bne @ret0
+    lda #1
+    sta ob_state,x
+    lda #20
+    sta ob_t0,x
+    lda #ofl_shootable | ofl_harmful
+    sta ob_flags,x
+    lda #0
+    sta ob_flash,x
+    jmp oz_face_player
+@windup:
+    dec ob_t0,x
+    bne @ret0
+    lda #2
+    sta ob_state,x
+    lda #20
+    sta ob_t0,x
+    jsr oz_face_player
+    lda #<rf_4F03               ; casting pose
+    ldy #>rf_4F03
+    jsr ob_anim
+    ; Spawn frog spell (ok_shot, ob_var=1) horizontally at 1.5 px/F toward player.
+    lda ob_xl,x
+    sta oz_t0
+    lda ob_xh,x
+    sta oz_t1
+    lda ob_yl,x
+    sec
+    sbc #10
+    sta oz_t2
+    lda ob_yh,x
+    sbc #0
+    sta oz_t3
+    lda ob_dir,x
+    pha
+    stx oz_obj
+    lda #ok_shot
+    ldy #1                      ; ob_var = 1 -> frog transformation spell
+    jsr oz_spawn
+    pla
+    bcs @cast_done
+    sta ob_dir,x
+    lda #ofl_harmful
+    sta ob_flags,x
+    lda #0
+    sta ob_carry,x
+    lda #$80                    ; 1.5 px/F (arcade: 3 px per 2 frames)
+    ldy #1
+    jsr ob_set_vx_dir
+    lda #<rf_FD6E
+    ldy #>rf_FD6E
+    jsr ob_anim
+    lda #snd_se_efire
+    jsr call_bank8_play_se
+@cast_done:
+    ldx oz_obj
+    rts
+@post_cast:
+    dec ob_t0,x
+    bne @out
+    lda #3
+    sta ob_state,x
+    lda #60
+    sta ob_t0,x
+    lda #0
+    sta ob_flags,x
+    lda #<rf_4EFB
+    ldy #>rf_4EFB
+    jsr ob_anim
+    lda #snd_se_rise
+    jmp call_bank8_play_se
+@out:
     rts

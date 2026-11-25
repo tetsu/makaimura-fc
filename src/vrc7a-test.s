@@ -244,6 +244,9 @@ check_bank:
     sta game_paused
     sta demo_active
     sta demo_finish
+    sta snd_lock
+    sta snd_nmi_missed
+    sta in_play_step
 .ifdef REVG_STAGE1
     sta op_stage_song
 .endif
@@ -335,8 +338,7 @@ same_scene:
     lda #0
     sta demo_finish
     sta demo_active
-    jsr begin_arcade_game
-    jmp audio_tick
+    jsr op_finish_to_play
 :
     ; After a death the arcade puts the player back by itself: 121 frames after the
     ; death ends ($90) the screen goes to the map with "PLAYER ONE READY", and the
@@ -477,7 +479,15 @@ dispatch_scene:
     cmp #4
     bne free_camera
 game_screen:
+.if PRG_ROM_UNITS = 32
+    lda #1
+    sta in_play_step
+.endif
     jsr update_game
+.if PRG_ROM_UNITS = 32
+    lda #0
+    sta in_play_step
+.endif
     jmp audio_tick
 clear_screen_idle:
     jsr wait_terrain_frame
@@ -854,12 +864,18 @@ call_bank3_load_stage_visuals:
     jmp ap_load_stage_visuals
 
 call_bank8_audio_init:
+    inc snd_lock
+    lda prg_bank2
+    pha
     lda #8
     jsr select_bank2
-    jmp snd_init
+    jsr snd_init
+    jmp snd_unlock_bank8
 
 ; Song and effect calls put the caller's $C000 bank back, so Bank 4 and 7 code can use them.
+; snd_lock prevents NMI audio re-entrancy while Bank 8 / VRC7 registers are being updated.
 call_bank8_play_song:
+    inc snd_lock
     sta snd_call_arg
     lda prg_bank2
     pha
@@ -867,10 +883,10 @@ call_bank8_play_song:
     jsr select_bank2
     lda snd_call_arg
     jsr snd_play_song
-    pla
-    jmp select_bank2
+    jmp snd_unlock_bank8
 
 call_bank8_play_se:
+    inc snd_lock
     sta snd_call_arg
     lda prg_bank2
     pha
@@ -878,13 +894,36 @@ call_bank8_play_se:
     jsr select_bank2
     lda snd_call_arg
     jsr snd_play_se
+snd_unlock_bank8:
     pla
-    jmp select_bank2
+    jsr select_bank2
+    dec snd_lock
+    lda snd_nmi_missed
+    bne nmi_audio_tick
+    rts
 
 call_bank8_audio_tick:
+    inc snd_lock
     lda #8
     jsr select_bank2
-    jmp snd_tick
+    jsr snd_tick
+    dec snd_lock
+    rts
+
+; Called on gameplay lag frames from terrain_nmi after HUD view restore: keeps arcade
+; BGM/SFX running at 60 Hz without slowing down when enemies crowd the screen.
+nmi_audio_tick:
+    lda arcade_mode
+    beq @skip
+    lda prg_bank2
+    pha
+    lda #8
+    jsr select_bank2
+    jsr snd_nmi_entry
+    pla
+    jmp select_bank2
+@skip:
+    rts
 .endif
 
 ; A = register, Y = value. Preserve X and Y.
@@ -1097,9 +1136,11 @@ toggle_pause:
     eor #1
     sta game_paused
     beq @done
+    inc snd_lock
     lda #8                  ; Pausing: stop the voices (the driver keys on the next notes).
     jsr select_bank2
     jsr snd_silence_all
+    dec snd_lock
 @done:
     sec
     rts
@@ -1320,6 +1361,9 @@ pan_data_x_hi: .res 1
 goal_tile_x_hi: .res 1
 checkpoint_tile_x_hi: .res 1
 pan_row_start: .res 1            ; First ring column of a prepared row
+.if PRG_ROM_UNITS = 32
+in_play_step: .res 1             ; 1 while update_game is running (lag-frame NMI audio hook)
+.endif
 
 .if PRG_ROM_UNITS = 32
 .include "frontend.inc"

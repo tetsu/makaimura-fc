@@ -452,6 +452,10 @@ wait_terrain_frame:
 ; Publish only after preparing all VRAM and OAM data. Main keeps the
 ; buffers intact until the NMI acknowledges the entire transfer.
 submit_frame:
+.if PRG_ROM_UNITS = 32
+    lda #0
+    sta in_play_step
+.endif
     lda #1
     sta render_pending
 :
@@ -482,6 +486,19 @@ terrain_nmi:
     bne nmi_done
 nmi_keep_hud:
     jsr restore_hud_view
+.if PRG_ROM_UNITS = 32
+    lda in_play_step
+    beq nmi_done
+    txa
+    pha
+    tya
+    pha
+    jsr nmi_audio_tick
+    pla
+    tay
+    pla
+    tax
+.endif
     jmp nmi_done
 nmi_commit:
     txa

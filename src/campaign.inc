@@ -7,6 +7,10 @@ campaign_zero = (campaign_digit_patterns - glyphs) / 16
 reset_campaign_clock:
     lda #campaign_frames_per_second
     sta campaign_subsecond
+.ifdef REVG_STAGE1
+    lda arcade_mode
+    bne @arcade_clock
+.endif
     lda #campaign_zero + 1
     sta campaign_clock
     lda #campaign_zero + 2
@@ -14,11 +18,28 @@ reset_campaign_clock:
     lda #campaign_zero
     sta campaign_clock+2
     rts
+.ifdef REVG_STAGE1
+@arcade_clock:
+    lda #64                     ; arcade clock ticks 1 second per 64 frames
+    sta campaign_subsecond
+    lda #campaign_zero + 2      ; arcade Stage 1 starts at 2:00
+    sta campaign_clock
+    lda #campaign_zero
+    sta campaign_clock+1
+    sta campaign_clock+2
+    rts
+.endif
 
 tick_campaign_clock:
     dec campaign_subsecond
     bne clock_done
     lda #campaign_frames_per_second
+.ifdef REVG_STAGE1
+    ldx arcade_mode
+    beq :+
+    lda #64
+:
+.endif
     sta campaign_subsecond
     inc campaign_hud_dirty
     dec campaign_clock+2
@@ -31,7 +52,17 @@ tick_campaign_clock:
     lda campaign_clock+1
     cmp #campaign_zero
     bcs clock_done
+.ifdef REVG_STAGE1
+    lda arcade_mode
+    beq :+
+    lda #campaign_zero + 5      ; arcade M:SS wraps tens-of-seconds to 5 (2:00 -> 1:59)
+    bne :++
+:
+.endif
     lda #campaign_zero + 9
+.ifdef REVG_STAGE1
+:
+.endif
     sta campaign_clock+1
     dec campaign_clock
     rts
@@ -47,48 +78,20 @@ clock_check_zero:
 clock_done:
     rts
 
-; Labels only change on entry. Both this cold draw and VBlank use +1 VRAM stride.
+; Labels only change on entry (display off); delegate cold draw to BANK7 so FIXED keeps headroom.
 draw_campaign_hud:
-    lda #$20
-    sta $2006
-    lda #$23
-    sta $2006
-    ldx #0
-:
-    lda campaign_hud_labels,x
-    sta $2007
-    inx
-    cpx #campaign_hud_length
-    bne :-
-    lda #$20
-    sta $2006
-    lda #$43
-    sta $2006
-    ldx #0
-    lda arcade_mode
-    bne @draw_score_label
-:
-    lda campaign_controls,x
-    sta $2007
-    inx
-    cpx #campaign_controls_length
-    bne :-
-    jmp upload_campaign_hud
-@draw_score_label:
-    lda campaign_score_label,x
-    sta $2007
-    inx
-    cpx #campaign_score_label_length
-    bne @draw_score_label
-    lda #$20
-    sta $2006
-    lda #$53
-    sta $2006
-    lda #$0c            ; L
-    sta $2007
-    lda #$10            ; P
-    sta $2007
+    lda prg_bank2
+    pha
+    lda #7
+    jsr select_bank2
+    jsr draw_campaign_hud_b7
+    pla
+    jsr select_bank2
 upload_campaign_hud:
+.ifdef REVG_STAGE1
+    lda arcade_mode
+    bne @upload_arcade_hud
+.endif
     lda #$20
     sta $2006
     lda #$27
@@ -122,8 +125,74 @@ upload_campaign_hud:
     ldx checkpoint_reached
     lda campaign_checkpoint_glyphs,x
     sta $2007
+.ifdef REVG_STAGE1
+    jmp @hud_done
+@upload_arcade_hud:
+    ; Row 2: 1UP score ($2042), TOP SCORE ($204A), TIME M:SS ($2055), L# + weapon ($205B)
+    lda #$42
+    ldx #0
+    jsr @write_score6
+    lda #$4a
+    ldx #(ap_top_score - ap_score)
+    jsr @write_score6
+    lda #$20
+    sta $2006
+    lda #$55
+    sta $2006
+    lda campaign_clock
+    sta $2007
+    lda #$17                    ; ':' colon tile uploaded in ap_load_stage_visuals
+    sta $2007
+    lda campaign_clock+1
+    sta $2007
+    lda campaign_clock+2
+    sta $2007
+    lda #$20
+    sta $2006
+    lda #$5b
+    sta $2006
+    lda #$0c                    ; L
+    sta $2007
+    lda campaign_lives
+    clc
+    adc #campaign_zero
+    sta $2007
+    lda #0
+    sta $2007
+    lda ap_frog_timer
+    ora ap_frog_timer+1
+    beq :+
+    lda #0                      ; HUD weapon slot is blank while transformed into a frog
+    beq :++
+:
+    ldx ap_weapon
+    lda campaign_weapon_glyphs,x
+:
+    sta $2007
+@hud_done:
+    lda #0
+    sta campaign_hud_dirty
+    rts
+@write_score6:
+    ldy #$20
+    sty $2006
+    sta $2006
+    ldy #4
+:
+    lda ap_score,x
+    clc
+    adc #campaign_zero
+    sta $2007
+    inx
+    dey
+    bne :-
+    lda #campaign_zero
+    sta $2007
+    sta $2007
+    rts
+.else
     lda arcade_mode
-    beq @skip_weapon_hud
+    beq @hud_done
     lda #$20
     sta $2006
     lda #$3e
@@ -155,21 +224,12 @@ upload_campaign_hud:
     clc
     adc #campaign_zero + 1
     sta $2007
-@skip_weapon_hud:
+@hud_done:
     lda #0
     sta campaign_hud_dirty
     rts
+.endif
 
 .segment "RODATA"
-campaign_hud_labels: ; STG # LIFE # TIME ### CP #
-    .byte $12, $13, $08, 0, 0, 0, $0c, $0a, $07, $06, 0, 0, 0
-    .byte $13, $0a, $0d, $06, 0, 0, 0, 0, 0, $04, $10, 0, 0
-campaign_hud_length = * - campaign_hud_labels
-campaign_controls: ; A JUMP  B FIRE  START RETRY
-    .byte $02, 0, $18, $14, $0d, $10, 0, 0, $03, 0, $07, $0a, $11, $06, 0, 0
-    .byte $12, $13, $02, $11, $13, 0, $11, $06, $13, $11, $17
-campaign_controls_length = * - campaign_controls
 campaign_checkpoint_glyphs: .byte $0e, $17 ; N, Y
-campaign_weapon_glyphs: .byte $0c, $05, $13, $12 ; L (Lance), D (Dagger), T (Torch), S (Shield)
-campaign_score_label: .byte $12, $04, $0f, $11, $06, $00 ; SCORE 
-campaign_score_label_length = * - campaign_score_label
+campaign_weapon_glyphs: .byte $0c, $05, $13, $04, $02 ; L (Lance), D (Dagger), T (Torch), C (Cross), A (Axe)

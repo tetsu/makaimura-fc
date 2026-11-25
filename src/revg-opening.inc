@@ -20,10 +20,42 @@ op_last_lo: .res op_objects     ; the last frame drawn whole (rs_draw_or_last)
 op_last_hi: .res op_objects
 op_time: .res 2                 ; frames since op_start
 op_stage_song: .res 1           ; 1 once the opening started the stage song (cleared at reset)
+op_blackout: .res 1             ; post-cutscene arcade blackout frames before Stage 1 begins
 
 .segment "BANK3"
-; Start the track (with the stage visuals loaded).
+; Start the track and upload the ':' HUD glyph (trampoline to BANK7).
 op_start:
+    lda prg_bank2
+    pha
+    lda #7
+    jsr select_bank2
+    jsr op_start_b7
+    pla
+    jmp select_bank2
+
+; Once a frame instead of the play update: trampoline to BANK7.
+op_tick:
+    lda prg_bank2
+    pha
+    lda #7
+    jsr select_bank2
+    jsr op_tick_b7
+    pla
+    jmp select_bank2
+
+.segment "CODE"
+; Trampoline into BANK7 so FIXED keeps headroom.
+op_finish_to_play:
+    lda prg_bank2
+    pha
+    lda #7
+    jsr select_bank2
+    jsr op_finish_to_play_b7
+    pla
+    jmp select_bank2
+
+.segment "BANK7"
+op_start_b7:
     lda #<revg_opening_track
     sta op_ptr
     lda #>revg_opening_track
@@ -34,6 +66,7 @@ op_start:
     sta op_time
     sta op_time+1
     sta op_stage_song
+    sta op_blackout
     ldx #op_objects - 1
 :
     sta op_fid_lo,x
@@ -42,12 +75,33 @@ op_start:
     sta op_last_hi,x
     dex
     bpl :-
+    ; Replace tile $17 ('+') in CHR-RAM with ':' for the arcade M:SS HUD timer.
+    lda #$01
+    sta $2006
+    lda #$70
+    sta $2006
+    ldx #0
+:
+    lda op_colon_tile,x
+    sta $2007
+    inx
+    cpx #16
+    bne :-
     rts
-
-; Once a frame instead of the play update: the next record when this one is over, and
-; the background fade. Sets demo_finish at the end of the track.
-op_tick:
-    jsr op_sound
+op_colon_tile:
+    .byte $00, $00, $18, $18, $00, $18, $18, $00
+    .res 8, 0
+op_tick_b7:
+    lda op_blackout
+    beq @not_blackout
+    dec op_blackout
+    bne @blackout_wait
+    lda #1
+    sta demo_finish
+@blackout_wait:
+    rts
+@not_blackout:
+    jsr op_sound_b7
     lda op_count
     beq :+
     dec op_count
@@ -64,8 +118,23 @@ op_tick:
     ldy #0
     lda (rs_lptr),y
     bne :+
-    lda #1                      ; the end
-    sta demo_finish
+    ; Track finished: hide sprites, hold arcade blackout briefly before Stage 1 begins.
+    ldx #op_objects - 1
+    lda #0
+@hide_op:
+    sta op_fid_lo,x
+    sta op_fid_hi,x
+    dex
+    bpl @hide_op
+    lda op_fade
+    cmp #3
+    beq @already_dark
+    lda #3
+    sta op_fade
+    jsr op_fade_palette
+@already_dark:
+    lda #45                     ; ~0.75s arcade blackout pause before Stage 1 starts
+    sta op_blackout
     pla
     jmp select_bank0
 :
@@ -107,16 +176,14 @@ op_tick:
 @fade_done:
     pla
     jmp select_bank0
-
-.segment "CODE"
-; (in the fixed bank: BANK3 is full)
 ; The opening's sounds at the frames the arcade sends them (MAME 0.289, counted from the
-; first frame of $792D): the opening music $3C at 125 (the song carries $3D and $3A at 189
-; and 321), the armour $10 at 407, then the start jingle $30 and the stage song at 513.
-op_sound_time_lo: .byte <125, <407, <513
-op_sound_time_hi: .byte >125, >407, >513
-op_sound:
-    ldx #2
+; first frame of $792D): 1P START chime + opening music $36 at 0 (carrying $3C, $3D and $3A
+; at 125, 189, 322, ending at 516), and the armour $10 at 407. After the post-cutscene
+; blackout finishes, op_finish_to_play_b7 restores the Stage 1 palette and starts $30/$2B.
+op_sound_time_lo: .byte <0, <407
+op_sound_time_hi: .byte >0, >407
+op_sound_b7:
+    ldx #1
 @check:
     lda op_time
     cmp op_sound_time_lo,x
@@ -126,19 +193,14 @@ op_sound:
     bne @next
     cpx #1
     beq @armour
-    bcs @stage
     lda #snd_song_title
     jsr call_bank8_play_song
+    lda #snd_se_start
+    jsr call_bank8_play_se
     jmp @count
 @armour:
     lda #snd_se_pickup
     jsr call_bank8_play_se
-    jmp @count
-@stage:
-    lda #1
-    sta op_stage_song
-    lda #snd_song_stage         ; (Stage 1's sd_bgm_stage)
-    jsr call_bank8_play_song
     jmp @count
 @next:
     dex
@@ -149,6 +211,30 @@ op_sound:
     inc op_time+1
 :
     rts
+
+; Seamless transition from the opening cutscene into playable Stage 1 (in BANK7).
+op_finish_to_play_b7:
+    lda op_fade
+    beq :+
+    lda #0
+    sta op_fade
+    jsr op_fade_palette
+:
+    lda #0
+    sta ap_pad
+    sta ap_pad_next
+    sta ap_pressed
+    lda op_stage_song
+    bne @song_started
+    lda #snd_song_stage
+    jsr call_bank8_play_song
+@song_started:
+    lda #0
+    sta op_stage_song
+    inc campaign_hud_dirty
+    rts
+
+.segment "CODE"
 
 ; The Stage 1 background colours, op_fade steps darker (the arcade fades in three steps
 ; of 64 frames), for the NMI.

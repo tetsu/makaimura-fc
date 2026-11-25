@@ -7,7 +7,7 @@
 ; $9010 (>=6 cycles) and $9030 (>=42 cycles) wait rules are always respected.
 
 snd_song_none     = 0
-snd_song_title    = 1   ; $3C, $3D, $3A: the opening demo
+snd_song_title    = 1   ; $36, $3C, $3D, $3A: the opening demo
 snd_song_stage    = 2   ; $30 then $2B: sections 0-1 (graveyard and forest)
 snd_song_boss     = 3   ; $2D: the section 0-1 boss pages
 snd_song_clear    = 4   ; $3B: after the key is taken
@@ -28,7 +28,9 @@ snd_se_clank     = 7
 snd_se_death     = 8
 snd_se_efire     = 9
 snd_se_rise      = 10
-snd_se_max        = 10
+snd_se_start     = 11
+snd_se_stomp     = 12
+snd_se_max        = 12
 
 snd_fm_channels   = 6
 
@@ -72,6 +74,8 @@ snd_se_ptr_hi:      .res 3                  ; (0 = idle)
 snd_se_chpri:       .res 3                  ; the priority of the effect on each channel
 snd_se_last_hi:     .res 3                  ; the last $4003/$4007 value
 snd_se_new_lo:      .res 1
+snd_lock:           .res 1                  ; >0 while main or NMI owns Bank 8 / VRC7 audio
+snd_nmi_missed:     .res 1                  ; >0 when NMI fired during a locked main call
 
 .segment "BANK8"
     .byte bank_tag_base + 8
@@ -88,6 +92,7 @@ snd_init:
     sta snd_se_fm_mask
     sta snd_se_apu_mask
     sta snd_tick_count
+    sta snd_nmi_missed
     jmp snd_silence_all
 
 ; Silence all 6 FM voices and all APU channels cleanly.
@@ -357,7 +362,38 @@ snd_update_se:
 :
     rts
 
-; Per-frame sound driver update (called once per frame from main loop).
+; NMI lag-frame audio entry (Bank 8 mapped at $C000): keeps BGM/SFX running at 60 Hz even
+; when update_game overruns VBlank, while preserving prg_bank0 and map_cached_col.
+snd_nmi_entry:
+    lda game_paused
+    bne @skip
+    lda scene
+    cmp #stage_view_scene
+    beq @skip
+    lda snd_lock
+    beq @run
+    inc snd_nmi_missed
+@skip:
+    rts
+@run:
+    inc snd_lock
+    cli
+    lda #0
+    sta snd_nmi_missed
+    lda prg_bank0
+    pha
+    lda map_cached_col
+    pha
+    jsr snd_tick
+    pla
+    sta map_cached_col
+    pla
+    sta prg_bank0
+    sta $8000
+    dec snd_lock
+    rts
+
+; Per-frame sound driver update.
 snd_tick:
     inc snd_tick_count
     ; Bridge legacy shot_sound_pending flag into SE driver.
@@ -571,81 +607,99 @@ snd_update_fm_bgm:
 ; frame is $400C control and the $400E period index. $FF ends the stream.
 ; ---------------------------------------------------------------------------
 snd_se_pri:
-    .byte 0, 1, 5, 4, 3, 2, 3, 2, 6, 1, 1
+    .byte 0, 1, 5, 4, 3, 2, 3, 2, 6, 1, 1, 5, 2
 snd_se_ch_a:
-    .byte $ff, $01, $02, $00, $00, $02, $02, $01, $00, $02, $02
+    .byte $ff, $01, $02, $00, $00, $02, $02, $01, $00, $02, $02, $00, $02
 snd_se_ch_b:
-    .byte $ff, $ff, $00, $ff, $ff, $01, $ff, $02, $ff, $ff, $ff
+    .byte $ff, $ff, $00, $ff, $ff, $01, $ff, $02, $ff, $ff, $ff, $01, $01
 snd_se_ptr_a_lo:
-    .byte 0, <snd_se_shot_0, <snd_se_damage_0, <snd_se_key_0, <snd_se_pickup_0, <snd_se_hit_0, <snd_se_kill_0, <snd_se_clank_0, <snd_se_death_0, <snd_se_efire_0, <snd_se_rise_0
+    .byte 0, <snd_se_shot_0, <snd_se_damage_0, <snd_se_key_0, <snd_se_pickup_0, <snd_se_hit_0, <snd_se_kill_0, <snd_se_clank_0, <snd_se_death_0, <snd_se_efire_0, <snd_se_rise_0, <snd_se_start_0, <snd_se_stomp_0
 snd_se_ptr_a_hi:
-    .byte 0, >snd_se_shot_0, >snd_se_damage_0, >snd_se_key_0, >snd_se_pickup_0, >snd_se_hit_0, >snd_se_kill_0, >snd_se_clank_0, >snd_se_death_0, >snd_se_efire_0, >snd_se_rise_0
+    .byte 0, >snd_se_shot_0, >snd_se_damage_0, >snd_se_key_0, >snd_se_pickup_0, >snd_se_hit_0, >snd_se_kill_0, >snd_se_clank_0, >snd_se_death_0, >snd_se_efire_0, >snd_se_rise_0, >snd_se_start_0, >snd_se_stomp_0
 snd_se_ptr_b_lo:
-    .byte 0, <snd_se_none_stream, <snd_se_damage_1, <snd_se_none_stream, <snd_se_none_stream, <snd_se_hit_1, <snd_se_none_stream, <snd_se_clank_1, <snd_se_none_stream, <snd_se_none_stream, <snd_se_none_stream
+    .byte 0, <snd_se_none_stream, <snd_se_damage_1, <snd_se_none_stream, <snd_se_none_stream, <snd_se_hit_1, <snd_se_none_stream, <snd_se_clank_1, <snd_se_none_stream, <snd_se_none_stream, <snd_se_none_stream, <snd_se_start_1, <snd_se_stomp_1
 snd_se_ptr_b_hi:
-    .byte 0, >snd_se_none_stream, >snd_se_damage_1, >snd_se_none_stream, >snd_se_none_stream, >snd_se_hit_1, >snd_se_none_stream, >snd_se_clank_1, >snd_se_none_stream, >snd_se_none_stream, >snd_se_none_stream
+    .byte 0, >snd_se_none_stream, >snd_se_damage_1, >snd_se_none_stream, >snd_se_none_stream, >snd_se_hit_1, >snd_se_none_stream, >snd_se_clank_1, >snd_se_none_stream, >snd_se_none_stream, >snd_se_none_stream, >snd_se_start_1, >snd_se_stomp_1
 snd_se_none_stream:
     .byte $ff
 snd_se_shot_0:
-    .byte $7c, $4f, $00, $7a, $5e, $00, $78, $6f, $00, $77, $84, $00
-    .byte $75, $9c, $00, $73, $b9, $00, $ff
+    .byte $7f, $4f, $00, $7d, $5e, $00, $7b, $6f, $00, $7a, $84, $00
+    .byte $78, $9c, $00, $75, $b9, $00, $ff
 snd_se_damage_0:
-    .byte $3f, $04, $3e, $04, $3d, $05, $3c, $05, $3b, $06, $3a, $06
-    .byte $39, $07, $38, $07, $38, $08, $37, $08, $36, $09, $35, $09
-    .byte $34, $0a, $33, $0a, $32, $0b, $31, $0b, $ff
+    .byte $3f, $04, $3f, $04, $3e, $05, $3d, $05, $3c, $06, $3b, $06
+    .byte $3a, $07, $39, $07, $39, $08, $38, $08, $37, $09, $36, $09
+    .byte $35, $0a, $34, $0a, $33, $0b, $32, $0b, $ff
 snd_se_damage_1:
-    .byte $bc, $df, $00, $bb, $f5, $00, $bb, $0e, $01, $ba, $29, $01
-    .byte $b9, $46, $01, $b8, $67, $01, $b8, $8b, $01, $b7, $b2, $01
-    .byte $b6, $de, $01, $b5, $0e, $02, $b5, $42, $02, $b4, $7c, $02
-    .byte $b3, $bc, $02, $b2, $02, $03, $b2, $4f, $03, $b1, $a3, $03
+    .byte $bf, $df, $00, $be, $f5, $00, $be, $0e, $01, $bd, $29, $01
+    .byte $bc, $46, $01, $bb, $67, $01, $bb, $8b, $01, $ba, $b2, $01
+    .byte $b9, $de, $01, $b8, $0e, $02, $b8, $42, $02, $b7, $7c, $02
+    .byte $b6, $bc, $02, $b5, $02, $03, $b5, $4f, $03, $b4, $a3, $03
     .byte $ff
 snd_se_key_0:
-    .byte $ba, $d5, $00, $ba, $d5, $00, $ba, $d5, $00, $ba, $d5, $00
-    .byte $ba, $a9, $00, $ba, $a9, $00, $ba, $a9, $00, $ba, $a9, $00
-    .byte $ba, $8e, $00, $ba, $8e, $00, $ba, $8e, $00, $ba, $8e, $00
-    .byte $bb, $6a, $00, $ba, $6a, $00, $ba, $6a, $00, $b9, $6a, $00
-    .byte $b8, $6a, $00, $b8, $6a, $00, $b7, $6a, $00, $b6, $6a, $00
-    .byte $b6, $6a, $00, $b5, $6a, $00, $b4, $6a, $00, $b4, $6a, $00
-    .byte $b3, $6a, $00, $b2, $6a, $00, $b2, $6a, $00, $b1, $6a, $00
+    .byte $bf, $d5, $00, $bf, $d5, $00, $be, $d5, $00, $be, $d5, $00
+    .byte $bf, $a9, $00, $bf, $a9, $00, $be, $a9, $00, $be, $a9, $00
+    .byte $bf, $8e, $00, $bf, $8e, $00, $be, $8e, $00, $be, $8e, $00
+    .byte $bf, $6a, $00, $be, $6a, $00, $be, $6a, $00, $bd, $6a, $00
+    .byte $bc, $6a, $00, $bc, $6a, $00, $bb, $6a, $00, $ba, $6a, $00
+    .byte $ba, $6a, $00, $b9, $6a, $00, $b8, $6a, $00, $b8, $6a, $00
+    .byte $b7, $6a, $00, $b6, $6a, $00, $b5, $6a, $00, $b4, $6a, $00
     .byte $ff
 snd_se_pickup_0:
-    .byte $7a, $8e, $00, $7a, $8e, $00, $7a, $8e, $00, $7a, $8e, $00
-    .byte $7b, $6a, $00, $7a, $6a, $00, $79, $6a, $00, $78, $6a, $00
-    .byte $77, $6a, $00, $75, $6a, $00, $74, $6a, $00, $73, $6a, $00
-    .byte $72, $6a, $00, $71, $6a, $00, $ff
+    .byte $7f, $8e, $00, $7f, $8e, $00, $7e, $8e, $00, $7e, $8e, $00
+    .byte $7f, $6a, $00, $7e, $6a, $00, $7d, $6a, $00, $7c, $6a, $00
+    .byte $7b, $6a, $00, $79, $6a, $00, $78, $6a, $00, $77, $6a, $00
+    .byte $76, $6a, $00, $74, $6a, $00, $ff
 snd_se_hit_0:
-    .byte $3c, $03, $39, $03, $36, $04, $33, $05, $ff
+    .byte $3f, $03, $3d, $03, $3a, $04, $37, $05, $ff
 snd_se_hit_1:
-    .byte $79, $3d, $00, $77, $4b, $00, $75, $5b, $00, $73, $6f, $00
+    .byte $7e, $3d, $00, $7c, $4b, $00, $7a, $5b, $00, $77, $6f, $00
     .byte $ff
 snd_se_kill_0:
-    .byte $3f, $05, $3e, $05, $3e, $06, $3d, $06, $3c, $07, $3b, $07
-    .byte $3b, $08, $3a, $08, $39, $09, $38, $09, $38, $0a, $37, $0a
-    .byte $36, $0b, $35, $0b, $35, $0c, $34, $0c, $33, $0d, $32, $0d
-    .byte $32, $0e, $31, $0e, $ff
+    .byte $3f, $05, $3f, $05, $3e, $06, $3e, $06, $3d, $07, $3c, $07
+    .byte $3c, $08, $3b, $08, $3a, $09, $39, $09, $39, $0a, $38, $0a
+    .byte $37, $0b, $36, $0b, $36, $0c, $35, $0c, $34, $0d, $33, $0d
+    .byte $33, $0e, $32, $0e, $ff
 snd_se_clank_0:
-    .byte $3c, $2a, $00, $3a, $2a, $00, $39, $30, $00, $37, $30, $00
-    .byte $36, $2a, $00, $34, $2a, $00, $33, $30, $00, $31, $30, $00
+    .byte $3f, $2a, $00, $3e, $2a, $00, $3d, $30, $00, $3b, $30, $00
+    .byte $3a, $2a, $00, $38, $2a, $00, $36, $30, $00, $34, $30, $00
     .byte $ff
 snd_se_clank_1:
-    .byte $3a, $01, $36, $01, $33, $02, $ff
+    .byte $3e, $01, $3b, $01, $37, $02, $ff
 snd_se_death_0:
-    .byte $bb, $a9, $00, $bb, $b0, $00, $bb, $b8, $00, $ba, $c1, $00
-    .byte $ba, $ca, $00, $ba, $d3, $00, $ba, $dc, $00, $ba, $e6, $00
-    .byte $b9, $f1, $00, $b9, $fc, $00, $b9, $07, $01, $b9, $13, $01
-    .byte $b8, $20, $01, $b8, $2d, $01, $b8, $3a, $01, $b8, $48, $01
-    .byte $b8, $57, $01, $b7, $67, $01, $b7, $77, $01, $b7, $88, $01
-    .byte $b7, $9a, $01, $b7, $ad, $01, $b6, $c0, $01, $b6, $d4, $01
-    .byte $b6, $ea, $01, $b6, $00, $02, $b5, $17, $02, $b5, $2f, $02
-    .byte $b5, $49, $02, $b5, $63, $02, $b5, $7f, $02, $b4, $9c, $02
-    .byte $b4, $ba, $02, $b4, $da, $02, $b4, $fb, $02, $b4, $1d, $03
-    .byte $b3, $41, $03, $b3, $67, $03, $b3, $8f, $03, $b3, $b8, $03
-    .byte $b2, $e3, $03, $b2, $10, $04, $b2, $3f, $04, $b2, $70, $04
-    .byte $b2, $a4, $04, $b1, $d9, $04, $b1, $12, $05, $b1, $4c, $05
+    .byte $bf, $a9, $00, $bf, $b0, $00, $bf, $b8, $00, $be, $c1, $00
+    .byte $be, $ca, $00, $be, $d3, $00, $be, $dc, $00, $be, $e6, $00
+    .byte $bd, $f1, $00, $bd, $fc, $00, $bd, $07, $01, $bd, $13, $01
+    .byte $bc, $20, $01, $bc, $2d, $01, $bc, $3a, $01, $bc, $48, $01
+    .byte $bc, $57, $01, $bb, $67, $01, $bb, $77, $01, $bb, $88, $01
+    .byte $bb, $9a, $01, $bb, $ad, $01, $ba, $c0, $01, $ba, $d4, $01
+    .byte $ba, $ea, $01, $ba, $00, $02, $b9, $17, $02, $b9, $2f, $02
+    .byte $b9, $49, $02, $b9, $63, $02, $b9, $7f, $02, $b8, $9c, $02
+    .byte $b8, $ba, $02, $b8, $da, $02, $b8, $fb, $02, $b8, $1d, $03
+    .byte $b7, $41, $03, $b7, $67, $03, $b7, $8f, $03, $b7, $b8, $03
+    .byte $b6, $e3, $03, $b6, $10, $04, $b6, $3f, $04, $b6, $70, $04
+    .byte $b5, $a4, $04, $b4, $d9, $04, $b3, $12, $05, $b2, $4c, $05
     .byte $ff
 snd_se_efire_0:
-    .byte $37, $09, $36, $09, $34, $0a, $33, $0a, $32, $0b, $31, $0b
+    .byte $3e, $09, $3d, $09, $3b, $0a, $39, $0a, $37, $0b, $35, $0b
     .byte $ff
 snd_se_rise_0:
-    .byte $35, $0d, $35, $0d, $34, $0d, $34, $0d, $33, $0d, $33, $0d
-    .byte $32, $0d, $32, $0d, $31, $0d, $31, $0d, $ff
+    .byte $3d, $0d, $3d, $0d, $3b, $0d, $3b, $0d, $39, $0d, $39, $0d
+    .byte $37, $0d, $37, $0d, $35, $0d, $34, $0d, $ff
+; Title START chime (bright arcade coin/start two-note chime, Pulse 1 + Pulse 2 harmony).
+snd_se_start_0:
+    .byte $bf, $ca, $00, $bf, $ca, $00, $be, $ca, $00, $bd, $ca, $00
+    .byte $bf, $97, $00, $bf, $97, $00, $be, $97, $00, $bd, $97, $00
+    .byte $bc, $97, $00, $bb, $97, $00, $ba, $97, $00, $b9, $97, $00
+    .byte $b8, $97, $00, $b7, $97, $00, $b5, $97, $00, $b3, $97, $00
+    .byte $ff
+snd_se_start_1:
+    .byte $7c, $65, $00, $7c, $65, $00, $7b, $65, $00, $7a, $65, $00
+    .byte $7d, $4b, $00, $7d, $4b, $00, $7c, $4b, $00, $7b, $4b, $00
+    .byte $7a, $4b, $00, $79, $4b, $00, $78, $4b, $00, $77, $4b, $00
+    .byte $76, $4b, $00, $75, $4b, $00, $73, $4b, $00, $72, $4b, $00
+    .byte $ff
+; Boss stomp (arcade $0C: heavy low noise + deep pulse thud).
+snd_se_stomp_0:
+    .byte $3f, $0e, $3d, $0f, $3a, $0f, $37, $0f, $34, $0f, $ff
+snd_se_stomp_1:
+    .byte $bf, $80, $03, $bd, $c0, $03, $ba, $10, $04, $b6, $60, $04, $ff
