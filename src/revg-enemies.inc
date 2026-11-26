@@ -463,13 +463,15 @@ oz_on_ground:
     pla
     tax
     lda oz_t0
-    beq @no
-    cmp #tile_type_hazard
-    beq @no
-    sec
-    rts
+    cmp #tile_type_solid
+    beq @yes
+    cmp #tile_type_oneway
+    beq @yes
 @no:
     clc
+    rts
+@yes:
+    sec
     rts
 
 ; Put the object on the surface of the tile oz_on_ground found.
@@ -1951,26 +1953,39 @@ oz_shot:
 oz_zombie:
     lda ob_state,x
     bne @not_down
-    ; From the player's height down to the ground, 2 px a frame.
+    ; Arcade $D25A: scan straight down from player height to solid/oneway ground
+    ; (skipping ladders/air), completing immediately so zombies never drift into view
+    ; midair or pop into existence standing inside the screen while Arthur walks.
+@scan_ground:
     jsr oz_on_ground
     bcs @grounded
     lda ob_yl,x
     sec
-    sbc #2
+    sbc #8
     sta ob_yl,x
-    bcs :+
+    bcs @scan_ground
     dec ob_yh,x
-:
     lda ob_yh,x
-    bpl :+
-    jmp ob_free                 ; no ground: gone
-:
-    rts
+    bpl @scan_ground
+    jmp ob_free                 ; no ground below (e.g. pit): discard
 @grounded:
     jsr oz_snap_ground
     jsr oz_face_player
+    ; Variant 1 walks straight in only when spawning off-screen; if on-screen, rise from ground.
     lda ob_var,x
     beq @rise
+    lda ob_xl,x
+    sec
+    sbc camera_low
+    sta oz_t0
+    lda ob_xh,x
+    sbc camera_high
+    bne @walk_in                ; off-screen left (<0) or right (>=256)
+    lda oz_t0
+    cmp #248
+    bcs @walk_in                ; at right edge
+    jmp @rise                   ; inside screen: rise out of the ground instead of popping in
+@walk_in:
     jmp oz_zombie_walk_start
 @rise:
     lda #snd_se_rise

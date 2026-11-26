@@ -503,11 +503,21 @@ def main():
                 elif sounding >= 66:
                     volume = max(0, volume - 1)
                 if name == "title" and custom is None:
-                    # Keep $3A (kidnapping strings/brass, voice 8) rich and prominent.
-                    volume = max(0, volume - 1)
+                    # Keep $3A (kidnapping strings/brass, voice 8) fast-attack with rich sustain
+                    # so short 1.5F arcade notes ring clearly on VRC7.
+                    patch = bytes([
+                        patch[0], patch[1], patch[2], patch[3],
+                        (max(13, patch[4] >> 4) << 4) | (patch[4] & 15),
+                        (max(13, patch[5] >> 4) << 4) | (patch[5] & 15),
+                        patch[6],
+                        (patch[7] & 0xF0) | min(3, patch[7] & 15),
+                    ])
+                    volume = max(0, volume - 2)
                 # Headroom & BGM/SFX balance: VRC7 FM sits louder than NES APU on hardware
-                # and Mesen, so attenuate BGM voices by 12 dB (+4) so APU SFX cut through.
-                volume = min(15, volume + 4)
+                # and Mesen, so attenuate gameplay BGM by 12 dB (+4) so APU SFX cut through.
+                # The opening cutscene has no gameplay SFX overlap, so give it +2 (+6 dB louder).
+                atten = 2 if name == "title" else 4
+                volume = min(15, volume + atten)
                 if custom is None:
                     custom = patch
                     if patch not in patches:
@@ -529,6 +539,14 @@ def main():
                     # use VRC7 Organ (8) +12 instead of Clarinet (5).
                     instruments[(layer, voice)] = (8, min(15, volume + 1), 12)
                     notes.append(f"${layer:04x} voice {voice}: built-in 8 +12 vol {min(15, volume + 1)} pitch {sounding:.0f}")
+                elif name == "title" and voice == 5:
+                    # Voice 5 ($36 graveyard eerie melody): Organ (8) -12 rings clearly.
+                    instruments[(layer, voice)] = (8, min(15, volume + 1), -12)
+                    notes.append(f"${layer:04x} voice {voice}: built-in 8 -12 vol {min(15, volume + 1)} pitch {sounding:.0f}")
+                elif name == "title" and voice == 18:
+                    # Voice 18 ($36 graveyard harmony): Violin/Strings (1) +0.
+                    instruments[(layer, voice)] = (1, min(15, volume + 1), 0)
+                    notes.append(f"${layer:04x} voice {voice}: built-in 1 +0 vol {min(15, volume + 1)} pitch {sounding:.0f}")
                 else:
                     number, transpose = nearest_builtin(patch)
                     # Avoid transposing low melodic voices (e.g. $3A bass voice 13) below C1
@@ -570,7 +588,26 @@ def main():
                     end = max(e[0] for e in events[ch]) + TICKS_PER_FRAME
                 else:
                     end = origin + TICKS_PER_FRAME
-                data = encode_channel(events[ch], instruments, origin, end, origin, channel_marks) + [0xFE]
+                ch_events = events[ch]
+                if name == "title":
+                    # Arcade $36 and $3A use 1.5-1.75F key-on with long OPN release tails;
+                    # extend short gates to >= 5F (up to 1F before the next attack) so VRC7
+                    # envelopes open fully instead of clicking off before sounding.
+                    extended = list(ch_events)
+                    for ei in range(len(extended) - 1):
+                        t_on, kind, midi, v_id, lay = extended[ei]
+                        if kind == "off" or v_id == 31:
+                            continue
+                        t_off, k_off, m_off, v_off, l_off = extended[ei + 1]
+                        if k_off != "off":
+                            continue
+                        min_off = t_on + 5 * TICKS_PER_FRAME
+                        next_t = extended[ei + 2][0] - TICKS_PER_FRAME if ei + 2 < len(extended) else end
+                        new_off = min(max(t_off, min_off), max(t_off, next_t))
+                        if new_off > t_off:
+                            extended[ei + 1] = (new_off, k_off, m_off, v_off, l_off)
+                    ch_events = extended
+                data = encode_channel(ch_events, instruments, origin, end, origin, channel_marks) + [0xFE]
                 body.append(f"{label}:")
                 body += format_bytes(data)
                 size += len(data)
