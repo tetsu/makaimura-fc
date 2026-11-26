@@ -186,6 +186,12 @@ next_campaign_stage:
     lda ap_loop
     beq @begin_loop2
     jsr blank_display
+.ifdef REVG_STAGE1
+    jsr check_highscore_b2
+    bcc :+
+    jmp show_name_entry_screen
+:
+.endif
     jmp show_title_screen
 @begin_loop2:
     lda #1

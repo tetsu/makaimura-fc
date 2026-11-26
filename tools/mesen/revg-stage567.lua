@@ -351,7 +351,10 @@ emu.addEventCallback(function()
     elseif phase == "loop2_final_w" then
         if frame == phaseFrame + 15 then input = {start = true}; phaseFrame = frame; phase = "final_title" end
     elseif phase == "final_title" then
-        if scene == TITLE then
+        if scene == 15 and frame >= phaseFrame + 25 then
+            input = {start = true}
+            phaseFrame = frame
+        elseif scene == TITLE then
             sawS7FinalClear = true
             print(string.format("PASS frame=%d s5(skull=%s,satan=%s,key=%s) s6(bounce=%s,2satan=%s,key=%s) s7(ast=%s,lanceBlk=%s,loop2=%s,final=%s)",
                 frame, tostring(sawS5Skull), tostring(sawS5Satan), tostring(sawS5Key),

@@ -418,11 +418,18 @@ fe_opening_lines:
 ; numbers, and Arthur's marker above the next stage. Display must be off.
 fe_draw_progress_map:
     jsr load_menu_patterns
-    ; Upload 8 map-art tiles ($38..$3F) to CHR-RAM $0380..$03FF.
+    ; Keep 'X' at tile $38 ($0380) for "NEXT STAGE", then upload 8 map-art tiles ($39..$40) at $0390..$040F.
     lda #$03
     sta $2006
     lda #$80
     sta $2006
+    ldx #0
+@x_chr_loop:
+    lda opt_tile_x_chr,x
+    sta $2007
+    inx
+    cpx #16
+    bne @x_chr_loop
     ldx #0
 @chr_loop:
     lda fe_map_chr_data,x
@@ -447,7 +454,7 @@ fe_draw_progress_map:
     lda #<fe_map_static_lines
     ldx #>fe_map_static_lines
     jsr fe_draw_lines
-    ; Draw connecting dotted path between stages (tile $3E).
+    ; Draw connecting dotted path between stages (tile $3F).
     ldx #0
 @path_loop:
     lda fe_map_path_hi,x
@@ -455,7 +462,7 @@ fe_draw_progress_map:
     sta $2006
     lda fe_map_path_lo,x
     sta $2006
-    lda #$3e
+    lda #$3f
     sta $2007
     inx
     bne @path_loop
@@ -492,19 +499,31 @@ fe_draw_progress_map:
     clc
     adc #campaign_zero
     sta $2007
-    ; Compute next stage index (0..6): campaign_stage (mod 7).
+    ; Compute next stage index (0..6): campaign_stage (mod 7), or Stage 5 (index 4)
+    ; when Stage 6 was cleared without the required Cross/Shield weapon.
     lda campaign_stage
+    cmp #6
+    bne @not_s6_bounce
+    lda ap_weapon
+    cmp #ap_weapon_shield
+    beq @normal_next
+    lda #4                      ; bounce back to Stage 5
+    bne @have_next
+@not_s6_bounce:
     cmp #7
-    bcc :+
-    lda #0
-:
+    bcc @normal_next
+    lda #0                      ; Loop 1 Stage 7 -> Loop 2 Stage 1
+    beq @have_next
+@normal_next:
+    lda campaign_stage
+@have_next:
     tax
-    ; Place Arthur's marker ($3F) above the next stage landmark.
+    ; Place Arthur's marker ($40) above the next stage landmark.
     lda fe_map_mark_hi,x
     sta $2006
     lda fe_map_mark_lo,x
     sta $2006
-    lda #$3f
+    lda #$40
     sta $2007
     ; Write next stage number at $22D1 ("NEXT STAGE Y").
     lda #$22
@@ -544,7 +563,7 @@ fe_map_static_lines:
 ; 7 stage landmarks (bottom-left Stage 1 -> top-right Stage 7)
 fe_map_node_hi: .byte $22, $22, $22, $21, $21, $21, $21
 fe_map_node_lo: .byte $64, $28, $0c, $d0, $94, $58, $1b
-fe_map_node_tile: .byte $38, $39, $3a, $3b, $3c, $3c, $3d
+fe_map_node_tile: .byte $39, $3a, $3b, $3c, $3d, $3d, $3e
 fe_map_num_hi:  .byte $22, $22, $22, $21, $21, $21, $21
 fe_map_num_lo:  .byte $84, $48, $2c, $f0, $b4, $78, $3b
 fe_map_mark_hi: .byte $22, $22, $21, $21, $21, $21, $20
@@ -552,9 +571,9 @@ fe_map_mark_lo: .byte $44, $08, $ec, $b0, $74, $38, $fb
 
 ; Dotted path tiles connecting the 7 landmarks (terminated by 0)
 fe_map_path_hi:
-    .byte $22, $22, $22, $22, $22, $22, $21, $21, $21, $21, $21, $21, $21, $21, $21, $21, 0
+    .byte $22, $22, $22, $22, $22, $21, $21, $21, $21, $21, $21, $21, $21, $21, $21, 0
 fe_map_path_lo:
-    .byte $66, $47, $2a, $0b, $0e, $ef, $d2, $b3, $96, $77, $5a, $3b, $19, $1a, $59, $95
+    .byte $66, $47, $2a, $0b, $0e, $ef, $d2, $b3, $96, $77, $5a, $19, $1a, $59, $95
 
 ; 40 attribute bytes covering rows 4..23 ($23C8..$23EF)
 fe_map_attrs:
@@ -957,7 +976,7 @@ fe_attract_step:
     dec attract_timer_hi
 :
     dec attract_timer_lo
-    ; Script: walk right continuously, throw lance every 28 frames, jump at timer mod 96 == 16..20.
+    ; Script: walk right continuously, throw lance every 32 frames (mod 32 == 4), jump every 64 frames (mod 64 == 18).
     lda #$01                    ; Right
     ldx attract_timer_lo
     txa

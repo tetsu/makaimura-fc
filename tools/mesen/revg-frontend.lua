@@ -94,10 +94,11 @@ emu.addEventCallback(function()
         end
     elseif step == 5 then
         if scene == CLEAR and sf >= 10 then
-            -- Verify Makai Map landmarks ($38 at $2264) and Arthur marker ($3F above Stage 2 at $2208).
-            if not check(readNt(0x2264) == 0x38 and readNt(0x2208) == 0x3f,
-                    string.format("Makai Map tiles missing ($2264=%02x $2208=%02x)",
-                        readNt(0x2264), readNt(0x2208))) then return end
+            -- Verify Makai Map: 'X' ($38) in "NEXT STAGE" at $22c8, Graveyard Cross ($39) at $2264,
+            -- and Arthur marker ($40) above Stage 2 at $2208.
+            if not check(readNt(0x22c8) == 0x38 and readNt(0x2264) == 0x39 and readNt(0x2208) == 0x40,
+                    string.format("Makai Map tiles missing ($22c8=%02x $2264=%02x $2208=%02x)",
+                        readNt(0x22c8), readNt(0x2264), readNt(0x2208))) then return end
             input = {start = true}
             nextStep()
         elseif not check(sf < 200, "Stage 1 did not reach CLEAR map") then return end
@@ -125,24 +126,29 @@ emu.addEventCallback(function()
             nextStep()
         elseif not check(sf < 120, "Qualifying score on GAME OVER did not enter Name Entry") then return end
     elseif step == 9 then
-        -- Enter initials "BCZ": Up (B), A (slot 1), Up, Up (C), A (slot 2), Down (Z), START (confirm).
-        if sf == 4 then input = {up = true}
-        elseif sf == 10 then input = {a = true}
-        elseif sf == 16 then input = {up = true}
-        elseif sf == 22 then input = {up = true}
-        elseif sf == 28 then input = {a = true}
-        elseif sf == 34 then input = {down = true}
-        elseif sf == 40 then input = {start = true}
-        elseif sf == 56 then
+        -- Verify SELECT is ignored during Name Entry, then enter "BCZ" and confirm.
+        if sf == 2 then input = {select = true}
+        elseif sf == 6 then
+            if not check(scene == NAME_ENTRY, "SELECT should not exit Name Entry") then return end
+            input = {up = true}
+        elseif sf == 12 then input = {a = true}
+        elseif sf == 18 then input = {up = true}
+        elseif sf == 24 then input = {up = true}
+        elseif sf == 30 then input = {a = true}
+        elseif sf == 36 then input = {down = true}
+        elseif sf == 42 then input = {start = true}
+        elseif sf == 58 then
             if not check(scene == TITLE, "Name Entry confirm did not return to Title") then return end
             if not check(read(HS_MAGIC) == 0xa5, "High score table magic not set") then return end
             local scOk = (read(HS_SCORES+0) == 0 and read(HS_SCORES+1) == 2 and read(HS_SCORES+2) == 5 and read(HS_SCORES+3) == 0)
             local nmOk = (read(HS_NAMES+0) == 1 and read(HS_NAMES+1) == 2 and read(HS_NAMES+2) == 25)
+            local shiftOk = (read(HS_SCORES+4) == 0 and read(HS_SCORES+5) == 1 and read(HS_SCORES+6) == 0 and read(HS_SCORES+7) == 0
+                and read(HS_NAMES+3) == 2 and read(HS_NAMES+4) == 0 and read(HS_NAMES+5) == 15)
             local topOk = (read(AP_TOP_SCORE+0) == 0 and read(AP_TOP_SCORE+1) == 2 and read(AP_TOP_SCORE+2) == 5 and read(AP_TOP_SCORE+3) == 0)
-            if not check(scOk and nmOk and topOk,
-                    string.format("High score saved mismatch sc=%s nm=%s top=%s",
-                        tostring(scOk), tostring(nmOk), tostring(topOk))) then return end
-            print(string.format("PASS frame=%d (AttractDemo/JumpLandSE/MakaiMap/NameEntry+Song10/HighScore)", frame))
+            if not check(scOk and nmOk and shiftOk and topOk,
+                    string.format("High score saved mismatch sc=%s nm=%s shift=%s top=%s",
+                        tostring(scOk), tostring(nmOk), tostring(shiftOk), tostring(topOk))) then return end
+            print(string.format("PASS frame=%d (AttractDemo/JumpLandSE/MakaiMap/NameEntry+Song10/HighScoreShift)", frame))
             emu.stop(0)
         end
     end

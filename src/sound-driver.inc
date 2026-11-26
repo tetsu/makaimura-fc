@@ -614,17 +614,17 @@ snd_update_fm_bgm:
 snd_se_pri:
     .byte 0, 1, 5, 4, 3, 2, 3, 2, 6, 1, 1, 5, 2, 4, 1, 1
 snd_se_ch_a:
-    .byte $ff, $01, $02, $00, $00, $02, $02, $01, $00, $02, $02, $00, $02, $02, $01, $02
+    .byte $ff, $01, $02, $00, $00, $02, $01, $01, $00, $01, $01, $00, $02, $02, $01, $02
 snd_se_ch_b:
-    .byte $ff, $ff, $00, $ff, $ff, $01, $ff, $02, $02, $ff, $ff, $01, $01, $ff, $ff, $ff
+    .byte $ff, $ff, $00, $ff, $ff, $01, $ff, $02, $ff, $ff, $ff, $01, $01, $ff, $ff, $ff
 snd_se_ptr_a_lo:
     .byte 0, <snd_se_shot_0, <snd_se_damage_0, <snd_se_key_0, <snd_se_pickup_0, <snd_se_hit_0, <snd_se_kill_0, <snd_se_clank_0, <snd_se_death_0, <snd_se_efire_0, <snd_se_rise_0, <snd_se_start_0, <snd_se_stomp_0, <snd_se_thunder_0, <snd_se_jump_0, <snd_se_land_0
 snd_se_ptr_a_hi:
     .byte 0, >snd_se_shot_0, >snd_se_damage_0, >snd_se_key_0, >snd_se_pickup_0, >snd_se_hit_0, >snd_se_kill_0, >snd_se_clank_0, >snd_se_death_0, >snd_se_efire_0, >snd_se_rise_0, >snd_se_start_0, >snd_se_stomp_0, >snd_se_thunder_0, >snd_se_jump_0, >snd_se_land_0
 snd_se_ptr_b_lo:
-    .byte 0, <snd_se_none_stream, <snd_se_damage_1, <snd_se_none_stream, <snd_se_none_stream, <snd_se_hit_1, <snd_se_none_stream, <snd_se_clank_1, <snd_se_death_1, <snd_se_none_stream, <snd_se_none_stream, <snd_se_start_1, <snd_se_stomp_1, <snd_se_none_stream, <snd_se_none_stream, <snd_se_none_stream
+    .byte 0, <snd_se_none_stream, <snd_se_damage_1, <snd_se_none_stream, <snd_se_none_stream, <snd_se_hit_1, <snd_se_none_stream, <snd_se_clank_1, <snd_se_none_stream, <snd_se_none_stream, <snd_se_none_stream, <snd_se_start_1, <snd_se_stomp_1, <snd_se_none_stream, <snd_se_none_stream, <snd_se_none_stream
 snd_se_ptr_b_hi:
-    .byte 0, >snd_se_none_stream, >snd_se_damage_1, >snd_se_none_stream, >snd_se_none_stream, >snd_se_hit_1, >snd_se_none_stream, >snd_se_clank_1, >snd_se_death_1, >snd_se_none_stream, >snd_se_none_stream, >snd_se_start_1, >snd_se_stomp_1, >snd_se_none_stream, >snd_se_none_stream, >snd_se_none_stream
+    .byte 0, >snd_se_none_stream, >snd_se_damage_1, >snd_se_none_stream, >snd_se_none_stream, >snd_se_hit_1, >snd_se_none_stream, >snd_se_clank_1, >snd_se_none_stream, >snd_se_none_stream, >snd_se_none_stream, >snd_se_start_1, >snd_se_stomp_1, >snd_se_none_stream, >snd_se_none_stream, >snd_se_none_stream
 snd_se_none_stream:
     .byte $ff
 .include "revg-se-data.inc"

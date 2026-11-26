@@ -697,9 +697,19 @@ revg_draw_sprites:
     jsr rs_draw_opening
     jmp @hide
 :
+    ; OAM scanline priority: Arthur (1st, never flickers) -> Platforms -> Enemies -> Weapons.
+    ; Weapons sit last on 3 of 4 frames so they flicker first instead of characters,
+    ; and swap ahead of enemies on 1 of 4 frames so shots never vanish in dense crowds.
     jsr rp_draw_player
-    jsr rs_draw_shots
     jsr rs_draw_platforms
+    lda rs_frame
+    and #3
+    beq @shots_first
+    jsr rs_draw_objects
+    jsr rs_draw_shots
+    jmp @hide
+@shots_first:
+    jsr rs_draw_shots
     jsr rs_draw_objects
 @hide:
     ; Hide the rest.
@@ -1285,11 +1295,7 @@ rs_draw_platforms:
 ; The starting object moves on each frame, so that past eight on a line every one blinks.
 rs_draw_objects:
     lda rs_frame
-    and #7
-    cmp #ob_max
-    bcc :+
-    lda #0
-:
+    and #$0f
     sta rs_obj_i
     lda #ob_max
     sta rs_obj_n

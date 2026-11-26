@@ -374,6 +374,7 @@ main:
     sta attract_active
     sta pad
     sta pressed
+    jsr restore_attract_opts
     jsr blank_display
     jsr show_title_screen
     jmp audio_tick
@@ -382,6 +383,11 @@ main:
     lda pressed
     and #$20            ; Select: switch between audio controls and terrain.
     beq same_scene
+.ifdef REVG_STAGE1
+    lda scene
+    cmp #name_entry_scene
+    beq same_scene      ; Ignore SELECT during Name Entry so initials are not abandoned.
+.endif
     jsr toggle_scene
     jmp audio_tick
 same_scene:
@@ -1553,7 +1559,20 @@ commit_name_entry:
     jmp commit_bank2_done
 
 start_attract_demo:
+    ; Save user Option settings and run Attract Demo with neutral arcade defaults.
+    lda opt_invincible
+    sta attract_saved_opts+0
+    lda opt_start_loop
+    sta attract_saved_opts+1
+    lda opt_start_weapon
+    sta attract_saved_opts+2
+    lda opt_no_timer
+    sta attract_saved_opts+3
     lda #0
+    sta opt_invincible
+    sta opt_start_loop
+    sta opt_start_weapon
+    sta opt_no_timer
     sta attract_idle_lo
     sta attract_idle_hi
     sta attract_prev_pad
@@ -1571,6 +1590,17 @@ start_attract_demo:
     jsr start_arcade_stage
     ; Attract demo runs silently like the arcade cabinet.
     jmp call_bank8_audio_init
+
+restore_attract_opts:
+    lda attract_saved_opts+0
+    sta opt_invincible
+    lda attract_saved_opts+1
+    sta opt_start_loop
+    lda attract_saved_opts+2
+    sta opt_start_weapon
+    lda attract_saved_opts+3
+    sta opt_no_timer
+    rts
 
 step_attract_demo:
     lda prg_bank2
