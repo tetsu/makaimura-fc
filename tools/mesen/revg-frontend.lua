@@ -25,7 +25,7 @@ local TITLE, PLAY, CLEAR, GAME_OVER, NAME_ENTRY = 7, 4, 5, 6, 15
 
 local frame, step, sf = 0, 1, 0
 local input = {}
-local sawJumpSe, sawLandSe = false, false
+local sawJumpSe, sawLandSe, sawStartSe = false, false, false
 local attractStartX = 0
 
 local function read(addr) return emu.read(addr, emu.memType.nesMemory) end
@@ -73,10 +73,13 @@ emu.addEventCallback(function()
             nextStep()
         end
     elseif step == 3 then
-        -- Start Stage 1 (Right+START) to test Jump/Land SEs and Stage Progression Map.
+        -- Start Stage 1 (Right+START, skipping opening) and verify START SE (11) still plays.
         if sf == 4 then input = {right = true, start = true} end
+        if sf >= 5 and read(SND_SE_ID) == 11 then sawStartSe = true end
         if sf == 24 then
-            if not check(scene == PLAY and read(CAMPAIGN_STAGE) == 1, "Stage 1 did not start") then return end
+            if not check(scene == PLAY and read(CAMPAIGN_STAGE) == 1 and sawStartSe,
+                    string.format("Stage 1 start / START SE failed (scene=%d stg=%d se=%s)",
+                        scene, read(CAMPAIGN_STAGE), tostring(sawStartSe))) then return end
             nextStep()
         end
     elseif step == 4 then
@@ -94,16 +97,40 @@ emu.addEventCallback(function()
         end
     elseif step == 5 then
         if scene == CLEAR and sf >= 10 then
-            -- Verify Makai Map: 'X' ($38) in "NEXT STAGE" at $22c8, Graveyard Cross ($39) at $2264,
-            -- and Arthur marker ($40) above Stage 2 at $2208.
-            if not check(readNt(0x22c8) == 0x38 and readNt(0x2264) == 0x39 and readNt(0x2208) == 0x40,
-                    string.format("Makai Map tiles missing ($22c8=%02x $2264=%02x $2208=%02x)",
-                        readNt(0x22c8), readNt(0x2264), readNt(0x2208))) then return end
+            -- Verify authentic arcade Makai Map: 'X' ($38) in "NEXT STAGE" at $2108,
+            -- Arthur pin marker ($39) at $22cb (above Door 1), and panorama tiles ($40+) in rows 16..27.
+            local mapTiles = 0
+            for a = 0x2200, 0x237f do
+                if readNt(a) >= 0x40 then mapTiles = mapTiles + 1 end
+            end
+            if not check(readNt(0x2108) == 0x38 and readNt(0x22cb) == 0x39 and mapTiles >= 100,
+                    string.format("Authentic Makai Map missing ($2108=%02x $22cb=%02x mapTiles=%d)",
+                        readNt(0x2108), readNt(0x22cb), mapTiles)) then return end
             input = {start = true}
             nextStep()
         elseif not check(sf < 200, "Stage 1 did not reach CLEAR map") then return end
     elseif step == 6 then
-        if scene == PLAY and read(CAMPAIGN_STAGE) == 2 then
+        if sf >= 15 and scene == PLAY and read(CAMPAIGN_STAGE) == 2 then
+            -- Also verify the Right half of the authentic arcade Makai Map (Stages 5-7 Castle) via Stage 4 clear.
+            write(CAMPAIGN_STAGE, 4)
+            write(KEY_COLLECTED, 1)
+            write(AP_CLEAR_SEQ, 0)
+            nextStep()
+        elseif not check(sf < 120, "START on Makai Map did not enter Stage 2") then return end
+    elseif step == 7 then
+        if scene == CLEAR and sf >= 10 then
+            local mapTiles = 0
+            for a = 0x2200, 0x237f do
+                if readNt(a) >= 0x40 then mapTiles = mapTiles + 1 end
+            end
+            if not check(readNt(0x2108) == 0x38 and readNt(0x22d1) == 0x39 and mapTiles >= 140,
+                    string.format("Authentic Makai Map (Right/Castle) missing ($2108=%02x $22d1=%02x mapTiles=%d)",
+                        readNt(0x2108), readNt(0x22d1), mapTiles)) then return end
+            input = {start = true}
+            nextStep()
+        elseif not check(sf < 200, "Stage 4 did not reach Right Makai Map") then return end
+    elseif step == 8 then
+        if scene == PLAY and read(CAMPAIGN_STAGE) == 5 then
             -- Set qualifying high score (025000 > default 1st 010000), 1 life, trigger Game Over.
             write(AP_SCORE + 0, 0)
             write(AP_SCORE + 1, 2)
@@ -114,18 +141,18 @@ emu.addEventCallback(function()
             -- Set clock to 0:01 with subsecond=1 so next tick triggers time-up -> GAME OVER.
             write(0x17, 0x1b); write(0x18, 0x1b); write(0x19, 0x1c); write(0x16, 1)
             nextStep()
-        elseif not check(sf < 120, "START on Makai Map did not enter Stage 2") then return end
-    elseif step == 7 then
+        elseif not check(sf < 120, "START on Right Makai Map did not enter Stage 5") then return end
+    elseif step == 9 then
         if scene == GAME_OVER and sf >= 20 then
             input = {start = true}
             nextStep()
         elseif not check(sf < 300, "Did not reach GAME OVER") then return end
-    elseif step == 8 then
+    elseif step == 10 then
         if scene == NAME_ENTRY and sf >= 12 then
             if not check(read(SND_SONG_ID) == 10, "Name Entry BGM ($26, Song 10) did not start") then return end
             nextStep()
         elseif not check(sf < 120, "Qualifying score on GAME OVER did not enter Name Entry") then return end
-    elseif step == 9 then
+    elseif step == 11 then
         -- Verify SELECT is ignored during Name Entry, then enter "BCZ" and confirm.
         if sf == 2 then input = {select = true}
         elseif sf == 6 then

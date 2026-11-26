@@ -221,6 +221,7 @@ prepare_pan:
     jsr pan_move_x
 prepare_pan_moved:
     jsr pan_move_y
+prepare_pan_after_y:
     lda pan_x+1
     jsr pan_set_tile_x
     lda pan_x
@@ -268,7 +269,9 @@ pan_row_ready:
 
 .ifdef REVG_STAGE1
 ; prepare_pan with extra horizontal pixels in bits 6-4 of pan_directions (the arcade
-; camera, arcade-player.inc). Under 8 px in all, so at most one new column.
+; camera, arcade-player.inc) and extra vertical pixels in pan_y_steps (up to 4 extra,
+; so 5 px/frame total matches Arthur's max fall speed). Under 8 px in each axis, so at
+; most one new row and one new column per frame.
 prepare_pan_steps:
     lda #pan_no_update
     sta pan_need_row
@@ -284,7 +287,15 @@ prepare_pan_steps:
     sta pan_directions
     jmp :-
 :
-    jmp prepare_pan_moved
+    jsr pan_move_y
+    lda pan_y_steps
+    beq @y_done
+:
+    jsr pan_move_y
+    dec pan_y_steps
+    bne :-
+@y_done:
+    jmp prepare_pan_after_y
 .endif
 
 ; A = camera X high byte (page). Set pan_tile_x/pan_tile_x_hi to its first tile column.

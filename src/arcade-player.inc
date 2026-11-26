@@ -1221,23 +1221,69 @@ ap_follow_camera:
 ap_pan_camera:
     sta pan_directions
 
-    ; Vertical axis: follow 16-bit player_y toward screen Y = 160
+    ; Vertical axis: follow 16-bit player_y toward screen Y = 160.
+    ; In REVG_STAGE1, track up to 5 px/frame (pan_y_steps = 0..4 extra) so vertical
+    ; camera keeps up with Arthur's max fall speed (5 px/f) off towers (Stage 2/5/6).
     jsr ap_update_cam_y
+.ifdef REVG_STAGE1
+    lda #0
+    sta pan_y_steps
+.endif
     sec
     lda player_feet
     sbc ap_cam_y_lo
     tay
     lda ap_player_y_hi
     sbc ap_cam_y_hi
-    bmi @cam_up
-    bne @cam_down
+    bmi @cam_up_far
+    bne @cam_down_far
     cpy #160
     beq @cam_y_ready
     bcc @cam_up
 @cam_down:
+.ifdef REVG_STAGE1
+    tya
+    sec
+    sbc #160
+    cmp #5
+    bcc :+
+    lda #5
+:
+    sec
+    sbc #1
+    sta pan_y_steps
+.endif
     lda #$04
     bne @cam_apply_y
+@cam_down_far:
+.ifdef REVG_STAGE1
+    lda #4
+    sta pan_y_steps
+.endif
+    lda #$04
+    bne @cam_apply_y
+@cam_up_far:
+.ifdef REVG_STAGE1
+    lda #4
+    sta pan_y_steps
+.endif
+    lda #$08
+    bne @cam_apply_y
 @cam_up:
+.ifdef REVG_STAGE1
+    lda #160
+    sec
+    sbc player_feet
+    clc
+    adc ap_cam_y_lo
+    cmp #5
+    bcc :+
+    lda #5
+:
+    sec
+    sbc #1
+    sta pan_y_steps
+.endif
     lda #$08
 @cam_apply_y:
     ora pan_directions
@@ -2697,6 +2743,13 @@ ap_check_hazard:
     bcs @fatal_hazard
     jmp @tile_hazard_check
 @vert_fall_check:
+.ifdef REVG_STAGE1
+    ; Arcade $F6BE: only pit-die when at the bottom vertical page of the stage;
+    ; falling from upper tower floors (Stage 2/5/6) is never fatal mid-air.
+    lda pan_y_page
+    cmp stage_cam_y_max_page
+    bcc @tile_hazard_check
+.endif
     ; Fatal if player falls below bottom of viewport (player_y - ap_cam_y >= 236).
     sec
     lda player_feet

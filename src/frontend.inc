@@ -414,11 +414,12 @@ fe_opening_lines:
     .byte 0
 
 ; --- Stage Progression Map Screen (Bank 2, REVG_STAGE1) -----------------------
-; Draws the 7-stage Makai route map with landmarks, connecting path, stage
-; numbers, and Arthur's marker above the next stage. Display must be off.
+; Draws the authentic arcade Makai panorama (from Bank 11: revg-map-data.inc) in
+; rows 16..27 ($2200..$237F) with menu text in the black upper half and Arthur's
+; marker pin above the next stage landmark. Display must be off.
 fe_draw_progress_map:
     jsr load_menu_patterns
-    ; Keep 'X' at tile $38 ($0380) for "NEXT STAGE", then upload 8 map-art tiles ($39..$40) at $0390..$040F.
+    ; Keep 'X' at tile $38 ($0380) and Arthur's marker pin at tile $39 ($0390).
     lda #$03
     sta $2006
     lda #$80
@@ -431,74 +432,13 @@ fe_draw_progress_map:
     cpx #16
     bne @x_chr_loop
     ldx #0
-@chr_loop:
-    lda fe_map_chr_data,x
-    sta $2007
-    inx
-    cpx #128
-    bne @chr_loop
-    jsr clear_screen
-    ; Load 4-palette Makai Map palette ($3F00..$3F0F).
-    lda #$3f
-    sta $2006
-    lda #$00
-    sta $2006
-    ldx #0
-@pal_loop:
-    lda fe_map_palette,x
+@pin_chr_loop:
+    lda fe_map_pin_chr,x
     sta $2007
     inx
     cpx #16
-    bne @pal_loop
-    ; Draw static map header, route landmarks, and prompt.
-    lda #<fe_map_static_lines
-    ldx #>fe_map_static_lines
-    jsr fe_draw_lines
-    ; Draw connecting dotted path between stages (tile $3F).
-    ldx #0
-@path_loop:
-    lda fe_map_path_hi,x
-    beq @path_done
-    sta $2006
-    lda fe_map_path_lo,x
-    sta $2006
-    lda #$3f
-    sta $2007
-    inx
-    bne @path_loop
-@path_done:
-    ; Draw 7 landmark icons + stage digits 1..7.
-    ldx #0
-@node_loop:
-    lda fe_map_node_hi,x
-    sta $2006
-    lda fe_map_node_lo,x
-    sta $2006
-    lda fe_map_node_tile,x
-    sta $2007
-    lda fe_map_num_hi,x
-    sta $2006
-    lda fe_map_num_lo,x
-    sta $2006
-    txa
-    clc
-    adc #campaign_zero + 1
-    sta $2007
-    inx
-    cpx #7
-    bne @node_loop
-    ; Write cleared stage number at $2090 ("STAGE X CLEAR").
-    lda #$20
-    sta $2006
-    lda #$90
-    sta $2006
-    lda campaign_stage
-    bne :+
-    lda #1
-:
-    clc
-    adc #campaign_zero
-    sta $2007
+    bne @pin_chr_loop
+    jsr clear_screen
     ; Compute next stage index (0..6): campaign_stage (mod 7), or Stage 5 (index 4)
     ; when Stage 6 was cleared without the required Cross/Shield weapon.
     lda campaign_stage
@@ -517,89 +457,169 @@ fe_draw_progress_map:
 @normal_next:
     lda campaign_stage
 @have_next:
-    tax
-    ; Place Arthur's marker ($40) above the next stage landmark.
-    lda fe_map_mark_hi,x
+    sta map_tmp                 ; save next stage index (0..6)
+
+    ; Map Bank 11 ($8000) to upload the authentic arcade Makai panorama (left: 0..3, right: 4..6).
+    lda prg_bank0
+    pha
+    lda #revg_map_bank_id
+    jsr select_bank0
+    ; Upload panorama CHR tiles to $0400 (tile $40+).
+    lda #$04
     sta $2006
-    lda fe_map_mark_lo,x
+    lda #$00
     sta $2006
-    lda #$40
+    lda map_tmp
+    cmp #4
+    bcs @use_right
+    lda #<revg_map_left_tiles
+    sta chr_source
+    lda #>revg_map_left_tiles
+    sta chr_source+1
+    ldx #>(revg_map_left_tile_count * 16)
+    lda #<(revg_map_left_tile_count * 16)
+    jsr upload_chr_patterns
+    ; Palette ($3F00..$3F0F)
+    lda #$3f
+    sta $2006
+    lda #$00
+    sta $2006
+    ldx #0
+:
+    lda revg_map_left_palette,x
     sta $2007
-    ; Write next stage number at $22D1 ("NEXT STAGE Y").
-    lda #$22
+    inx
+    cpx #16
+    bne :-
+    ; Nametable rows 16..27 ($2200..$237F, 384 bytes)
+    lda #<revg_map_left_names
+    sta map_ptr
+    lda #>revg_map_left_names
+    sta map_ptr+1
+    jsr fe_map_upload_nt
+    ; Attribute rows 16..27 ($23E0..$23F7, 24 bytes)
+    lda #$23
     sta $2006
-    lda #$d1
+    lda #$e0
     sta $2006
+    ldx #0
+:
+    lda revg_map_left_attrs,x
+    sta $2007
+    inx
+    cpx #24
+    bne :-
+    jmp @map_bank_done
+@use_right:
+    lda #<revg_map_right_tiles
+    sta chr_source
+    lda #>revg_map_right_tiles
+    sta chr_source+1
+    ldx #>(revg_map_right_tile_count * 16)
+    lda #<(revg_map_right_tile_count * 16)
+    jsr upload_chr_patterns
+    lda #$3f
+    sta $2006
+    lda #$00
+    sta $2006
+    ldx #0
+:
+    lda revg_map_right_palette,x
+    sta $2007
+    inx
+    cpx #16
+    bne :-
+    lda #<revg_map_right_names
+    sta map_ptr
+    lda #>revg_map_right_names
+    sta map_ptr+1
+    jsr fe_map_upload_nt
+    lda #$23
+    sta $2006
+    lda #$e0
+    sta $2006
+    ldx #0
+:
+    lda revg_map_right_attrs,x
+    sta $2007
+    inx
+    cpx #24
+    bne :-
+@map_bank_done:
+    pla
+    jsr select_bank0
+
+    ; Draw text banner in the black upper half (rows 4..13).
+    lda #<fe_map_static_lines
+    ldx #>fe_map_static_lines
+    jsr fe_draw_lines
+    ; Write cleared stage number at $2090 ("STAGE X CLEAR").
+    lda #$20
+    sta $2006
+    lda #$90
+    sta $2006
+    lda campaign_stage
+    bne :+
+    lda #1
+:
+    clc
+    adc #campaign_zero
+    sta $2007
+    ; Write next stage number at $2111 ("NEXT STAGE Y").
+    lda #$21
+    sta $2006
+    lda #$11
+    sta $2006
+    ldx map_tmp
     txa
     clc
     adc #campaign_zero + 1
     sta $2007
-    ; Set attribute table: palette 1 (blue) on left half, palette 2 (red/castle) on right half.
-    lda #$23
+    ; Place Arthur's marker pin ($39) above the next stage landmark on the arcade panorama.
+    lda fe_map_mark_hi,x
     sta $2006
-    lda #$c8
+    lda fe_map_mark_lo,x
     sta $2006
-    ldx #0
-@attr_loop:
-    lda fe_map_attrs,x
+    lda #$39
     sta $2007
-    inx
-    cpx #40
-    bne @attr_loop
     rts
 
-fe_map_palette:
-    .byte $0f, $30, $28, $16    ; Pal 0: white / gold text
-    .byte $0f, $11, $21, $30    ; Pal 1: graveyard / village / cavern (blue/white)
-    .byte $0f, $16, $27, $38    ; Pal 2: bridge / castle / throne (crimson/gold)
-    .byte $0f, $28, $38, $30    ; Pal 3: active marker highlight
+; Upload 384 nametable bytes from (map_ptr) to $2200..$237F (rows 16..27).
+fe_map_upload_nt:
+    lda #$22
+    sta $2006
+    lda #$00
+    sta $2006
+    ldy #0
+:
+    lda (map_ptr),y
+    sta $2007
+    iny
+    bne :-
+    inc map_ptr+1
+:
+    lda (map_ptr),y
+    sta $2007
+    iny
+    cpy #128
+    bne :-
+    rts
 
 fe_map_static_lines:
     fe_line $208a, "STAGE 1 CLEAR"
-    fe_line $22c6, "NEXT STAGE 2"
-    fe_line $2327, "START TO CONTINUE"
+    fe_line $2106, "NEXT STAGE 2"
+    fe_line $2168, "PLAYER ONE READY"
+    fe_line $21c7, "START TO CONTINUE"
     .byte 0
 
-; 7 stage landmarks (bottom-left Stage 1 -> top-right Stage 7)
-fe_map_node_hi: .byte $22, $22, $22, $21, $21, $21, $21
-fe_map_node_lo: .byte $64, $28, $0c, $d0, $94, $58, $1b
-fe_map_node_tile: .byte $39, $3a, $3b, $3c, $3d, $3d, $3e
-fe_map_num_hi:  .byte $22, $22, $22, $21, $21, $21, $21
-fe_map_num_lo:  .byte $84, $48, $2c, $f0, $b4, $78, $3b
-fe_map_mark_hi: .byte $22, $22, $21, $21, $21, $21, $20
-fe_map_mark_lo: .byte $44, $08, $ec, $b0, $74, $38, $fb
+; Arthur marker pin coordinates on the authentic arcade Makai panorama (Stages 1..7)
+; Left panorama (Stages 1-4): Graveyard(4,23), Door1(11,22), Door2(20,22), Door3(26,22)
+; Right panorama (Stages 5-7): Door4(17,22), Door5(22,20), Throne(22,17)
+fe_map_mark_hi: .byte $22, $22, $22, $22, $22, $22, $22
+fe_map_mark_lo: .byte $e4, $cb, $d4, $da, $d1, $96, $36
 
-; Dotted path tiles connecting the 7 landmarks (terminated by 0)
-fe_map_path_hi:
-    .byte $22, $22, $22, $22, $22, $21, $21, $21, $21, $21, $21, $21, $21, $21, $21, 0
-fe_map_path_lo:
-    .byte $66, $47, $2a, $0b, $0e, $ef, $d2, $b3, $96, $77, $5a, $19, $1a, $59, $95
-
-; 40 attribute bytes covering rows 4..23 ($23C8..$23EF)
-fe_map_attrs:
-    .byte $55,$55,$55,$55,$aa,$aa,$aa,$aa
-    .byte $55,$55,$55,$55,$aa,$aa,$aa,$aa
-    .byte $55,$55,$55,$55,$aa,$aa,$aa,$aa
-    .byte $55,$55,$55,$55,$aa,$aa,$aa,$aa
-    .byte $55,$55,$55,$55,$aa,$aa,$aa,$aa
-
-; 8 custom 8x8 2bpp tiles ($38..$3F) for the Makai Stage Map
-fe_map_chr_data:
-    ; $38: Graveyard Cross
-    .byte $18,$18,$7e,$7e,$18,$18,$18,$3c, $00,$00,$18,$18,$00,$00,$18,$3c
-    ; $39: Village Tower
-    .byte $18,$3c,$7e,$ff,$66,$66,$7e,$7e, $00,$18,$3c,$00,$42,$42,$42,$7e
-    ; $3A: Cavern Arch
-    .byte $3c,$7e,$e7,$c3,$c3,$c3,$c3,$ff, $00,$3c,$66,$42,$42,$42,$42,$ff
-    ; $3B: Hanging Bridge
-    .byte $81,$c3,$ff,$ff,$24,$24,$00,$00, $81,$81,$ff,$00,$24,$24,$00,$00
-    ; $3C: Castle Battlement
-    .byte $aa,$ff,$ff,$7e,$66,$66,$7e,$ff, $aa,$aa,$7e,$42,$42,$42,$7e,$ff
-    ; $3D: Demon Throne (Crown/Horns)
-    .byte $81,$c3,$e7,$ff,$db,$ff,$7e,$ff, $81,$42,$66,$ff,$5a,$ff,$3c,$ff
-    ; $3E: Route Path Dot
-    .byte $00,$00,$18,$3c,$3c,$18,$00,$00, $00,$00,$00,$18,$18,$00,$00,$00
-    ; $3F: Arthur Helmet Marker
+; Arthur helmet pin marker (tile $39)
+fe_map_pin_chr:
     .byte $3c,$7e,$ff,$db,$ff,$7e,$3c,$18, $18,$3c,$7e,$7e,$5a,$3c,$18,$00
 
 ; --- High Score Table, Name Entry, and Title Attract Demo (Bank 2) ------------

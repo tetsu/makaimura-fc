@@ -678,6 +678,10 @@ revg_draw_sprites:
     sta rs_req_n
     ; Cap sprite CHR uploads to stay within NTSC VBlank (2273 cycles) alongside
     ; BG scroll nametable, BG CHR streaming, HUD updates, and OAM DMA.
+    ; During the opening cutscene (demo_active != 0), no scrolling occurs, so allow 2 tiles/frame.
+    ldx #2
+    lda demo_active
+    bne @set_budget
     ldx #0
     lda pan_need_col
     bpl @set_budget             ; Defer sprite CHR on any BG column upload frame.

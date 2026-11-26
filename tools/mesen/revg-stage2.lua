@@ -105,6 +105,28 @@ emu.addEventCallback(function()
             if not check(read(PAN_Y_PAGE) == 1, "Stage 2 starts on lower vertical page 1") then return end
             if not check(readWord(PLAYER_X) == 80 and y == 400, "Stage 2 starts at (80, 400)") then return end
             if not check(read(S2_BOSS_REM) == 2, "Stage 2 starts with 2 Unicorn bosses") then return end
+            -- Test high-tower fall from upper page 0 (y=80) down to ground floor page 1 (y=400):
+            -- vertical camera must track at up to 5 px/f and Arthur must NOT pit-die mid-tower.
+            write(0x09, 0)         -- pan_y = 0
+            write(PAN_Y_PAGE, 0)   -- upper vertical page 0
+            write(PLAYER_FEET, 80); write(PLAYER_Y_HI, 0)
+            write(0x6010, 1)       -- ap_state_air
+            write(0x6013, 2)       -- ap_jump_phase = falling
+            phaseFrame = frame
+            phase = "s2_tower_fall"
+        end
+    elseif phase == "s2_tower_fall" then
+        write(AP_ARMOR, 2)
+        if not check(read(0x6010) ~= 4 and read(0x15) == 3,
+                string.format("Arthur died mid-air falling from Stage 2 tower (state=%d lives=%d y=%d yp=%d)",
+                    read(0x6010), read(0x15), read(PLAYER_FEET) + 256 * read(PLAYER_Y_HI), read(PAN_Y_PAGE))) then return end
+        if frame == phaseFrame + 95 then
+            local y = read(PLAYER_FEET) + 256 * read(PLAYER_Y_HI)
+            local camY = read(0x60b0) + 256 * read(0x60b1)
+            if not check(camY >= 200 and y >= 380,
+                    string.format("Vertical camera did not track tower fall (camY=%d y=%d)", camY, y)) then return end
+            -- Restore camera to bottom page 1 for subsequent Stage 2 enemy checks.
+            write(0x09, 0); write(PAN_Y_PAGE, 1)
             phaseFrame = frame
             phase = "s2_devil"
         end

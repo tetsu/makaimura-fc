@@ -19,6 +19,7 @@ local deaths = 0
 local sawStartSe = false
 local sawTitleSong = false
 local blackoutFrames = 0
+local openingOamMax = 0
 local zombieSeen = false
 
 local function read(addr) return emu.read(addr, emu.memType.nesMemory) end
@@ -48,6 +49,7 @@ emu.addEventCallback(function()
     if phase == "boot" then
         if frame == 128 then
             if not check(scene == TITLE, "title screen after power on") then return end
+            if not check(read(SND_SONG_ID) == 1, "title BGM must play on title screen") then return end
             input = {start = true}
             nextPhase("opening")
         end
@@ -55,14 +57,19 @@ emu.addEventCallback(function()
         if read(SND_SONG_ID) == 1 then sawTitleSong = true end
         if read(SND_SE_ID) == 11 then sawStartSe = true end
         local demo = read(DEMO_ACTIVE)
+        if demo == 1 and phaseFrame >= 30 and phaseFrame <= 450 then
+            local oam = 0
+            for i = 0, 63 do if read(0x200 + i * 4) < 0xef then oam = oam + 1 end end
+            if oam > openingOamMax then openingOamMax = oam end
+        end
         local pal1 = emu.read(1, emu.memType.nesPaletteRam)
         if phaseFrame > 515 and demo == 1 and pal1 == 0x0f then
             blackoutFrames = blackoutFrames + 1
         end
         if phaseFrame > 500 and demo == 0 then
-            if not check(scene == PLAY and sawTitleSong and sawStartSe and blackoutFrames >= 35,
-                    string.format("opening -> blackout (%dF) -> Stage 1 (song=%s se=%s)",
-                        blackoutFrames, tostring(sawTitleSong), tostring(sawStartSe))) then return end
+            if not check(scene == PLAY and sawTitleSong and sawStartSe and blackoutFrames >= 35 and openingOamMax >= 8,
+                    string.format("opening -> blackout (%dF) -> Stage 1 (song=%s se=%s oamMax=%d)",
+                        blackoutFrames, tostring(sawTitleSong), tostring(sawStartSe), openingOamMax)) then return end
             nextPhase("stage")
         end
     elseif phase == "stage" then

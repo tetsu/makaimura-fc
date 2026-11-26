@@ -38,8 +38,13 @@ bank_tag_base = $80
 .include "nes-areas.inc"
 .else
 .segment "PAD_11"
+.ifdef REVG_STAGE1
+.include "revg-map-data.inc"
+revg_map_bank
+.else
     .byte bank_tag_base + 11
     .res $1fff, $ff
+.endif
 .segment "PAD_19_48"
 .ifdef REVG_STAGE1
 ; Stage 1 background art from bank 19 (revg-background.inc reads it through $C000).
@@ -1364,10 +1369,8 @@ show_title_screen:
     lda #title_scene
     sta scene
     jsr call_bank8_audio_init
-.ifndef REVG_STAGE1
-    lda #snd_song_title             ; The arcade title is silent; its songs follow START.
+    lda #snd_song_title
     jsr call_bank8_play_song
-.endif
     lda #2
     jsr select_bank2
     jsr draw_title_screen
@@ -1486,7 +1489,15 @@ begin_arcade_game:
     ldx opt_lives_idx
     lda opt_lives_table,x
     sta campaign_lives
-    jmp start_arcade_stage
+    jsr start_arcade_stage
+.ifdef REVG_STAGE1
+    lda demo_active
+    bne :+
+    lda #snd_se_start           ; Play arcade START chime even when skipping opening
+    jsr call_bank8_play_se
+:
+.endif
+    rts
 
 .ifdef REVG_STAGE1
 ; A = opening_scene or map_scene.
