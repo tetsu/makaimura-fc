@@ -6,7 +6,8 @@
 .segment "WRAM"
 s567_boss_rem: .res 1           ; Remaining bosses in stage (S5: 1, S6: 2, S7: 1)
 s567_sy: .res 2                 ; Player shot arcade Y (lo/hi)
-rs_tile_slot_4: .res 256        ; Sprite tile id 1024..1279 -> slot + 1
+s567_rng_hi: .res 1             ; High byte of 16-bit RNG (kept separate from oz_reg_page)
+rs_tile_slot_4: .res 256        ; Sprite tile id 1024..1279 -> slot + 1 (kept at end of WRAM)
 
 .segment "BANK56"
 .scope s567
@@ -100,7 +101,7 @@ init:
     sta ob_flags,x
     dex
     bpl :-
-    ldx #ok_kinds - 1
+    ldx #16                     ; oz_kind_cnt has 17 bytes (0..16); ok_key (17) is not counted
 :
     sta oz_kind_cnt,x
     dex
@@ -126,10 +127,11 @@ init:
     sta s34_fix_used+2
     sta s34_sup_used
     sta s34_sup_used+1
+    sta oz_boss_seen
     lda #$5d
     sta oz_rng
     lda #$b9
-    sta oz_rng+1
+    sta s567_rng_hi
     ; Boss count: Stage 5 = 1 (Satan), Stage 6 = 2 (2x Satan), Stage 7 = 1 (Astaroth).
     lda #1
     ldx campaign_stage
@@ -205,8 +207,6 @@ update:
     ldx oz_i
     lda ob_kind,x
     beq @next
-    jsr step_anim
-    ldx oz_i
     lda ob_flags,x
     and #ofl_touch
     beq @next
@@ -230,7 +230,7 @@ ret_rts:
 tick_rng:
     lda oz_rng
     asl a
-    rol oz_rng+1
+    rol s567_rng_hi
     bcc :+
     eor #$2d
 :
@@ -273,15 +273,20 @@ alloc:
     rts
 
 inc_kind_y:
+    cpy #17
+    bcs @iky_ret
     lda oz_kind_cnt,y
     clc
     adc #1
     sta oz_kind_cnt,y
+@iky_ret:
     rts
 
 free_obj:
     ldy ob_kind,x
     beq @fr_done
+    cpy #17
+    bcs :+
     lda oz_kind_cnt,y
     beq :+
     sec
@@ -532,8 +537,16 @@ check_player_hit:
     sbc ok_pylo,y
     cmp oz_t0
     bcc @ph_no
-    lda #1
-    sta player_hit
+    lda ob_xl,x
+    sta ap_probe_x
+    lda ob_xh,x
+    sta ap_probe_x+1
+    jsr ap_apply_player_damage
+    ldx oz_i
+    lda ob_kind,x
+    cmp #ok_shot
+    bne @ph_no
+    jmp free_obj
 @ph_no:
     rts
 
@@ -645,7 +658,7 @@ spawn_fixed:
     clc
     adc #32
     cmp #64
-    bcc @s5_fx
+    bcc @s5_fy
     jmp @s5_fn
 @s5_fy:
     tya
@@ -659,11 +672,15 @@ spawn_fixed:
     lda bit_mask,y
     and s34_fix_used,x
     bne @s5_fn
+    stx oz_t0
     lda bit_mask,y
-    ora s34_fix_used,x
-    sta s34_fix_used,x
+    sta oz_t1
     jsr alloc
     bcs @s5_fn
+    ldy oz_t0
+    lda oz_t1
+    ora s34_fix_used,y
+    sta s34_fix_used,y
     ldy oz_i
     lda revg5_fix_kind,y
     sta ob_kind,x
@@ -795,7 +812,7 @@ spawn_fixed:
     clc
     adc #32
     cmp #64
-    bcc @s6_fx
+    bcc @s6_fy
     jmp @s6_fn
 @s6_fy:
     tya
@@ -809,11 +826,15 @@ spawn_fixed:
     lda bit_mask,y
     and s34_fix_used,x
     bne @s6_fn
+    stx oz_t0
     lda bit_mask,y
-    ora s34_fix_used,x
-    sta s34_fix_used,x
+    sta oz_t1
     jsr alloc
     bcs @s6_fn
+    ldy oz_t0
+    lda oz_t1
+    ora s34_fix_used,y
+    sta s34_fix_used,y
     ldy oz_i
     lda revg6_fix_kind,y
     sta ob_kind,x
@@ -1030,6 +1051,8 @@ load_page_s5:
     lda #0
     sta s34_sch_pat
     sta s34_sch_pat+1
+    lda #3
+    sta oz_t2
 @lp5:
     lda revg5_page_groups,y
     beq @lp5_done
@@ -1057,7 +1080,8 @@ load_page_s5:
     iny
     iny
     iny
-    jmp @lp5
+    dec oz_t2
+    bne @lp5
 @lp5_done:
     rts
 
@@ -1075,6 +1099,8 @@ load_page_s6:
     sta s34_sch_pat,x
     dex
     bpl :-
+    lda #3
+    sta oz_t2
 @lp6:
     lda revg6_page_groups,y
     beq @lp6_done
@@ -1102,7 +1128,8 @@ load_page_s6:
     iny
     iny
     iny
-    jmp @lp6
+    dec oz_t2
+    bne @lp6
 @lp6_done:
     rts
 
@@ -1115,6 +1142,13 @@ spawn_rec_s5:
     lda s34_sch_rec,x
     cmp s34_sch_end,x
     bcc :+
+    lda s34_sch_once,x
+    and #2
+    beq @s5_wrap
+    lda #0
+    sta s34_sch_pat,x
+    jmp :+
+@s5_wrap:
     lda s34_sch_pat,x
     sec
     sbc #1
@@ -1185,6 +1219,13 @@ spawn_rec_s6:
     lda s34_sch_rec,x
     cmp s34_sch_end,x
     bcc :+
+    lda s34_sch_once,x
+    and #2
+    beq @s6_wrap
+    lda #0
+    sta s34_sch_pat,x
+    jmp :+
+@s6_wrap:
     lda s34_sch_pat,x
     sec
     sbc #1
@@ -1437,8 +1478,8 @@ u_unicorn:
     jsr face_player
     lda #45
     sta ob_t0,x
-    lda #<rf_5245
-    ldy #>rf_5245
+    lda #<rf_4FAB
+    ldy #>rf_4FAB
     jmp set_anim
 @un_act:
     dec ob_t0,x
@@ -1864,6 +1905,14 @@ u_satan:
     dec ob_t0,x
     bne @st_wret
 @st_wake:
+    lda oz_boss_seen
+    bne :+
+    lda #1
+    sta oz_boss_seen
+    lda #snd_song_boss
+    jsr call_bank8_play_song
+    ldx oz_i
+:
     lda #1
     sta ob_state,x
     lda #3                      ; Reset HP to 4 (3+1) on activation
@@ -2445,10 +2494,15 @@ u_item:
     sta oz_t0
     lda ob_xh,x
     sbc player_x+1
-    bne @it_ret
+    sta oz_t1
     clc
     lda oz_t0
     adc #16
+    sta oz_t0
+    lda oz_t1
+    adc #0
+    bne @it_ret
+    lda oz_t0
     cmp #32
     bcs @it_ret
     sec
@@ -2457,10 +2511,15 @@ u_item:
     sta oz_t0
     lda ob_yh,x
     sbc oz_py+1
-    bne @it_ret
+    sta oz_t1
     clc
     lda oz_t0
     adc #20
+    sta oz_t0
+    lda oz_t1
+    adc #0
+    bne @it_ret
+    lda oz_t0
     cmp #40
     bcs @it_ret
     lda ob_var,x
@@ -2482,6 +2541,7 @@ u_item:
 @it_pick:
     lda #snd_se_item
     jsr call_bank8_play_se
+    ldx oz_i
     jmp free_obj
 @it_ret:
     rts
@@ -2510,10 +2570,15 @@ u_trigger:
     sta oz_t0
     lda ob_xh,x
     sbc player_x+1
-    bne @tr_ret
+    sta oz_t1
     clc
     lda oz_t0
     adc #16
+    sta oz_t0
+    lda oz_t1
+    adc #0
+    bne @tr_ret
+    lda oz_t0
     cmp #32
     bcs @tr_ret
     sec
@@ -2522,10 +2587,15 @@ u_trigger:
     sta oz_t0
     lda ob_yh,x
     sbc oz_py+1
-    bne @tr_ret
+    sta oz_t1
     clc
     lda oz_t0
     adc #24
+    sta oz_t0
+    lda oz_t1
+    adc #0
+    bne @tr_ret
+    lda oz_t0
     cmp #48
     bcs @tr_ret
     lda ob_var,x
@@ -2548,6 +2618,7 @@ u_trigger:
 @tr_done:
     lda #snd_se_item
     jsr call_bank8_play_se
+    ldx oz_i
     jmp free_obj
 @tr_ret:
     rts
@@ -2556,8 +2627,8 @@ u_key:
     lda ob_cur_l,x
     ora ob_cur_h,x
     bne :+
-    lda #<rf_5871
-    ldy #>rf_5871
+    lda #<rf_7430
+    ldy #>rf_7430
     jsr set_anim
 :
     ; Wait for player pickup
@@ -2567,10 +2638,15 @@ u_key:
     sta oz_t0
     lda ob_xh,x
     sbc player_x+1
-    bne @ky_ret
+    sta oz_t1
     clc
     lda oz_t0
     adc #20
+    sta oz_t0
+    lda oz_t1
+    adc #0
+    bne @ky_ret
+    lda oz_t0
     cmp #40
     bcs @ky_ret
     sec
@@ -2579,10 +2655,15 @@ u_key:
     sta oz_t0
     lda ob_yh,x
     sbc oz_py+1
-    bne @ky_ret
+    sta oz_t1
     clc
     lda oz_t0
     adc #24
+    sta oz_t0
+    lda oz_t1
+    adc #0
+    bne @ky_ret
+    lda oz_t0
     cmp #48
     bcs @ky_ret
     jmp start_clear_seq
@@ -2915,8 +2996,19 @@ shot_check:
     rts
 
 make_boom:
+    ldy ob_kind,x
+    beq @mb_set
+    cpy #17
+    bcs @mb_set
+    lda oz_kind_cnt,y
+    beq @mb_set
+    sec
+    sbc #1
+    sta oz_kind_cnt,y
+@mb_set:
     lda #ok_boom
     sta ob_kind,x
+    inc oz_kind_cnt+ok_boom
     lda #0
     sta ob_flags,x
     lda #18

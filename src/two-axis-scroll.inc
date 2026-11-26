@@ -65,6 +65,7 @@ show_stage_view:
     sta arcade_mode
     lda #0
     sta pan_y_page
+    sta campaign_stage
     tay
     jsr draw_pan
     jsr call_bank3_load_stage_visuals

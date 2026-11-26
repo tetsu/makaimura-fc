@@ -81,6 +81,13 @@ show_sound_screen:
     sta channel
     sta phrase
     sta frames
+.ifdef REVG_STAGE1
+    sta game_paused
+    sta demo_active
+    sta demo_finish
+    sta death_timer
+    sta death_timer+1
+.endif
     lda #1
     jsr select_bank1
     lda #2

@@ -676,12 +676,24 @@ revg_draw_sprites:
     sta rs_oam
     sta rs_full
     sta rs_req_n
-    ; Two new tiles a frame, one when a background column also goes up this frame.
-    ldx #rs_max_req
+    ; Cap sprite CHR uploads to stay within NTSC VBlank alongside BG scroll/CHR/HUD.
+    ldx #2
     lda pan_need_col
-    bmi :+
+    bpl @one_tile
+    lda pan_need_row
+    bpl @one_tile
+    lda revg_chr_count
+    ora campaign_hud_dirty
+    beq @set_budget
+@one_tile:
     ldx #1
-:
+    ; On diagonal scroll frames (both row and col), defer sprite CHR uploads to next frame.
+    lda pan_need_col
+    bmi @set_budget
+    lda pan_need_row
+    bmi @set_budget
+    ldx #0
+@set_budget:
     stx rs_budget
     lda demo_active
     beq :+
@@ -734,11 +746,20 @@ rs_drop_unsent:
     tay
     lda rs_slot_hi,y
     bmi @next
+    cmp #4
+    beq @slot4
     clc
     adc #>rs_tile_slot
     sta rs_lptr2+1
     lda #<rs_tile_slot
     sta rs_lptr2
+    jmp @clear_slot
+@slot4:
+    lda #<rs_tile_slot_4
+    sta rs_lptr2
+    lda #>rs_tile_slot_4
+    sta rs_lptr2+1
+@clear_slot:
     lda rs_slot_lo,y
     pha
     lda #$ff

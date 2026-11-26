@@ -1808,13 +1808,13 @@ revg_step_clear_seq:
     adc #0
     sta player_x+1
     lda player_x
-    cmp #<revg_goal_x
+    cmp stage_goal_x_lo
     lda player_x+1
-    sbc #>revg_goal_x
+    sbc stage_goal_x_hi
     bcc :+
-    lda #<revg_goal_x
+    lda stage_goal_x_lo
     sta player_x
-    lda #>revg_goal_x
+    lda stage_goal_x_hi
     sta player_x+1
 :
     rts

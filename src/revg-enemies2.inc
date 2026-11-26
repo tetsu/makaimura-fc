@@ -1743,9 +1743,11 @@ u_unicorn:
     lda ob_xh,x
     cmp #>3556
     bcc @do_mv
+    bne @push_l
     lda ob_xl,x
     cmp #<3556
     bcc @do_mv
+@push_l:
     lda #$ff
     sta ob_vxi,x
     jmp @do_mv
@@ -1819,19 +1821,17 @@ u_disc:
     lda oz_t0
     cmp #33
     bcs @ret
+    stx oz_obj
     lda #2
     ldy ob_var,x
     cpy #3
     bne :+
     lda #5
 :
-    txa
-    pha
     jsr ap_add_score
     lda #snd_se_pickup
     jsr call_bank8_play_se
-    pla
-    tax
+    ldx oz_obj
     jmp free
 @ret:
     rts

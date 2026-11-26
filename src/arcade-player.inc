@@ -284,7 +284,7 @@ ap_init_stage:
     lda campaign_stage
     cmp #arcade_stage_count
     beq @keep_stage7_weapon
-    lda #ap_weapon_lance
+    lda opt_start_weapon
     sta ap_weapon
 @keep_stage7_weapon:
 .endif
@@ -353,6 +353,8 @@ ap_init_stage:
     sta ap_test_hit
 .ifdef REVG_STAGE1
     sta ap_clear_seq
+    sta ap_frog_timer
+    sta ap_frog_timer+1
 .endif
 :
     sta ps_active,x
@@ -642,6 +644,10 @@ ap_load_stage_visuals:
     lda sd_bg_chr_ptr+1
     sta map_ptr+1
 @upload_bg_chr:
+    lda prg_bank2
+    pha
+    lda #2
+    jsr select_bank2
     lda #>(terrain_tiles - glyphs)
     sta $2006
     lda #<(terrain_tiles - glyphs)
@@ -653,6 +659,8 @@ ap_load_stage_visuals:
     iny
     cpy #64
     bne :-
+    pla
+    jsr select_bank2
     ; Four CHR tiles replace the two 8x16 sprites in the boss's upper half.
     ; A zero pointer keeps the default patterns loaded from BANK10.
 @check_spr_chr:
@@ -2710,7 +2718,10 @@ ap_check_hazard:
     sta ap_probe_y_hi
     jsr ap_tile_type_at
     cmp #tile_type_hazard
+    bne @tile_hazard_ok
+    lda opt_invincible
     beq @fatal_hazard
+@tile_hazard_ok:
     rts
 @fatal_hazard:
     lda #1

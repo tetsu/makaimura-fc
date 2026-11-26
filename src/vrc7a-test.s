@@ -749,6 +749,8 @@ audio_tick:
     bne @bank8_audio_tick
     lda scene
     cmp #title_scene
+    beq @bank8_audio_tick
+    cmp #option_scene
     bne @legacy_audio_tick
 @bank8_audio_tick:
     jsr call_bank8_audio_tick
@@ -1013,7 +1015,17 @@ snd_unlock_bank8:
     jsr select_bank2
     dec snd_lock
     lda snd_nmi_missed
-    bne nmi_audio_tick
+    beq @unlock_done
+    txa
+    pha
+    tya
+    pha
+    jsr nmi_audio_tick
+    pla
+    tay
+    pla
+    tax
+@unlock_done:
     rts
 
 call_bank8_audio_tick:
@@ -1102,6 +1114,12 @@ load_game_patterns:
 .endif
 
 load_menu_patterns:
+.if PRG_ROM_UNITS = 32
+    lda prg_bank2
+    pha
+    lda #2
+    jsr select_bank2
+.endif
     lda #>chr_background_address
     sta $2006
     lda #<chr_background_address
@@ -1112,7 +1130,13 @@ load_menu_patterns:
     sta chr_source+1
     ldx #>CHR_BACKGROUND_BYTES
     lda #<CHR_BACKGROUND_BYTES
+.if PRG_ROM_UNITS = 32
+    jsr upload_chr_patterns
+    pla
+    jmp select_bank2
+.else
     jmp upload_chr_patterns
+.endif
 
 .if PRG_ROM_UNITS = 32
 draw_screen:
@@ -1246,6 +1270,13 @@ show_title_screen:
     sta arcade_mode
     sta title_cursor
     sta opt_return_to
+.ifdef REVG_STAGE1
+    sta game_paused
+    sta demo_active
+    sta demo_finish
+    sta death_timer
+    sta death_timer+1
+.endif
     lda #1
     jsr select_bank1
     lda #title_scene
@@ -1474,6 +1505,9 @@ shot_sound_length = * - shot_sound_period
 shot_sound_level: .byte $71, $72, $73, $74, $76, $78
 note_low: .byte $ac, $d9, $02, $59, $b3, $05, $c2, $e6, $22, $83, $cc, $44, $a3, $c2, $02, $46, $83, $05
 note_high: .byte $16, $16, $17, $17, $17, $16, $16, $16, $17, $17, $17, $16, $16, $16, $17, $17, $17, $16
+.if PRG_ROM_UNITS = 32
+.segment "BANK2"
+.endif
 glyphs:
     .res 16, 0
     .byte $00, $1f, $01, $02, $04, $08, $08, $08, $00, $00, $00, $00, $00, $00, $00, $00 ; 7

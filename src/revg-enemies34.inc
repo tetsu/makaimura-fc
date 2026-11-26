@@ -1714,6 +1714,19 @@ u_fire:
 spawn_dragon_boss:
     lda #1
     sta oz_boss_seen
+    ; Clear non-boss objects so Fire Pillars / stage enemies cannot starve the 9 Dragon slots.
+    ldx #ob_max - 1
+    lda #0
+:
+    sta ob_kind,x
+    sta ob_flags,x
+    dex
+    bpl :-
+    ldx #ok_kinds - 1
+:
+    sta oz_kind_cnt,x
+    dex
+    bpl :-
     lda #snd_song_boss
     jsr call_bank8_play_song
     ; Allocate head
@@ -1730,6 +1743,8 @@ spawn_dragon_boss:
     lda #0
     sta ob_var,x
     sta ob_state,x
+    lda #10                     ; Initial steering countdown (avoid 0->255 wrap)
+    sta ob_t0,x
     lda #8                      ; Direction 8 = Left
     sta ob_aux,x
     lda #1                      ; Facing left
@@ -2193,9 +2208,10 @@ u_item:
     beq @armor
     lda #5                      ; 500 pts bonus
     jsr ap_add_score
+    ldx oz_i
     jmp free_slot
 @armor:
-    lda #1
+    lda #ap_armor_full
     sta ap_armor
     jmp free_slot
 @it_ret:
@@ -2246,9 +2262,10 @@ u_trigger:
     beq @tr_arm
     lda #5
     jsr ap_add_score
+    ldx oz_i
     jmp free_slot
 @tr_arm:
-    lda #1
+    lda #ap_armor_full
     sta ap_armor
     jmp free_slot
 @tr_ret:
@@ -2356,8 +2373,16 @@ check_player_hit:
     sbc ok_pylo,y
     cmp oz_t0
     bcc @ph_ret
-    lda #1
-    sta player_hit
+    lda ob_xl,x
+    sta ap_probe_x
+    lda ob_xh,x
+    sta ap_probe_x+1
+    jsr ap_apply_player_damage
+    ldx oz_i
+    lda ob_kind,x
+    cmp #ok_shot
+    bne @ph_ret
+    jmp free_slot
 @ph_ret:
     rts
 
@@ -2567,8 +2592,17 @@ shot_check:
     rts
 
 make_boom:
+    ldy ob_kind,x
+    beq @mb_set
+    lda oz_kind_cnt,y
+    beq @mb_set
+    sec
+    sbc #1
+    sta oz_kind_cnt,y
+@mb_set:
     lda #ok_boom
     sta ob_kind,x
+    inc oz_kind_cnt+ok_boom
     lda #0
     sta ob_flags,x
     lda #18
@@ -2599,7 +2633,8 @@ drop_item:
     lda #ofl_alive
     sta ob_flags,x
     lda ap_armor
-    bne @bonus_drop
+    cmp #ap_armor_full
+    beq @bonus_drop
     lda #0                      ; Armor
     sta ob_var,x
     lda #<rf_5B0C

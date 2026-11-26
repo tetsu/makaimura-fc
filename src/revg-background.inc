@@ -342,14 +342,19 @@ revg_bg_stream:
     sta revg_chr_count
     ldx #revg_chr_per_frame
     lda pan_need_col
-    bmi :+
+    bmi @no_col_cap
     ldx #revg_chr_with_column
-:
     lda pan_need_row
-    bmi :+
+    bmi @cap_done
+    ldx #0                      ; diagonal scroll: defer BG CHR to keep VBlank safe
+    beq @cap_done
+@no_col_cap:
+    lda pan_need_row
+    bmi @cap_done
     ldx #revg_chr_with_column
-:
+@cap_done:
     stx revg_count
+    beq @stream_done
 @tile:
     ldx revg_q_head
     cpx revg_q_tail
@@ -511,6 +516,11 @@ revg_enqueue_list:
     ldx revg_q_tail
 @entry:
     cpy revg_count
+    beq @copied
+    txa
+    clc
+    adc #1
+    cmp revg_q_head
     beq @copied
     lda (revg_ptr),y
     sta revg_q_lo,x
@@ -851,9 +861,10 @@ revg2_prepare_row:
     lsr a
     lsr a
     tay
-    ; Keep palette 0 on HUD attribute row (page 0, attr_row 0).
+    ; Keep palette 0 on HUD attribute row ($23C0..$23C7 on even pages 0, 2, 4).
     bne @do_row_attr
     lda revg2_tmp0
+    and #1
     bne @do_row_attr
     lda #0
     ldx #7
@@ -921,6 +932,16 @@ revg2_prepare_row:
 ; Prepare pan_col_tiles[0..pan_col_length-1] and split 8-byte revg_col_attr[0..7]
 ; for Stage 2 horizontal-mirroring 2-axis scroll.
 revg2_prepare_column:
+    lda #31
+    sec
+    sbc pan_top_rows
+    tay
+    lda pan_y
+    and #7
+    bne :+
+    dey                         ; tile-aligned: only 30 - pan_top_rows rows visible (avoid HUD row 0 & OOB)
+:
+    sty pan_col_length
     lda pan_tile_y
     clc
     adc pan_top_rows
@@ -962,6 +983,15 @@ revg2_prepare_column:
     ldx #0
 @col_loop:
     stx revg2_tmp1              ; buffer index
+    lda stage_height_rows
+    asl a
+    cmp pan_data_y
+    beq @col_oob
+    bcs @col_in_bounds
+@col_oob:
+    lda #0
+    jmp @col_st
+@col_in_bounds:
     lda pan_data_y
     ldy #0
 @col_vp:

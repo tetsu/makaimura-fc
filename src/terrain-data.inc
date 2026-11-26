@@ -252,6 +252,10 @@ set_map_col_ptr:
 ; A = metatile column (0..255), Y = metatile row (0..59).
 ; Returns metatile ID in A (mt_rock below the map). Preserves X and Y.
 read_map_cell:
+    cmp stage_width_cols
+    bcc :+
+    jmp @below_map
+:
     cpy stage_height_rows
     bcc :+
     jmp @below_map
