@@ -187,8 +187,8 @@ emu.addEventCallback(function()
         if frame == phaseFrame + 20 then
             input = {start = true}
         elseif frame == phaseFrame + 35 then
-            if not check(scene == TITLE, "START after Stage 2 clear returns to title") then return end
-            print(string.format("PASS: Stage 2 (bank 13, 2-page map, Petit Devil, Purple Flyer, Big Man HP10, 2x Unicorn, key, clear -> title) (frame %d)", frame))
+            if not check(scene == PLAY and read(CAMPAIGN_STAGE) == 3, "START after Stage 2 clear advances to Stage 3") then return end
+            print(string.format("PASS: Stage 2 (bank 13, 2-page map, Petit Devil, Purple Flyer, Big Man HP10, 2x Unicorn, key, clear -> Stage 3) (frame %d)", frame))
             emu.stop(0)
         end
     end

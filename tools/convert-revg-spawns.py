@@ -18,16 +18,19 @@ import argparse
 import json
 from pathlib import Path
 
-# Arcade enemy type -> FC object kind (src/revg-enemies.inc / revg-enemies2.inc).
+# Arcade enemy type -> FC object kind (src/revg-enemies.inc / revg-enemies2.inc / revg-enemies34.inc).
 KINDS = {
     0x00: "ok_pig", 0x01: "ok_crow", 0x02: "ok_devil", 0x03: "ok_knight",
     0x04: "ok_flyer", 0x05: "ok_arremer", 0x07: "ok_magician", 0x08: "ok_unicorn",
-    0x0A: "ok_bigman", 0x0B: "ok_zombie", 0x11: "ok_plant",
+    0x0A: "ok_bigman", 0x0B: "ok_zombie", 0x0C: "ok_dragon", 0x0E: "ok_fire",
+    0x11: "ok_plant", 0x12: "ok_pillar",
 }
 # The scheduler of each type a group can start (one pattern at a time per type).
 SCHEDULED_BY_SECTION = {
     0: [0x0B, 0x03, 0x00, 0x08],
     1: [0x02, 0x04, 0x01, 0x08, 0x0B],
+    2: [0x00, 0x04, 0x05, 0x0B, 0x0C],
+    3: [0x02, 0x0C],
 }
 
 
@@ -49,6 +52,7 @@ def main():
     first, last = section["pages"]["columns"]
     row_lo, row_hi = section["pages"]["rows"]
     x_min = section["camera"]["x_min"]
+    y_min = section["camera"]["y_min"]
     scheduled = SCHEDULED_BY_SECTION[args.section]
     p = args.prefix
     pages = {pg["page"]: pg for pg in world["pages"]}
@@ -60,11 +64,11 @@ def main():
     lines.append(f"{p}_fix_count = {len(fixed)}")
     lines.append(f"{p}_fix_kind: .byte " + ", ".join(KINDS[e["type"]] for e in fixed))
     lines.append(f"{p}_fix_var: .byte " + ", ".join(str(e["variant"]) for e in fixed))
-    lines += word([e["x"] - x_min for e in fixed], f"{p}_fix_x") + word([e["y"] for e in fixed], f"{p}_fix_y")
+    lines += word([e["x"] - x_min for e in fixed], f"{p}_fix_x") + word([e["y"] - y_min for e in fixed], f"{p}_fix_y")
     support = [s for s in section["support_list"] if s["type"] == 0]
     lines.append(f"{p}_sup_count = {len(support)}")
     lines.append(f"{p}_sup_var: .byte " + ", ".join(str(s["variant"]) for s in support))
-    lines += word([s["x"] - x_min for s in support], f"{p}_sup_x") + word([s["y"] for s in support], f"{p}_sup_y")
+    lines += word([s["x"] - x_min for s in support], f"{p}_sup_x") + word([s["y"] - y_min for s in support], f"{p}_sup_y")
     lines.append("")
 
     # Patterns: the records in one list, each pattern a start and a count.

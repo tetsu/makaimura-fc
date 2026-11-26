@@ -22,27 +22,26 @@ reset_campaign_clock:
 @arcade_clock:
     lda #64                     ; arcade clock ticks 1 second per 64 frames
     sta campaign_subsecond
-    lda campaign_stage
-    cmp #2
-    beq @arcade_clock_s2
-    lda #campaign_zero + 2      ; arcade Stage 1 starts at 2:00
-    sta campaign_clock
-    lda #campaign_zero
-    sta campaign_clock+1
-    sta campaign_clock+2
-    rts
-@arcade_clock_s2:
-    lda #campaign_zero + 1      ; arcade Stage 2: 1:30 start, 2:30 checkpoint
-    ldx checkpoint_reached
+    ldx campaign_stage
+    cpx #5
+    bcc :+
+    ldx #1
+:
+    lda @ac_min,x
+    ldy checkpoint_reached
     beq :+
-    lda #campaign_zero + 2
+    cpx #2
+    bne :+
+    lda #campaign_zero + 2      ; Stage 2 checkpoint gives 2:30
 :
     sta campaign_clock
-    lda #campaign_zero + 3
+    lda @ac_sec,x
     sta campaign_clock+1
     lda #campaign_zero
     sta campaign_clock+2
     rts
+@ac_min: .byte campaign_zero+2, campaign_zero+2, campaign_zero+1, campaign_zero+2, campaign_zero+2
+@ac_sec: .byte campaign_zero,   campaign_zero,   campaign_zero+3, campaign_zero+3, campaign_zero
 .endif
 
 tick_campaign_clock:

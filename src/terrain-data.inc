@@ -48,7 +48,7 @@ default_stage_height = 15
 ; Stage header located immediately after the 1-byte bank tag at $8000.
 ; Every stage bank shares the same header layout in the $8000 window.
 .macro stage_header width_cols, height_rows, cam_x_max_hi, cam_y_max_page, start_x, cp_x, cp_feet, cp_cam_hi, cp_cam_y, goal_x_val, goal_feet_val, map_label, pal_label
-    .assert height_rows > 0 .and height_rows <= map_col_stride * 2, error, "Invalid stage height"
+    .assert height_rows > 0 .and height_rows <= map_col_stride * 4, error, "Invalid stage height"
     .assert (cp_feet .mod 8) = 0, error, "Invalid checkpoint scroll"
     .byte width_cols
     .byte height_rows
@@ -249,17 +249,25 @@ set_map_col_ptr:
 @cached:
     rts
 
-; A = metatile column (0..255), Y = metatile row (0..31).
+; A = metatile column (0..255), Y = metatile row (0..59).
 ; Returns metatile ID in A (mt_rock below the map). Preserves X and Y.
 read_map_cell:
     cpy stage_height_rows
     bcs @below_map
+    pha
+    lda stage_height_rows
+    cmp #32
+    bcs @read_nibble_map
+    pla
     cpy #map_col_stride
     bcs @read_lower_page
-    cmp map_cached_col
-    beq @read_cell
-    sta map_cached_col
+    jsr set_map_col_ptr
+    lda (map_ptr),y
+    rts
+@read_nibble_map:
+    pla
     sta map_tmp
+    asl a
     asl a
     asl a
     asl a
@@ -269,12 +277,36 @@ read_map_cell:
     lsr a
     lsr a
     lsr a
-    lsr a
     clc
     adc stage_map_ptr+1
     sta map_ptr+1
-@read_cell:
+    lda #$ff
+    sta map_cached_col
+    txa
+    pha
+    tya
+    pha
+    lsr a
+    tay
     lda (map_ptr),y
+    sta map_tmp
+    pla
+    tay
+    lsr a
+    lda map_tmp
+    bcc @nib_lo
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+@nib_lo:
+    and #$0f
+    tax
+    lda nibble_mt,x
+    sta map_tmp
+    pla
+    tax
+    lda map_tmp
     rts
 @read_lower_page:
     clc
@@ -308,6 +340,7 @@ read_map_cell:
     rts
 
 .segment "RODATA"
+nibble_mt: .byte mt_sky, mt_ladder, mt_floor, mt_dirt, mt_tomb
 metatile_attr:
     .byte tile_type_air     ; mt_sky
     .byte tile_type_air     ; mt_gravel

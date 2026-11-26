@@ -131,10 +131,10 @@ revg_spr_upload:
     sta $2006
     lda rs_up_lo,y
     sta $2006
-    lda #2
+    lda #8
     sta rs_nmi_half
 @half:
-.repeat 16
+.repeat 4
     lda rs_up_data,x
     sta $2007
     inx
@@ -610,11 +610,17 @@ rs_set_fc_y:
     sta rs_oy+1
     rts
 
-; A = arcade Y low, X = high -> rs_oy = 255 - Y - camera.
+; A = arcade Y low, X = high -> rs_oy = Y_top - Y - camera.
+; Y_top is $00FF (1-page), $01FF (2-page), or $03BF (4-page Stage 3 with row_offset=4).
 rs_set_arcade_y:
     sta rs_tmp
     stx rs_tmp+1
     lda #$ff
+    ldy rs_y_max_page
+    cpy #3
+    bne :+
+    lda #$bf
+:
     sec
     sbc rs_tmp
     sta rs_tmp

@@ -44,12 +44,13 @@ def floor_cell(height):
     return MT_FLOOR if top == 0 else MT_FLOOR_TOP + top - 1
 
 
-def convert(tiles, collision, supports, rows=ROWS, x_min=0):
+def convert(tiles, collision, supports, rows=ROWS, x_min=0, y_min=0, row_offset=0):
     width = len(tiles[0])
     cells = [[MT_SKY] * rows for _ in range(width)]
     floors = {}
     for row, line in enumerate(tiles):
-        if row == 0 or row - 1 >= rows:
+        fc_row = row - row_offset
+        if fc_row <= 0 or fc_row - 1 >= rows:
             continue
         for col, (code, _attr) in enumerate(line):
             if code >= 256:          # attribute bits 7-6 set: ignored by every check
@@ -57,10 +58,10 @@ def convert(tiles, collision, supports, rows=ROWS, x_min=0):
             height = collision["ground"][code]
             if height:
                 # The surface is in the FC row above the tile (feet 16 * row - 2 - height).
-                floors.setdefault(col, {})[row - 1] = floor_cell(height)
+                floors.setdefault(col, {})[fc_row - 1] = floor_cell(height)
             if collision["ladder"][code]:
                 # A ladder tile sits one row lower than the floor its top serves.
-                cells[col][row - 1] = MT_LADDER
+                cells[col][fc_row - 1] = MT_LADDER
     pits = []
     for col in range(width):
         col_floors = floors.get(col)
@@ -77,14 +78,18 @@ def convert(tiles, collision, supports, rows=ROWS, x_min=0):
         if support["type"] != TOMBSTONE:
             continue
         lx = support["x"] - x_min
+        ly = support["y"] - y_min
         col = lx // 16
-        feet = len(tiles) * 16 - (support["y"] + 2)
+        feet = (len(tiles) - row_offset) * 16 - (ly + 2)
         row = feet // 16 - 1
-        if cells[col][row + 1] != MT_FLOOR:
-            raise ValueError(f"tombstone at x={support['x']} has no floor below")
+        if row + 1 >= rows or cells[col][row + 1] != MT_FLOOR:
+            raise ValueError(f"tombstone at x={support['x']} y={support['y']} (col={col} row={row}) has no floor below")
         cells[col][row] = MT_TOMB
         tombs.append((lx, feet))
     return cells, pits, tombs
+
+
+NIBBLE_CODE = {MT_SKY: 0, MT_LADDER: 1, MT_FLOOR: 2, MT_DIRT: 3, MT_TOMB: 4}
 
 
 def main():
@@ -99,14 +104,16 @@ def main():
     world = json.loads((args.stages / "world.json").read_text(encoding="utf-8"))
     section = json.loads((args.stages / "sections.json").read_text(encoding="utf-8"))[args.section]
     map_height = section_map["height"]
-    if map_height not in (16, 32):
+    if map_height not in (16, 32, 64):
         raise SystemExit(f"unsupported section map height: {map_height}")
     vpages = map_height // 16
-    rows = ROWS * vpages  # 15 for 1-page, 30 for 2-page
+    rows = ROWS * vpages  # 15 for 1-page, 30 for 2-page, 60 for 4-page
+    row_offset = 4 if vpages == 4 else 0
 
     cells, pits, tombs = convert(
         section_map["tiles"], world["collision"], section["support_list"],
-        rows=rows, x_min=section["camera"]["x_min"],
+        rows=rows, x_min=section["camera"]["x_min"], y_min=section["camera"]["y_min"],
+        row_offset=row_offset,
     )
     width = len(cells)
     if width > 255:
@@ -123,7 +130,7 @@ def main():
     if vpages == 1:
         for col in cells:
             lines.append("    .byte " + ", ".join(f"{cell:2d}" for cell in col + [MT_DIRT] * (COLUMN_STRIDE - ROWS)))
-    else:
+    elif vpages == 2:
         # Engine 2-vertical-page layout (read_map_cell): upper page (rows 0..15) first,
         # then lower page (rows 16..29 + 2 filler rows) at offset width * 16.
         for col in cells:
@@ -131,6 +138,17 @@ def main():
         for col in cells:
             lower = col[16:rows] + [MT_DIRT] * (16 - (rows - 16))
             lines.append("    .byte " + ", ".join(f"{cell:2d}" for cell in lower))
+    else:
+        # Engine 4-vertical-page layout (read_map_cell): 4-bit nibble packed, 32 bytes/col.
+        # Byte r holds (row 2*r) in low nibble and (row 2*r+1) in high nibble.
+        for col in cells:
+            padded = col + [MT_DIRT] * (64 - rows)
+            packed = []
+            for i in range(0, 64, 2):
+                lo = NIBBLE_CODE[padded[i]]
+                hi = NIBBLE_CODE[padded[i + 1]]
+                packed.append((hi << 4) | lo)
+            lines.append("    .byte " + ", ".join(f"${b:02X}" for b in packed))
     lines.append(f"{p}_palettes:")
     for start in range(0, width, 32):
         lines.append("    .byte " + ", ".join("0" for _ in range(start, min(start + 32, width))))
@@ -142,7 +160,7 @@ def main():
         lines += [
             f"{p}_tomb_x_lo: .byte " + ", ".join(f"<{x}" for x, _ in tombs),
             f"{p}_tomb_x_hi: .byte " + ", ".join(f">{x}" for x, _ in tombs),
-            f"{p}_tomb_feet: .byte " + ", ".join(str(feet) for _, feet in tombs),
+            f"{p}_tomb_feet: .byte " + ", ".join(f"<{feet}" for _, feet in tombs),
         ]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text("\n".join(lines) + "\n", encoding="utf-8")

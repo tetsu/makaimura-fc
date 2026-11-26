@@ -83,6 +83,18 @@ EXTRA_ANIMATIONS += [(0x95F2, 3), (0x9596, 3)]
 # Big Man ($0A walk), and Big Man's projectile (enemyshot $03).
 EXTRA_ANIMATIONS += [(0xA893, 0), (0xB10B, 0), (0xB19E, 2), (0x50E4, 3), (0xFD02, 0)]
 STATIC_FRAMES += [(0x5170, 3), (0x5184, 3), (0x51B0, 3)]
+# Stage 3 & 4 (Sections 2 & 3) enemies: Bat ($01 var 2), Stone Pillar ($12) + shot ($05),
+# Dragon ($0C head/fire/body/tail) + fire ($09), Fire Pillar ($0E idle & erupt).
+EXTRA_ANIMATIONS += [
+    (0x49B2, 2), (0x49D0, 2),
+    (0xFD32, 0),
+    (0x5344, 3), (0x5352, 3), (0x53B4, 3), (0x53C2, 3),
+    (0xD5CE, 1), (0xD615, 0), (0xFD9C, 0),
+]
+STATIC_FRAMES += [
+    (0x5795, 8), (0x57A1, 8),
+    (0x55EC, 1), (0x5602, 8), (0x5631, 10),
+]
 
 
 def load_module(name, path):

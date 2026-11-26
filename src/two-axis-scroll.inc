@@ -177,25 +177,25 @@ draw_pan:
 :
 .endif
 .ifdef REVG_STAGE1
-    ; Stage 1 uses vertical mirroring ($80) + column-streamed BG (revg_bg_active = 1).
-    ; Stage 2 uses horizontal mirroring ($81) + 2-axis streamed BG (revg_bg_active = 2).
+    ; revg_bg_active: 1=Stage 1 (1-axis), 2=Stage 4 (1-axis), 3=Stage 2 (2-axis), 4=Stage 3 (2-axis).
     lda #0
     sta revg_bg_active
     lda arcade_mode
     beq pan_initial_rows
-    lda campaign_stage
-    cmp #1
-    beq @revg_stage1_bg
-    cmp #2
-    bne pan_initial_rows
-    sta revg_bg_active
+    ldx campaign_stage
+    cpx #5
+    bcs pan_initial_rows
+    lda @revg_stage_bg_mode,x
     beq pan_initial_rows
-@revg_stage1_bg:
     sta revg_bg_active
+    cmp #3
+    bcs pan_initial_rows
     lda #$80
-    sta $e000           ; Vertical mirroring: a 64-column ring.
+    sta $e000           ; Vertical mirroring: a 64-column ring (Stages 1 & 4).
     ldx #0
     jmp call_bank50_bg
+@revg_stage_bg_mode:
+    .byte 0, 1, 3, 4, 2
 .endif
 pan_initial_rows:
     jsr prepare_pan_row
@@ -440,8 +440,8 @@ pan_address_for_row:
 prepare_pan_row:
 .ifdef REVG_STAGE1
     lda revg_bg_active
-    cmp #2
-    bne :+
+    cmp #3
+    bcc :+
     ldx #4
     jmp call_bank50_bg
 :
@@ -832,8 +832,8 @@ upload_pan_row:
     sta $2006
 .ifdef REVG_STAGE1
     lda revg_bg_active
-    cmp #2
-    bne @legacy_row_attr
+    cmp #3
+    bcc @legacy_row_attr
     ldx #0
 :
     lda revg2_row_attr,x
@@ -896,6 +896,6 @@ apply_pan:
     rts
 
 .segment "RODATA"
-pan_page_tiles: .byte 0, 30, 60
+pan_page_tiles: .byte 0, 30, 60, 90, 120
 pan_row_offset: .byte 30, 0
 pan_col_offset: .byte 32, 1

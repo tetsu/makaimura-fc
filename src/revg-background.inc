@@ -50,12 +50,66 @@ revg2_tmp3: .res 1
 revg_nmi_cnt: .res 1
 
 .segment "BANK50"
+; Per-mode lookup tables indexed by revg_bg_active (1=S1, 2=S4, 3=S2, 4=S3).
+revg_bg_map_bank_tbl:
+    .byte 0, revg_bg_map_bank, revg4_bg_map_bank, revg2_bg_map_bank, revg3_bg_map_bank
+revg_bg_list_bank_tbl:
+    .byte 0, revg_bg_list_bank, revg4_bg_list_bank, revg2_bg_list_bank, revg3_bg_list_bank
+revg_bg_pat_bank_tbl:
+    .byte 0, revg_bg_pattern_bank, revg4_bg_pattern_bank, revg2_bg_pattern_bank, revg3_bg_pattern_bank
+revg_bg_swap_col_tbl:
+    .byte 0, revg_bg_swap_column, revg4_bg_swap_column, revg2_bg_swap_column, revg3_bg_swap_column
+revg_bg_pal_lo_tbl:
+    .byte 0, <revg_bg_palette, <revg4_bg_palette, <revg2_bg_palette, <revg3_bg_palette
+revg_bg_pal_hi_tbl:
+    .byte 0, >revg_bg_palette, >revg4_bg_palette, >revg2_bg_palette, >revg3_bg_palette
+revg_bg_pal2_lo_tbl:
+    .byte 0, <revg_bg_palette_forest, <revg4_bg_palette_forest, <revg2_bg_palette_zone2, <revg3_bg_palette_zone2
+revg_bg_pal2_hi_tbl:
+    .byte 0, >revg_bg_palette_forest, >revg4_bg_palette_forest, >revg2_bg_palette_zone2, >revg3_bg_palette_zone2
+revg_bg_r_slo_lo:
+    .byte 0, <revg_bg_right_start_lo, <revg4_bg_right_start_lo, <revg2_bg_right_start_lo, <revg3_bg_right_start_lo
+revg_bg_r_slo_hi:
+    .byte 0, >revg_bg_right_start_lo, >revg4_bg_right_start_lo, >revg2_bg_right_start_lo, >revg3_bg_right_start_lo
+revg_bg_r_shi_lo:
+    .byte 0, <revg_bg_right_start_hi, <revg4_bg_right_start_hi, <revg2_bg_right_start_hi, <revg3_bg_right_start_hi
+revg_bg_r_shi_hi:
+    .byte 0, >revg_bg_right_start_hi, >revg4_bg_right_start_hi, >revg2_bg_right_start_hi, >revg3_bg_right_start_hi
+revg_bg_r_ilo_lo:
+    .byte 0, <revg_bg_right_id_lo, <revg4_bg_right_id_lo, <revg2_bg_right_id_lo, <revg3_bg_right_id_lo
+revg_bg_r_ilo_hi:
+    .byte 0, >revg_bg_right_id_lo, >revg4_bg_right_id_lo, >revg2_bg_right_id_lo, >revg3_bg_right_id_lo
+revg_bg_r_ihi_lo:
+    .byte 0, <revg_bg_right_id_hi, <revg4_bg_right_id_hi, <revg2_bg_right_id_hi, <revg3_bg_right_id_hi
+revg_bg_r_ihi_hi:
+    .byte 0, >revg_bg_right_id_hi, >revg4_bg_right_id_hi, >revg2_bg_right_id_hi, >revg3_bg_right_id_hi
+revg_bg_l_slo_lo:
+    .byte 0, <revg_bg_left_start_lo, <revg4_bg_left_start_lo, <revg2_bg_left_start_lo, <revg3_bg_left_start_lo
+revg_bg_l_slo_hi:
+    .byte 0, >revg_bg_left_start_lo, >revg4_bg_left_start_lo, >revg2_bg_left_start_lo, >revg3_bg_left_start_lo
+revg_bg_l_shi_lo:
+    .byte 0, <revg_bg_left_start_hi, <revg4_bg_left_start_hi, <revg2_bg_left_start_hi, <revg3_bg_left_start_hi
+revg_bg_l_shi_hi:
+    .byte 0, >revg_bg_left_start_hi, >revg4_bg_left_start_hi, >revg2_bg_left_start_hi, >revg3_bg_left_start_hi
+revg_bg_l_ilo_lo:
+    .byte 0, <revg_bg_left_id_lo, <revg4_bg_left_id_lo, <revg2_bg_left_id_lo, <revg3_bg_left_id_lo
+revg_bg_l_ilo_hi:
+    .byte 0, >revg_bg_left_id_lo, >revg4_bg_left_id_lo, >revg2_bg_left_id_lo, >revg3_bg_left_id_lo
+revg_bg_l_ihi_lo:
+    .byte 0, <revg_bg_left_id_hi, <revg4_bg_left_id_hi, <revg2_bg_left_id_hi, <revg3_bg_left_id_hi
+revg_bg_l_ihi_hi:
+    .byte 0, >revg_bg_left_id_hi, >revg4_bg_left_id_hi, >revg2_bg_left_id_hi, >revg3_bg_left_id_hi
+
+.assert revg3_bg_mt_tl = revg2_bg_mt_tl, lderror, "revg3_bg_mt_tl offset mismatch"
+.assert revg3_bg_map_lo = revg2_bg_map_lo, lderror, "revg3_bg_map_lo offset mismatch"
+.assert revg3_bg_attr_lo = revg2_bg_attr_lo, lderror, "revg3_bg_attr_lo offset mismatch"
+
 ; X = dispatch index:
-;   0 = revg_bg_draw_screen (Stage 1)
-;   1 = revg_bg_load_all    (Stage 1 & 2)
-;   2 = revg_bg_stream      (Stage 1 & 2)
-;   3 = revg_prepare_column (Stage 1 & 2)
-;   4 = revg2_prepare_row   (Stage 2)
+;   0 = revg_bg_draw_screen (Stages 1 & 4)
+;   1 = revg_bg_load_all    (Stages 1..4)
+;   2 = revg_bg_stream      (Stages 1..4)
+;   3 = revg_prepare_column (Stages 1..4)
+;   4 = revg2_prepare_row   (Stages 2 & 3)
 revg_bg_dispatch:
     lda revg_bg_disp_hi,x
     pha
@@ -102,13 +156,26 @@ revg_bg_draw_screen:
     lda #2 * (16 + 1 + 2 * revg_bg_margin)
     sta revg_count
 @column:
+    lda revg_bg_active
+    cmp #2
+    beq @s4_bound
     lda pan_data_x_hi
     cmp #>(revg_bg_camera_columns * 2 + 30)
     bne :+
     lda pan_data_x
     cmp #<(revg_bg_camera_columns * 2 + 30)
 :
+    bcs @done
+    bcc @do_col
+@s4_bound:
+    lda pan_data_x_hi
+    cmp #>(revg4_bg_camera_columns * 2 + 30)
+    bne :+
+    lda pan_data_x
+    cmp #<(revg4_bg_camera_columns * 2 + 30)
+:
     bcs @done                   ; Past the last tile column of the section
+@do_col:
     jsr revg_prepare_column
     jsr revg_upload_column
     inc pan_data_x
@@ -135,7 +202,7 @@ revg_clear_hud_attributes:
     rts
 
 ; Load the palettes and every tile resident at the camera column (forced blank, from
-; ap_load_stage_visuals). Works for both Stage 1 (active=1) and Stage 2 (active=2).
+; ap_load_stage_visuals). Works for Stages 1..4 (revg_bg_active = 1..4).
 revg_bg_load_all:
     lda pan_x+1
     asl a
@@ -145,42 +212,26 @@ revg_bg_load_all:
     sta revg_cam_col
     lda prg_bank2
     pha
-    lda revg_bg_active
-    cmp #2
-    beq @load_s2_pal
-    lda #revg_bg_map_bank
+    ldx revg_bg_active
+    lda revg_bg_map_bank_tbl,x
     jsr select_bank2
+    lda revg_bg_pal_lo_tbl,x
+    sta revg_ptr
+    lda revg_bg_pal_hi_tbl,x
+    sta revg_ptr+1
     lda #0
     sta $2000                   ; Increment by 1; NMI stays off
     lda #$3f
     sta $2006
     lda #0
     sta $2006
-    ldx #0
+    ldy #0
 :
-    lda revg_bg_palette,x
+    lda (revg_ptr),y
     sta $2007
-    inx
-    cpx #16
+    iny
+    cpy #16
     bne :-
-    jmp @pal_loaded
-@load_s2_pal:
-    lda #revg2_bg_map_bank
-    jsr select_bank2
-    lda #0
-    sta $2000
-    lda #$3f
-    sta $2006
-    lda #0
-    sta $2006
-    ldx #0
-:
-    lda revg2_bg_palette,x
-    sta $2007
-    inx
-    cpx #16
-    bne :-
-@pal_loaded:
     lda #0
     sta revg_zone
     sta revg_pal_pending
@@ -188,16 +239,9 @@ revg_bg_load_all:
     sta revg_chr_count
     sta revg_q_head
     sta revg_q_tail
-    lda revg_bg_active
-    cmp #2
-    beq @chk_swap2
+    ldx revg_bg_active
     lda revg_cam_col
-    cmp #revg_bg_swap_column
-    jmp @chk_swap_do
-@chk_swap2:
-    lda revg_cam_col
-    cmp #revg2_bg_swap_column
-@chk_swap_do:
+    cmp revg_bg_swap_col_tbl,x
     bcc :+
     lda #1
     jsr revg_prepare_palette
@@ -271,16 +315,9 @@ revg_bg_stream:
     jsr revg_enqueue_list
     jmp @step
 @steps_done:
-    lda revg_bg_active
-    cmp #2
-    beq @swap2
+    ldx revg_bg_active
     lda revg_cam_col
-    cmp #revg_bg_swap_column
-    jmp @swap_chk
-@swap2:
-    lda revg_cam_col
-    cmp #revg2_bg_swap_column
-@swap_chk:
+    cmp revg_bg_swap_col_tbl,x
     lda #0
     rol a
     cmp revg_zone
@@ -331,46 +368,31 @@ revg_bg_stream:
 ; A = 0 for zone 1 or 1 for zone 2 palettes 2 and 3; the NMI writes them.
 revg_prepare_palette:
     sta revg_zone
-    lda revg_bg_active
-    cmp #2
-    beq @prep_s2
-    lda #revg_bg_map_bank
+    ldx revg_bg_active
+    lda revg_bg_map_bank_tbl,x
     jsr select_bank2
-    ldx #7
     lda revg_zone
-    bne @s1_z2
+    bne @z2
+    lda revg_bg_pal_lo_tbl,x
+    clc
+    adc #8
+    sta revg_ptr
+    lda revg_bg_pal_hi_tbl,x
+    adc #0
+    sta revg_ptr+1
+    jmp @cp_pal
+@z2:
+    lda revg_bg_pal2_lo_tbl,x
+    sta revg_ptr
+    lda revg_bg_pal2_hi_tbl,x
+    sta revg_ptr+1
+@cp_pal:
+    ldy #7
 :
-    lda revg_bg_palette+8,x
-    sta revg_pal_buf,x
-    dex
+    lda (revg_ptr),y
+    sta revg_pal_buf,y
+    dey
     bpl :-
-    bmi @ready
-@s1_z2:
-:
-    lda revg_bg_palette_forest,x
-    sta revg_pal_buf,x
-    dex
-    bpl :-
-    bmi @ready
-@prep_s2:
-    lda #revg2_bg_map_bank
-    jsr select_bank2
-    ldx #7
-    lda revg_zone
-    bne @s2_z2
-:
-    lda revg2_bg_palette+8,x
-    sta revg_pal_buf,x
-    dex
-    bpl :-
-    bmi @ready
-@s2_z2:
-:
-    lda revg2_bg_palette_zone2,x
-    sta revg_pal_buf,x
-    dex
-    bpl :-
-@ready:
     lda #1
     sta revg_pal_pending
     rts
@@ -395,95 +417,80 @@ revg_write_palette:
 ; A = camera column, X = 0 for the right list or 1 for the left one. Append its tiles
 ; to the queue. Leaves the list bank in $C000.
 revg_enqueue_list:
-    tay
-    lda revg_bg_active
-    cmp #2
-    beq @enq_s2
-    lda #revg_bg_list_bank
+    sta revg2_tmp0              ; camera column
+    stx revg2_tmp1              ; direction (0=right, 1=left)
+    ldx revg_bg_active
+    lda revg_bg_list_bank_tbl,x
     jsr select_bank2
-    cpx #0
-    bne @s1_left
-    lda revg_bg_right_start_lo+1,y
-    sec
-    sbc revg_bg_right_start_lo,y
-    sta revg_count
-    lda revg_bg_right_start_lo,y
-    clc
-    adc #<revg_bg_right_id_lo
+    lda revg2_tmp1
+    bne @use_left
+    lda revg_bg_r_slo_lo,x
     sta revg_ptr
-    lda revg_bg_right_start_hi,y
-    adc #>revg_bg_right_id_lo
+    lda revg_bg_r_slo_hi,x
     sta revg_ptr+1
-    lda revg_bg_right_start_lo,y
-    clc
-    adc #<revg_bg_right_id_hi
+    lda revg_bg_r_shi_lo,x
     sta revg_ptr2
-    lda revg_bg_right_start_hi,y
-    adc #>revg_bg_right_id_hi
+    lda revg_bg_r_shi_hi,x
+    sta revg_ptr2+1
+    ldy revg2_tmp0
+    iny
+    lda (revg_ptr),y
+    dey
+    sec
+    sbc (revg_ptr),y
+    sta revg_count
+    lda (revg_ptr),y
+    sta revg2_tmp2              ; start lo
+    lda (revg_ptr2),y
+    sta revg2_tmp3              ; start hi
+    lda revg2_tmp2
+    clc
+    adc revg_bg_r_ilo_lo,x
+    sta revg_ptr
+    lda revg2_tmp3
+    adc revg_bg_r_ilo_hi,x
+    sta revg_ptr+1
+    lda revg2_tmp2
+    clc
+    adc revg_bg_r_ihi_lo,x
+    sta revg_ptr2
+    lda revg2_tmp3
+    adc revg_bg_r_ihi_hi,x
     sta revg_ptr2+1
     jmp @copy
-@s1_left:
-    lda revg_bg_left_start_lo+1,y
-    sec
-    sbc revg_bg_left_start_lo,y
-    sta revg_count
-    lda revg_bg_left_start_lo,y
-    clc
-    adc #<revg_bg_left_id_lo
+@use_left:
+    lda revg_bg_l_slo_lo,x
     sta revg_ptr
-    lda revg_bg_left_start_hi,y
-    adc #>revg_bg_left_id_lo
+    lda revg_bg_l_slo_hi,x
     sta revg_ptr+1
-    lda revg_bg_left_start_lo,y
-    clc
-    adc #<revg_bg_left_id_hi
+    lda revg_bg_l_shi_lo,x
     sta revg_ptr2
-    lda revg_bg_left_start_hi,y
-    adc #>revg_bg_left_id_hi
+    lda revg_bg_l_shi_hi,x
     sta revg_ptr2+1
-    jmp @copy
-@enq_s2:
-    lda #revg2_bg_list_bank
-    jsr select_bank2
-    cpx #0
-    bne @s2_left
-    lda revg2_bg_right_start_lo+1,y
+    ldy revg2_tmp0
+    iny
+    lda (revg_ptr),y
+    dey
     sec
-    sbc revg2_bg_right_start_lo,y
+    sbc (revg_ptr),y
     sta revg_count
-    lda revg2_bg_right_start_lo,y
+    lda (revg_ptr),y
+    sta revg2_tmp2
+    lda (revg_ptr2),y
+    sta revg2_tmp3
+    lda revg2_tmp2
     clc
-    adc #<revg2_bg_right_id_lo
+    adc revg_bg_l_ilo_lo,x
     sta revg_ptr
-    lda revg2_bg_right_start_hi,y
-    adc #>revg2_bg_right_id_lo
+    lda revg2_tmp3
+    adc revg_bg_l_ilo_hi,x
     sta revg_ptr+1
-    lda revg2_bg_right_start_lo,y
+    lda revg2_tmp2
     clc
-    adc #<revg2_bg_right_id_hi
+    adc revg_bg_l_ihi_lo,x
     sta revg_ptr2
-    lda revg2_bg_right_start_hi,y
-    adc #>revg2_bg_right_id_hi
-    sta revg_ptr2+1
-    jmp @copy
-@s2_left:
-    lda revg2_bg_left_start_lo+1,y
-    sec
-    sbc revg2_bg_left_start_lo,y
-    sta revg_count
-    lda revg2_bg_left_start_lo,y
-    clc
-    adc #<revg2_bg_left_id_lo
-    sta revg_ptr
-    lda revg2_bg_left_start_hi,y
-    adc #>revg2_bg_left_id_lo
-    sta revg_ptr+1
-    lda revg2_bg_left_start_lo,y
-    clc
-    adc #<revg2_bg_left_id_hi
-    sta revg_ptr2
-    lda revg2_bg_left_start_hi,y
-    adc #>revg2_bg_left_id_hi
+    lda revg2_tmp3
+    adc revg_bg_l_ihi_hi,x
     sta revg_ptr2+1
 @copy:
     ldy #0
@@ -511,18 +518,10 @@ revg_dequeue_tile:
     sta revg_tile_hi
     inx
     stx revg_q_head
-    lda revg_bg_active
-    cmp #2
-    beq @dq_s2
+    ldx revg_bg_active
     lda revg_tile_hi
     clc
-    adc #revg_bg_pattern_bank
-    jmp @dq_sel
-@dq_s2:
-    lda revg_tile_hi
-    clc
-    adc #revg2_bg_pattern_bank
-@dq_sel:
+    adc revg_bg_pat_bank_tbl,x
     jsr select_bank2
     ; Pattern at $C010 + 16 * id, slot at $D010 + id (identical in Stage 1 & Stage 2).
     lda revg_tile_lo
@@ -560,11 +559,11 @@ revg_dequeue_tile:
     rts
 
 ; Fill pan_col_tiles and attribute bytes for tile column pan_data_x (9 bits).
-; Dispatches to revg2_prepare_column when revg_bg_active == 2.
+; Dispatches to revg2_prepare_column when revg_bg_active >= 3 (2-axis: Stage 2 & 3).
 revg_prepare_column:
     lda revg_bg_active
-    cmp #2
-    bne :+
+    cmp #3
+    bcc :+
     jmp revg2_prepare_column
 :
     lda pan_data_x_hi
@@ -596,6 +595,11 @@ revg_prepare_column:
     sta pan_col_length
     lda prg_bank2
     pha
+    lda revg_bg_active
+    cmp #2
+    bne :+
+    jmp @s4_col
+:
     lda #revg_bg_map_bank
     jsr select_bank2
     ldy revg_mcol
@@ -630,6 +634,41 @@ revg_prepare_column:
 .endrepeat
     pla
     jmp select_bank2
+@s4_col:
+    lda #revg4_bg_map_bank
+    jsr select_bank2
+    ldy revg_mcol
+    lda pan_data_x
+    lsr a
+    bcc :+
+    jmp @s4_right
+:
+.repeat revg4_bg_view_rows, row
+    ldx .ident(.sprintf("revg4_bg_map_row%d", row)),y
+    lda revg4_bg_mt_tl,x
+    sta pan_col_tiles + 2 * row
+    lda revg4_bg_mt_bl,x
+    sta pan_col_tiles + 2 * row + 1
+.endrepeat
+    jmp @s4_attributes
+@s4_right:
+.repeat revg4_bg_view_rows, row
+    ldx .ident(.sprintf("revg4_bg_map_row%d", row)),y
+    lda revg4_bg_mt_tr,x
+    sta pan_col_tiles + 2 * row
+    lda revg4_bg_mt_br,x
+    sta pan_col_tiles + 2 * row + 1
+.endrepeat
+@s4_attributes:
+    tya
+    lsr a
+    tay
+.repeat 7, row
+    lda .ident(.sprintf("revg4_bg_attr_row%d", row)),y
+    sta revg_col_attr + row
+.endrepeat
+    pla
+    jmp select_bank2
 
 ; --- Stage 2 (2-axis) row & column preparation in BANK50 --------------------------------
 ; Prepare pan_row_tiles[0..31] and revg2_row_attr[0..7] for pan_need_row (0..59).
@@ -650,15 +689,21 @@ revg2_prepare_row:
 
     lda prg_bank2
     pha
-    ; Determine vertical page (0 for $20xx, 1 for $28xx) and select its map bank.
-    lda pan_addr_hi
-    and #$08
-    lsr a
-    lsr a
-    lsr a
-    sta revg2_tmp0              ; page (0 or 1)
+    ; Determine vertical page (0..3) from pan_need_row / 30 and select its map bank.
+    ldy #0
+    lda pan_need_row
+@row_vp:
+    cmp #pan_page_rows
+    bcc @row_vp_ok
+    sbc #pan_page_rows
+    iny
+    bne @row_vp
+@row_vp_ok:
+    sty revg2_tmp0              ; page (0..3)
+    ldx revg_bg_active
+    tya
     clc
-    adc #revg2_bg_map_bank
+    adc revg_bg_map_bank_tbl,x
     jsr select_bank2
 
     ; Map row pointer for local metatile row = pan_local_y >> 1 (0..14).
@@ -833,23 +878,22 @@ revg2_prepare_column:
 @col_loop:
     stx revg2_tmp1              ; buffer index
     lda pan_data_y
-    cmp #pan_page_rows * 2
-    bcc :+
-    sbc #pan_page_rows * 2
-:
     ldy #0
+@col_vp:
     cmp #pan_page_rows
-    bcc :+
+    bcc @col_vp_ok
     sbc #pan_page_rows
-    iny                         ; page = 1
-:
+    iny
+    bne @col_vp
+@col_vp_ok:
     sta revg2_tmp0              ; local tile row (0..29)
     cpy revg2_tmp3
     beq :+
     sty revg2_tmp3
+    ldx revg_bg_active
     tya
     clc
-    adc #revg2_bg_map_bank
+    adc revg_bg_map_bank_tbl,x
     jsr select_bank2
 :
     lda revg2_tmp0
@@ -916,15 +960,23 @@ revg2_prepare_column:
     sbc revg2_tmp1
     sta revg2_attr_split        ; 1..8 bytes in first nametable
 
-    ; First nametable page = (revg_attr_hi & 8) >> 3.
-    lda revg_attr_hi
-    and #$08
-    lsr a
-    lsr a
-    lsr a
-    sta revg2_tmp0              ; current page (0 or 1)
+    ; First nametable vertical page = (pan_tile_y + pan_top_rows) / 30 (0..3).
+    lda pan_tile_y
     clc
-    adc #revg2_bg_map_bank
+    adc pan_top_rows
+    ldy #0
+@ca_vp:
+    cmp #pan_page_rows
+    bcc @ca_vp_ok
+    sbc #pan_page_rows
+    iny
+    bne @ca_vp
+@ca_vp_ok:
+    sty revg2_tmp0              ; current page (0..3)
+    ldx revg_bg_active
+    tya
+    clc
+    adc revg_bg_map_bank_tbl,x
     jsr select_bank2
 
     ldx #0
@@ -933,12 +985,23 @@ revg2_prepare_column:
 @cattr_loop:
     cpx revg2_attr_split
     bne @cattr_same
-    ; Switch to second nametable page, ar = 0.
-    lda revg2_tmp0
-    eor #1
+    ; Switch to next vertical page (wrapping at 2 for S2 or 4 for S3), ar = 0.
+    ldy revg2_tmp0
+    iny
+    lda revg_bg_active
+    cmp #4
+    beq @ca_mod4
+    tya
+    and #1
+    jmp @ca_setp
+@ca_mod4:
+    tya
+    and #3
+@ca_setp:
     sta revg2_tmp0
+    ldy revg_bg_active
     clc
-    adc #revg2_bg_map_bank
+    adc revg_bg_map_bank_tbl,y
     jsr select_bank2
     lda #0
     sta revg_count
@@ -946,8 +1009,9 @@ revg2_prepare_column:
     ldy revg_count
     bne @cattr_read
     lda revg2_tmp0
+    and #1
     bne @cattr_read
-    lda #0                      ; preserve HUD palette 0 on page 0 row 0
+    lda #0                      ; preserve HUD palette 0 on $2000 attr row 0
     beq @cattr_st
 @cattr_read:
     lda revg2_bg_attr_lo,y
@@ -1052,8 +1116,8 @@ revg_upload:
     sta revg_pal_pending
 @nt_updates:
     lda revg_bg_active
-    cmp #2
-    beq revg_upload_s2_nt
+    cmp #3
+    bcs revg_upload_s2_nt
     lda pan_need_col
     bmi revg_upload_done
 revg_upload_column:

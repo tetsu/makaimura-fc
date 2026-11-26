@@ -706,7 +706,15 @@ ap_select_revg_enemy_bank:
     cpx #2
     bne :+
     lda #49
+    bne @sel
 :
+    cpx #3
+    beq @b51
+    cpx #4
+    bne @sel
+@b51:
+    lda #51
+@sel:
     jmp select_bank2
 .endif
 

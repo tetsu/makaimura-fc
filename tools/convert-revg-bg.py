@@ -277,7 +277,9 @@ def main():
     pal_sets = ex.palette_sets(rom, max(pal_numbers))
 
     width = tilemap["width"]
-    rows = list(range(FIRST_ROW, LAST_ROW + 1)) if vpages == 1 else list(range(0, 30))
+    rows = list(range(FIRST_ROW, LAST_ROW + 1)) if vpages == 1 else (
+        list(range(4, 64)) if vpages == 4 else list(range(0, 30))
+    )
 
     # The second zone palettes replace palettes 2-3 when the camera reaches column swap.
     # Every column visible on either side of that step uses only the shared palettes.
@@ -597,10 +599,10 @@ def main():
             + [0] * (256 - len(metatile_list))
             for q in range(4)
         ]
-        for page in range(2):
+        for page in range(vpages):
             row_base = page * 15
             items = bank(f"visual map page {page} (rows {row_base}-{row_base + 14}), metatiles and attributes")
-            # Fixed-offset tables first so Bank 0 and Bank 1 share identical addresses:
+            # Fixed-offset tables first so all page map banks share identical addresses:
             for q, name in enumerate(("tl", "tr", "bl", "br")):
                 table(items, f"{pfx}_mt_{name}" if page == 0 else None, mt_cols[q])
             table(items, f"{pfx}_map_lo" if page == 0 else None,
@@ -629,7 +631,7 @@ def main():
                            | (pal_at_2p(pair + 1, bottom) << 6))
                     row_attrs.append(val)
                 table(items, f"{pfx}_attr_p{page}_r{ar}", row_attrs)
-        list_bank_offset = 2
+        list_bank_offset = vpages
 
     # Upload list bank: the tiles to upload when the camera enters each column, for each direction.
     items = bank("upload lists")

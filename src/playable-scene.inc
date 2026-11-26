@@ -101,9 +101,8 @@ arcade_stage_count = 7
 .ifdef COURSE_SEQUENCE
 original_course_count = 2
 .elseif .defined(REVG_STAGE1)
-; Only Stage 1 uses the real arcade map so far. Its clear returns to the title instead of
-; going on to the prototype Stage 2 (TODO C-1a).
-original_course_count = 2
+; Stages 1-4 use real Revision G maps, BG art, enemies, and bosses (C-1..C-4).
+original_course_count = 4
 .endif
 
 start_arcade_stage:
@@ -330,7 +329,13 @@ draw_pan_game:
     and #sd_flag_start_page1
     beq @pan_page_done
     lda #1
+    ldy stage_height_rows
+    cpy #45
+    bcc :+
+    lda #3
+:
     sta pan_y_page
+    ldy #0
 .endif
 @pan_page_done:
     txa
