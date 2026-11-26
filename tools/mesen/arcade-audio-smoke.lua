@@ -3,15 +3,13 @@
 -- Checks:
 -- 1. Hardware VRC7 register write spacing ($9010 -> $9030 >= 6 CPU cycles,
 --    $9030 -> next write >= 42 CPU cycles) on every single write.
--- 2. Stage BGM start (song_id=2), shared FM custom patch 0 load ($00..$07),
+-- 2. Title BGM (song_id=1, patch 0) -> Stage BGM (song_id=2, patch 1),
 --    and active FM 6-voice + APU updates.
 -- 3. Shot SE (APU Pulse 2) trigger and clean release.
--- 4. Damage SE FM ch5 + APU Noise preemption (snd_se_fm_mask=$20) and
---    automatic BGM ch5 restoration upon SE completion.
--- 5. Boss BGM switch (song_id=3) with shared custom patch swap (0 -> 1).
--- 6. Boss defeat + Key pickup -> Clear fanfare (song_id=4, non-looping stop)
---    -> Stage 2 transition (song_id=2, patch 0 restored) -> SELECT title
---    return full audio state reset (song_id=0, playing=0).
+-- 4. Damage SE (APU Pulse 1 + Noise) playback while FM BGM continues uninterrupted.
+-- 5. Boss BGM switch (song_id=3) with shared custom patch swap (1 -> 2).
+-- 6. Boss defeat + Key pickup -> Clear fanfare (song_id=4, patch 3, non-looping stop)
+--    -> Stage 2 transition (song_id=2) -> SELECT title return full audio state reset.
 
 local frame = 0
 local phase = "boot"
@@ -32,9 +30,6 @@ local SND_SONG_ID      = 0x7800
 local SND_PLAYING      = 0x7801
 local SND_CUSTOM_PATCH = 0x7802
 local SND_SE_ID        = 0x7803
-local SND_SE_TIMER     = 0x7804
-local SND_SE_FM_MASK   = 0x7805
-local SND_SE_APU_MASK  = 0x7806
 local SND_TICK_COUNT   = 0x7807
 
 local function read(addr)
@@ -71,8 +66,6 @@ local lastDataWriteCycle = -1000
 local lastFmReg = -1
 local customPatchWrites = 0
 local fmVoicesKeyed = {}
-local sawFm5RestoreAfterDamage = false
-local trackingFm5Restore = false
 
 emu.addMemoryCallback(function(_, value)
     local cyc = emu.getState()["cpu.cycleCount"]
@@ -95,8 +88,6 @@ emu.addMemoryCallback(function(_, value)
         customPatchWrites = customPatchWrites + 1
     elseif lastFmReg >= 0x20 and lastFmReg <= 0x25 and (value & 0x10) ~= 0 then
         fmVoicesKeyed[lastFmReg - 0x20] = true
-    elseif trackingFm5Restore and lastFmReg == 0x35 then
-        sawFm5RestoreAfterDamage = true
     end
 end, emu.callbackType.write, 0x9030, 0x9030, emu.memType.nesMemory)
 

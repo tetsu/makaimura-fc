@@ -2,7 +2,7 @@
 local frame = 0
 local songTile, seTile = 0x216c, 0x21ac
 local zeroTile = 0x1b
-local songId, playing, seId, fmMask = 0x7800, 0x7801, 0x7803, 0x7805
+local songId, playing, seId = 0x7800, 0x7801, 0x7803
 local inputs = {
     [130] = {select = true},
     [160] = {down = true, a = true},

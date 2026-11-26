@@ -6,7 +6,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-# The hardware and Mesen trials check the prototype seven stages (docs/vrc7a-hardware-test.md).
+# The 352402 hardware trial checks the prototype seven stages (docs/vrc7a-hardware-test.md);
+# -Mesen packages the 32 KiB diagnostic, 512 KiB prototype, and full Revision G 512 KiB ROMs.
 & (Join-Path $root 'build.ps1') -Hardware -Prototype -Cc65Bin $Cc65Bin | Out-Null
 
 $images = @('build/vrc7a-test-512k-prototype.prg', 'build/vrc7a-test-512k-prototype.nes')
