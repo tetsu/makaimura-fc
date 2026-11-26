@@ -640,7 +640,18 @@ show_game_over:
     ; (The game build sends the game over song when the last death starts, ap_miss_song.)
     lda #game_over_scene
     bne show_result
+.ifdef REVG_STAGE1
+show_map_ready:
+    lda #1
+    sta fe_map_mode
+    lda #clear_scene
+    bne show_result
+.endif
 show_course_clear:
+.ifdef REVG_STAGE1
+    lda #0
+    sta fe_map_mode
+.endif
     lda arcade_mode
     beq :+
 .ifdef REVG_STAGE1
@@ -657,6 +668,11 @@ show_result:
     jsr blank_display
     pla
     sta scene
+.ifdef REVG_STAGE1
+    lda #0
+    sta fe_idle_lo
+    sta fe_idle_hi
+.endif
 .else
 show_course_clear:
     jsr blank_display
@@ -673,7 +689,9 @@ show_course_clear:
     lda scene
     cmp #clear_scene
     bne @result_b7
-    ; Loop 2 Stage 7 is FINAL CLEAR (drawn by BANK7); all other stage clears show the Makai map.
+    ; Loop 2 Stage 7 CLEAR is FINAL CLEAR (drawn by BANK7); all other clears & ready maps show Makai map.
+    lda fe_map_mode
+    bne @show_map
     lda campaign_stage
     cmp #7
     bne @show_map

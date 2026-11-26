@@ -10,7 +10,7 @@ local OB_KIND = 0x698a
 local SND_SONG_ID = 0x7800
 local SND_SE_ID = 0x7803
 
-local TITLE, PLAY, GAME_OVER = 7, 4, 6
+local TITLE, PLAY, CLEAR, GAME_OVER = 7, 4, 5, 6
 local STATE_MISS = 4
 
 local frame, phase, phaseFrame = 0, "boot", 0
@@ -18,6 +18,8 @@ local input = {}
 local deaths = 0
 local sawStartSe = false
 local sawTitleSong = false
+local sawOpenMap = false
+local sawRetryMap = false
 local blackoutFrames = 0
 local openingOamMax = 0
 local oobVramWrites = 0
@@ -81,12 +83,20 @@ emu.addEventCallback(function()
         if phaseFrame > 515 and demo == 1 and pal1 == 0x0f then
             blackoutFrames = blackoutFrames + 1
         end
-        if phaseFrame > 500 and demo == 0 then
-            if not check(scene == PLAY and sawTitleSong and sawStartSe and blackoutFrames >= 35 and openingOamMax >= 8,
-                    string.format("opening -> blackout (%dF) -> Stage 1 (song=%s se=%s oamMax=%d)",
-                        blackoutFrames, tostring(sawTitleSong), tostring(sawStartSe), openingOamMax)) then return end
+        if phaseFrame > 500 and demo == 0 and scene == CLEAR then
+            if not check(sawTitleSong and sawStartSe and blackoutFrames >= 35 and openingOamMax >= 8,
+                    string.format("opening -> blackout (%dF) -> Makai Map (scene=%d song=%s se=%s oamMax=%d)",
+                        blackoutFrames, scene, tostring(sawTitleSong), tostring(sawStartSe), openingOamMax)) then return end
+            nextPhase("open_map")
+        elseif not check(phaseFrame < 700, string.format("opening did not reach Makai Map (scene=%d demo=%d)", scene, demo)) then return end
+    elseif phase == "open_map" then
+        if scene == CLEAR and read(SND_SONG_ID) == 11 then sawOpenMap = true end
+        if phaseFrame == 30 then
+            if not check(sawOpenMap, "Makai Map $30 jingle (song 11) did not play after opening") then return end
+            input = {start = true}
+        elseif scene == PLAY then
             nextPhase("stage")
-        end
+        elseif not check(phaseFrame < 400, "Makai Map after opening did not enter Stage 1") then return end
     elseif phase == "stage" then
         if read(SND_SONG_ID) == 2 then
             local hud1up = (readNt(0x2022) == 0x1c and readNt(0x2023) == 0x14 and readNt(0x2024) == 0x10)
@@ -114,11 +124,13 @@ emu.addEventCallback(function()
             nextPhase(deaths < 3 and "retry" or "game_over")
         end
     elseif phase == "retry" then
-        if read(AP_STATE) ~= STATE_MISS and read(SCENE) == PLAY and readWord(PLAYER_X) == 96 then
-            if not check(read(LIVES) == 3 - deaths, "lives after a miss") then return end
-            nextPhase("zombies")
-        elseif phaseFrame == 50 then
+        if scene == CLEAR and read(SND_SONG_ID) == 11 then sawRetryMap = true end
+        if scene == CLEAR and phaseFrame >= 70 and (phaseFrame % 30) == 10 then
             input = {start = true}
+        elseif read(AP_STATE) ~= STATE_MISS and read(SCENE) == PLAY and readWord(PLAYER_X) == 96 then
+            if not check(sawRetryMap and read(LIVES) == 3 - deaths,
+                    string.format("retry after miss (sawRetryMap=%s lives=%d)", tostring(sawRetryMap), read(LIVES))) then return end
+            nextPhase("zombies")
         end
     elseif phase == "game_over" then
         if scene == GAME_OVER and phaseFrame >= 20 then
@@ -128,7 +140,7 @@ emu.addEventCallback(function()
         end
     elseif phase == "to_title" then
         if scene == TITLE then
-            print(string.format("PASS: title, opening+blackout(%dF), Stage 1, 3 misses, GAME OVER, title (frame %d)",
+            print(string.format("PASS: title, opening+blackout(%dF), openMap, Stage 1, 3 misses+retryMap, GAME OVER, title (frame %d)",
                 blackoutFrames, frame))
             emu.stop(0)
         end

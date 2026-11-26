@@ -2575,6 +2575,20 @@ ap_check_side_wall:
     jsr ap_tile_type_at
     cmp #tile_type_solid
     beq @wall_hit
+    lda ap_crouch
+    bne @wall_clear
+    ; Standing head-height probe (-22 px) prevents walking into 1-tile overhangs.
+    lda player_feet
+    sec
+    sbc #22
+    sta ap_probe_y
+    lda ap_player_y_hi
+    sbc #0
+    sta ap_probe_y_hi
+    jsr ap_tile_type_at
+    cmp #tile_type_solid
+    beq @wall_hit
+@wall_clear:
     clc
     rts
 @wall_hit:

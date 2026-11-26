@@ -76,7 +76,7 @@ emu.addEventCallback(function()
         end
     elseif phase == "title_wait" then
         if frame == phaseFrame + 10 or frame == phaseFrame + 11 then
-            input = {start = true}
+            input = {right = true, start = true}
         elseif scene == PLAY then
             phase = "enter_s1"
         end

@@ -1668,9 +1668,11 @@ u_zombie:
 :
     rts
 
+; --- Stage 2 Red Arremer ($05): Arcade perch/climb/hover/dodge/swoop AI ---------------
+; States: 0=init/wake, 1=hover above Arthur (+64..80px) & dodge shots, 2=swoop dive & fire, 3=pull up.
 u_arremer:
     lda ob_state,x
-    bne @act
+    bne @ar_not0
     lda #1
     sta ob_state,x
     lda #ofl_shootable | ofl_harmful
@@ -1678,10 +1680,17 @@ u_arremer:
     lda #<rf_4BAC
     ldy #>rf_4BAC
     jsr set_anim
-    lda #60
+    lda #40
     sta ob_t0,x
     rts
-@act:
+@ar_not0:
+    cmp #1
+    beq @ar_hover
+    cmp #2
+    bne :+
+    jmp @ar_swoop
+:
+    ; State 3: pull up back to hover altitude (+72 px above player)
     jsr face_player
     lda #1
     ldy ob_dir,x
@@ -1691,40 +1700,129 @@ u_arremer:
     sta ob_vxi,x
     lda #0
     sta ob_vxf,x
-    jsr rel_player
-    lda #1
-    ldy oz_dy+1
-    bmi :+
-    lda #$ff
-:
+    lda #2
     sta ob_vyi,x
+    lda #0
+    sta ob_vyf,x
     jsr move
     dec ob_t0,x
-    bne @ret
-    lda #70
+    beq :+
+    rts
+:
+    lda #1
+    sta ob_state,x
+    lda #36
     sta ob_t0,x
+    rts
+@ar_hover:
+    jsr face_player
+    ; Maintain ~72 px above Arthur, pace horizontally
+    jsr rel_player
     lda #0
+    sta ob_vyi,x
+    sta ob_vyf,x
+    lda oz_dy+1
+    bmi @ar_up
+    bne @ar_dn
+    lda oz_dy
+    cmp #60
+    bcc @ar_up
+    cmp #84
+    bcs @ar_dn
+    jmp @ar_hx
+@ar_up:
+    lda #1
+    sta ob_vyi,x
+    bne @ar_hx
+@ar_dn:
+    lda #$ff
+    sta ob_vyi,x
+@ar_hx:
+    lda #1
+    ldy ob_dir,x
+    beq :+
+    lda #$ff
+:
+    sta ob_vxi,x
+    lda #0
+    sta ob_vxf,x
+    ; Dodge incoming player shots by hopping up
+    ldy #ap_max_shots - 1
+@ar_chk_sh:
+    lda ps_active,y
+    bne @ar_dodge
+    dey
+    bpl @ar_chk_sh
+    bmi @ar_no_dodge
+@ar_dodge:
+    lda #2
+    sta ob_vyi,x
+@ar_no_dodge:
+    jsr move
+    dec ob_t0,x
+    bne @ar_ret
+    ; Enter State 2: steep swoop dive toward Arthur!
+    lda #2
+    sta ob_state,x
+    lda #26
+    sta ob_t0,x
+    jsr face_player
+    lda #2
+    ldy ob_dir,x
+    beq :+
+    lda #$fe
+:
+    sta ob_vxi,x
+    lda #0
+    sta ob_vxf,x
+    lda #$fe                    ; -2 px/F dive
+    sta ob_vyi,x
+    lda #0
+    sta ob_vyf,x
+    lda #0                      ; aimed fireball at dive start
     jsr fire_shot
-@ret:
+    rts
+@ar_swoop:
+    jsr move
+    dec ob_t0,x
+    bne @ar_ret
+    ; Pull up (State 3)
+    lda #3
+    sta ob_state,x
+    lda #24
+    sta ob_t0,x
+@ar_ret:
     rts
 
-; --- Boss: 2x Unicorn ($08, HP 10 each) -----------------------------------------------
+; --- Boss: 2x Unicorn ($08, HP 10 each, Arcade walk/pause/aim/jump AI) ----------------
+; States: 0=init, 1=walk/pause spacing, 2=aiming walk (36F), 3=aimed leap (gravity 0.25)
 u_unicorn:
     lda ob_state,x
-    bne @act
+    bne @u_not0
     lda #1
     sta ob_state,x
     lda #ofl_shootable | ofl_harmful
     sta ob_flags,x
+    lda ob_yl,x
+    sta ob_by_l,x               ; Remember ground Y (80)
+    lda ob_yh,x
+    sta ob_by_h,x
     lda #<rf_4FAB
     ldy #>rf_4FAB
     jsr set_anim
     jsr face_player
-    lda #50
+    ; Stagger timers between the 2 Unicorns using slot index
+    txa
+    asl a
+    asl a
+    clc
+    adc #24
     sta ob_t0,x
+    lda #32
+    sta ob_t1,x
     ; Start boss BGM when first Unicorn spawns
     lda ap_boss_lock
-    bne @ret
+    bne @u_ret
     lda #1
     sta ap_boss_lock
     txa
@@ -1733,9 +1831,44 @@ u_unicorn:
     jsr call_bank8_play_song
     pla
     tax
-@ret:
+@u_ret:
     rts
-@act:
+@u_not0:
+    cmp #3
+    bne :+
+    jmp @u_jump
+:
+    cmp #2
+    beq @u_aim
+    ; State 1: walk & pause spacing
+    jsr face_player
+    dec ob_t0,x
+    bne @u_walk_step
+    lda #2
+    sta ob_state,x
+    lda #36
+    sta ob_t0,x
+    lda #1                      ; horizontal fireball
+    jsr fire_shot
+    rts
+@u_walk_step:
+    lda ob_t0,x
+    and #$10
+    beq @u_ret                  ; Brief pause half the cycle (arcade pacing)
+    lda #1
+    ldy ob_dir,x
+    beq :+
+    lda #$ff
+:
+    sta ob_vxi,x
+    lda #0
+    sta ob_vxf,x
+    sta ob_vyi,x
+    sta ob_vyf,x
+    jsr @u_clamp_move
+    rts
+@u_aim:
+    ; State 2: aiming walk toward Arthur then launch distance-scaled leap
     jsr face_player
     lda #1
     ldy ob_dir,x
@@ -1745,6 +1878,68 @@ u_unicorn:
     sta ob_vxi,x
     lda #0
     sta ob_vxf,x
+    sta ob_vyi,x
+    sta ob_vyf,x
+    jsr @u_clamp_move
+    dec ob_t0,x
+    bne @u_ret
+    ; Launch aimed jump: vy = +5.0 px/F, vx = +-1.75 px/F toward Arthur
+    lda #3
+    sta ob_state,x
+    lda #5
+    sta ob_vyi,x
+    lda #0
+    sta ob_vyf,x
+    lda #1
+    sta ob_vxi,x
+    lda #$c0
+    sta ob_vxf,x
+    lda ob_dir,x
+    beq :+
+    lda #$fe
+    sta ob_vxi,x
+    lda #$40
+    sta ob_vxf,x
+:
+    rts
+@u_jump:
+    ; State 3: airborne arc with gravity -0.25 px/F^2
+    jsr @u_clamp_move
+    lda ob_vyf,x
+    sec
+    sbc #$40
+    sta ob_vyf,x
+    lda ob_vyi,x
+    sbc #0
+    sta ob_vyi,x
+    ; Land when Y <= ob_by (ground Y)
+    lda ob_yh,x
+    cmp ob_by_h,x
+    bcc @u_land
+    beq :+
+    rts
+:
+    lda ob_yl,x
+    cmp ob_by_l,x
+    bcc @u_land
+    rts
+@u_land:
+    lda ob_by_l,x
+    sta ob_yl,x
+    lda ob_by_h,x
+    sta ob_yh,x
+    lda #0
+    sta ob_vyi,x
+    sta ob_vyf,x
+    lda #1
+    sta ob_state,x
+    jsr rng
+    and #$1f
+    clc
+    adc #20
+    sta ob_t0,x
+    rts
+@u_clamp_move:
     ; Keep within arena [3340, 3556]
     lda ob_xh,x
     cmp #>3340
@@ -1764,19 +1959,16 @@ u_unicorn:
 @push_l:
     lda #$ff
     sta ob_vxi,x
+    lda #0
+    sta ob_vxf,x
     jmp @do_mv
 @push_r:
     lda #1
     sta ob_vxi,x
+    lda #0
+    sta ob_vxf,x
 @do_mv:
-    jsr move
-    dec ob_t0,x
-    bne @ret
-    lda #64
-    sta ob_t0,x
-    lda #1                      ; horizontal shot
-    jsr fire_shot
-    rts
+    jmp move
 
 ; --- Projectiles, items, discs, triggers, explosion, key ------------------------------
 u_shot:

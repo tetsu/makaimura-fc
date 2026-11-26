@@ -1277,8 +1277,11 @@ rs_draw_platforms:
     lda #$ff
     ldy campaign_stage
     cpy #4
+    beq @orb_pal
+    cpy #5
     bne :+
-    lda #2                      ; Stage 4 eyeball moving platforms (distinct cyan/blue orb look)
+@orb_pal:
+    lda #2                      ; Stage 4 & 5 eyeball/orb moving platforms (distinct cyan/blue look)
 :
     sta rs_pal
     lda plat_x_lo,x

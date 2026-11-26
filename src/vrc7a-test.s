@@ -447,13 +447,13 @@ same_scene:
     lda #0
     sta demo_finish
     sta demo_active
-    jsr op_finish_to_play
+    sta op_fade
+    sta op_stage_song
+    jsr show_map_ready
+    jmp audio_tick
 :
-    ; After a death the arcade puts the player back by itself: 121 frames after the
-    ; death ends ($90) the screen goes to the map with "PLAYER ONE READY", and the
-    ; restart position is set 423 frames after it ($6D26, docs/revision-g.md, the pit).
-    ; The FC has no map screen, so it restarts at the point the arcade leaves the
-    ; play screen, as if Start were pressed.
+    ; After a death with lives left, show the arcade Makai Progression Map ("PLAYER ONE READY")
+    ; with the $30 jingle, then auto-restart the stage (or skip immediately with START).
     lda arcade_mode
     beq @no_auto_restart
     lda scene
@@ -478,9 +478,8 @@ same_scene:
     lda #0
     sta death_timer
     sta death_timer+1
-    lda pressed
-    ora #$10
-    sta pressed
+    jsr show_map_ready
+    jmp audio_tick
 @no_auto_restart:
 .endif
     lda pressed
@@ -534,6 +533,15 @@ finish_campaign:
     jsr show_sound_screen
     jmp audio_tick
 advance_campaign:
+.ifdef REVG_STAGE1
+    lda fe_map_mode
+    beq @adv_next_stage
+    lda #0
+    sta fe_map_mode
+    jsr start_campaign_stage
+    jmp audio_tick
+@adv_next_stage:
+.endif
     jsr next_campaign_stage
     jmp audio_tick
 check_campaign_start:
@@ -606,7 +614,9 @@ dispatch_scene:
     cmp #game_over_scene
     beq clear_screen_idle
     cmp #title_scene
-    beq title_screen_tick
+    bne :+
+    jmp title_screen_tick
+:
 .endif
     cmp #4
     beq game_screen
@@ -629,8 +639,10 @@ clear_screen_idle:
     beq @csi_audio
     lda scene
     cmp #clear_scene
-    bne @csi_audio
-    ; Scroll the 512px Makai Map smoothly across both nametables ($2000 -> $2400).
+    bne @csi_chk_gameover
+    ; Loop 2 Stage 7 final clear waits for START; all other Makai Maps scroll and auto-advance.
+    lda fe_map_mode
+    bne @csi_scroll
     lda campaign_stage
     cmp #7
     bne @csi_scroll
@@ -647,6 +659,35 @@ clear_screen_idle:
     sta $2005
     lda #0
     sta $2005
+    inc fe_idle_lo
+    bne :+
+    inc fe_idle_hi
+:
+    lda fe_idle_hi
+    cmp #>300
+    bcc @csi_audio
+    bne @csi_auto_map
+    lda fe_idle_lo
+    cmp #<300
+    bcc @csi_audio
+@csi_auto_map:
+    jmp advance_campaign
+@csi_chk_gameover:
+    cmp #game_over_scene
+    bne @csi_audio
+    inc fe_idle_lo
+    bne :+
+    inc fe_idle_hi
+:
+    lda fe_idle_hi
+    cmp #>240
+    bcc @csi_audio
+    bne @csi_auto_go
+    lda fe_idle_lo
+    cmp #<240
+    bcc @csi_audio
+@csi_auto_go:
+    jmp finish_campaign
 @csi_audio:
 .endif
     jmp audio_tick
@@ -1390,6 +1431,9 @@ show_title_screen:
     sta attract_prev_pad
     sta pan_y_steps
     sta gate_open_pending
+    sta fe_map_mode
+    sta fe_idle_lo
+    sta fe_idle_hi
 .endif
     lda #1
     jsr select_bank1

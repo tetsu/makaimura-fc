@@ -439,8 +439,20 @@ fe_draw_progress_map:
     cpx #16
     bne @pin_chr_loop
     jsr clear_screen
-    ; Compute next stage index (0..6): campaign_stage (mod 7), or Stage 5 (index 4)
-    ; when Stage 6 was cleared without the required Cross/Shield weapon.
+    ; Compute target stage index (0..6):
+    ; - fe_map_mode != 0 (Opening / Miss Retry): current stage (campaign_stage - 1)
+    ; - fe_map_mode == 0 (Stage Clear): next stage (campaign_stage mod 7, or Stage 5 on S6 bounce)
+    lda fe_map_mode
+    beq @map_mode_clear
+    lda campaign_stage
+    beq @map_stage_zero
+    sec
+    sbc #1
+    bpl @have_next
+@map_stage_zero:
+    lda #0
+    beq @have_next
+@map_mode_clear:
     lda campaign_stage
     cmp #6
     bne @not_s6_bounce
@@ -457,7 +469,7 @@ fe_draw_progress_map:
 @normal_next:
     lda campaign_stage
 @have_next:
-    sta map_tmp                 ; save next stage index (0..6)
+    sta map_tmp                 ; save target stage index (0..6)
 
     ; Map Bank 11 ($8000) to upload the full 512px scrolling arcade Makai panorama ($2000 + $2400).
     lda #$80
@@ -547,6 +559,23 @@ fe_draw_progress_map:
     jsr select_bank0
 
     ; Draw text banner in the black upper half (rows 4..13) on $2000 and $2400.
+    lda fe_map_mode
+    beq @draw_clear_banner
+    lda #<fe_map_ready_lines
+    ldx #>fe_map_ready_lines
+    jsr fe_draw_lines
+    ; Write current stage number at $2111 ("STAGE X").
+    lda #$21
+    sta $2006
+    lda #$11
+    sta $2006
+    ldx map_tmp
+    txa
+    clc
+    adc #campaign_zero + 1
+    sta $2007
+    jmp @draw_map_pin
+@draw_clear_banner:
     lda #<fe_map_static_lines
     ldx #>fe_map_static_lines
     jsr fe_draw_lines
@@ -572,7 +601,8 @@ fe_draw_progress_map:
     clc
     adc #campaign_zero + 1
     sta $2007
-    ; Place Arthur's marker pin ($39) above the next stage landmark on the 512px panorama.
+@draw_map_pin:
+    ; Place Arthur's marker pin ($39) above the target stage landmark on the 512px panorama.
     lda fe_map_mark_hi,x
     sta $2006
     lda fe_map_mark_lo,x
@@ -608,6 +638,14 @@ fe_map_static_lines:
     fe_line $21c7, "START TO CONTINUE"
     fe_line $248a, "MAKAI PROGRESSION"
     fe_line $2568, "PLAYER ONE READY"
+    fe_line $25c7, "START TO CONTINUE"
+    .byte 0
+
+fe_map_ready_lines:
+    fe_line $2088, "PLAYER ONE READY"
+    fe_line $210b, "STAGE 1"
+    fe_line $21c7, "START TO CONTINUE"
+    fe_line $2488, "PLAYER ONE READY"
     fe_line $25c7, "START TO CONTINUE"
     .byte 0
 

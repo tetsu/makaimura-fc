@@ -57,14 +57,19 @@ def convert(tiles, collision, supports, rows=ROWS, x_min=0, y_min=0, row_offset=
             if code >= 256:          # attribute bits 7-6 set: ignored by every check
                 continue
             height = collision["ground"][code]
+            is_wall = bool(collision["right_wall"][code] or collision["left_wall"][code])
             if height:
                 # The surface is in the FC row above the tile (feet 16 * row - 2 - height).
-                floors.setdefault(col, {})[fc_row - 1] = floor_cell(height)
+                fc = floor_cell(height)
+                # Full-height floor tiles that also carry right_wall/left_wall (e.g. 126 Stage 3
+                # green cave ledges and 7 Stage 4 ledges) emit MT_ROCK so they act as BOTH floor
+                # and solid side wall.
+                floors.setdefault(col, {})[fc_row - 1] = MT_ROCK if (is_wall and fc == MT_FLOOR) else fc
             if collision["ladder"][code]:
                 # A ladder tile sits one row lower than the floor its top serves.
                 cells[col][fc_row - 1] = MT_LADDER
-            elif (collision["right_wall"][code] or collision["left_wall"][code]) and not height:
-                # Solid side wall (e.g. Stage 3 green cave ledges): prevents walking sideways into terrain.
+            elif is_wall and not height:
+                # Solid side wall (Stage 2/3/4/5/6 walls): prevents walking sideways into terrain.
                 if cells[col][fc_row - 1] == MT_SKY:
                     cells[col][fc_row - 1] = MT_ROCK
     pits = []
@@ -77,7 +82,8 @@ def convert(tiles, collision, supports, rows=ROWS, x_min=0, y_min=0, row_offset=
             if cells[col][row] != MT_LADDER:
                 cells[col][row] = cell
         for row in range(max(col_floors) + 1, rows):
-            cells[col][row] = MT_DIRT
+            if cells[col][row] == MT_SKY:
+                cells[col][row] = MT_DIRT
     tombs = []
     for support in supports:
         if support["type"] != TOMBSTONE:

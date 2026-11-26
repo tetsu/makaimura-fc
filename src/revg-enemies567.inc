@@ -28,6 +28,9 @@ gate_open_hi: .res 1            ; PPU nametable address high byte for gate openi
 gate_open_lo: .res 1            ; PPU nametable address low byte for gate opening row
 s2_plat_zone: .res 1            ; Stage 2 active moving-platform camera zone ($ff = none)
 fe_map_scroll_x: .res 1         ; Makai Map horizontal scroll X (0..255 across $2000->$2400)
+fe_map_mode: .res 1             ; 0=stage clear -> next stage, 1=opening/miss -> start/restart stage
+fe_idle_lo: .res 1              ; Auto-advance timer (low) for Makai Map & Game Over
+fe_idle_hi: .res 1              ; Auto-advance timer (high) for Makai Map & Game Over
 
 .segment "BANK56"
 .scope s567
@@ -1447,9 +1450,10 @@ u_devil:
     rts
 
 ; --- Red Arremer ($05) ----------------------------------------------------------------
+; --- Red Arremer ($05, Stage 5 & 6): Arcade perch/hover/dodge/swoop AI ---------------
 u_arremer:
     lda ob_state,x
-    bne @ar_act
+    bne @ar_not0
     lda ob_cur_l,x
     ora ob_cur_h,x
     bne :+
@@ -1458,19 +1462,103 @@ u_arremer:
     jsr set_anim
 :
     jsr check_onscreen_xy
-    bcs @ar_ret
-    inc ob_state,x
-    lda #40
+    bcc :+
+    rts
+:
+    lda #1
+    sta ob_state,x
+    lda #34
     sta ob_t0,x
     lda #1
     sta ob_vyi,x
     lda #<rf_4BD1
     ldy #>rf_4BD1
     jmp set_anim
-@ar_act:
+@ar_not0:
+    cmp #1
+    beq @ar_hover
+    cmp #2
+    bne :+
+    jmp @ar_swoop
+:
+    ; State 3: pull up to hover altitude
+    jsr face_player
+    lda #1
+    ldy ob_dir,x
+    beq :+
+    lda #$ff
+:
+    sta ob_vxi,x
+    lda #0
+    sta ob_vxf,x
+    lda #2
+    sta ob_vyi,x
+    lda #0
+    sta ob_vyf,x
+    jsr add_vel
     dec ob_t0,x
-    bne @ar_mv
-    lda #36
+    beq :+
+    jmp @ar_chk_off
+:
+    lda #1
+    sta ob_state,x
+    lda #32
+    sta ob_t0,x
+    jmp @ar_chk_off
+@ar_hover:
+    jsr face_player
+    ; Hover ~64 px above Arthur and dodge shots
+    lda #0
+    sta ob_vyi,x
+    sta ob_vyf,x
+    sec
+    lda ob_yl,x
+    sbc oz_py
+    sta oz_t0
+    lda ob_yh,x
+    sbc oz_py+1
+    bmi @ar_up
+    bne @ar_dn
+    lda oz_t0
+    cmp #56
+    bcc @ar_up
+    cmp #80
+    bcs @ar_dn
+    jmp @ar_hx
+@ar_up:
+    lda #1
+    sta ob_vyi,x
+    bne @ar_hx
+@ar_dn:
+    lda #$ff
+    sta ob_vyi,x
+@ar_hx:
+    lda #1
+    ldy ob_dir,x
+    beq :+
+    lda #$ff
+:
+    sta ob_vxi,x
+    lda #0
+    sta ob_vxf,x
+    ldy #ap_max_shots - 1
+@ar_sh:
+    lda ps_active,y
+    bne @ar_dodge
+    dey
+    bpl @ar_sh
+    bmi @ar_mv_h
+@ar_dodge:
+    lda #2
+    sta ob_vyi,x
+@ar_mv_h:
+    jsr add_vel
+    dec ob_t0,x
+    bne @ar_chk_off
+    ; Swoop dive + aimed fireball
+    lda #2
+    sta ob_state,x
+    lda #24
     sta ob_t0,x
     jsr dir_to_player
     tay
@@ -1482,52 +1570,111 @@ u_arremer:
     sta ob_vyi,x
     lda drg_vyf,y
     sta ob_vyf,x
-    jsr face_player
-    lda oz_rng
-    and #1
-    beq @ar_mv
     jsr fire_aimed_shot
-@ar_mv:
+    jmp @ar_chk_off
+@ar_swoop:
     jsr add_vel
+    dec ob_t0,x
+    bne @ar_chk_off
+    lda #3
+    sta ob_state,x
+    lda #22
+    sta ob_t0,x
+@ar_chk_off:
     jsr check_offscreen
     bcc @ar_ret
     jmp free_obj
 @ar_ret:
     rts
 
-; --- Unicorn ($08, Stage 6) -----------------------------------------------------------
+; --- Unicorn ($08, Stage 6): Arcade walk/pause/aimed-jump AI --------------------------
 u_unicorn:
     lda ob_state,x
-    bne @un_act
-    inc ob_state,x
+    bne @un_not0
+    lda #1
+    sta ob_state,x
+    lda ob_yl,x
+    sta ob_by_l,x               ; Remember floor Y
+    lda ob_yh,x
+    sta ob_by_h,x
     jsr face_player
-    lda #45
+    lda #32
     sta ob_t0,x
     lda #<rf_4FAB
     ldy #>rf_4FAB
     jmp set_anim
-@un_act:
-    dec ob_t0,x
-    bne @un_mv
-    lda #45
-    sta ob_t0,x
+@un_not0:
+    cmp #2
+    beq @un_jump
+    ; State 1: walk/pause toward player, fire, then leap
     jsr face_player
-    lda ob_dir,x
-    bne @un_l
+    lda ob_t0,x
+    and #$10
+    beq @un_step_done
+    lda #1
+    ldy ob_dir,x
+    beq :+
+    lda #$ff
+:
+    sta ob_vxi,x
+    lda #0
+    sta ob_vxf,x
+    sta ob_vyi,x
+    sta ob_vyf,x
+    jsr add_vel
+@un_step_done:
+    dec ob_t0,x
+    bne @un_chk_off
+    jsr fire_aimed_shot
+    lda #2
+    sta ob_state,x
+    lda #5
+    sta ob_vyi,x
+    lda #0
+    sta ob_vyf,x
     lda #1
     sta ob_vxi,x
-    lda #$80
+    lda #$a0
     sta ob_vxf,x
-    jmp @un_sh
-@un_l:
+    lda ob_dir,x
+    beq @un_chk_off
     lda #$fe
     sta ob_vxi,x
-    lda #$80
+    lda #$60
     sta ob_vxf,x
-@un_sh:
-    jsr fire_aimed_shot
-@un_mv:
+    bne @un_chk_off
+@un_jump:
     jsr add_vel
+    lda ob_vyf,x
+    sec
+    sbc #$40
+    sta ob_vyf,x
+    lda ob_vyi,x
+    sbc #0
+    sta ob_vyi,x
+    lda ob_yh,x
+    cmp ob_by_h,x
+    bcc @un_land
+    bne @un_chk_off
+    lda ob_yl,x
+    cmp ob_by_l,x
+    bcs @un_chk_off
+@un_land:
+    lda ob_by_l,x
+    sta ob_yl,x
+    lda ob_by_h,x
+    sta ob_yh,x
+    lda #0
+    sta ob_vyi,x
+    sta ob_vyf,x
+    lda #1
+    sta ob_state,x
+    lda oz_rng
+    and #$1f
+    clc
+    adc #24
+    sta ob_t0,x
+@un_chk_off:
     jsr check_offscreen
     bcc :+
     jmp free_obj

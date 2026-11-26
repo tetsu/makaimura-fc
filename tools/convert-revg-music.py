@@ -516,12 +516,29 @@ def main():
                         (patch[7] & 0xF0) | min(3, patch[7] & 15),
                     ])
                     volume = max(0, volume - 2)
-                # Headroom & BGM/SFX balance: VRC7 FM sits louder than NES APU on hardware
-                # and Mesen, so attenuate gameplay BGM by 12 dB (+4) so APU SFX cut through.
-                # The opening cutscene has no gameplay SFX overlap, so give it +2 (+6 dB louder).
-                atten = 2 if name == "title" else 4
+                # Headroom & BGM/SFX balance: keep gameplay FM vivid and punchy (+2 = -6 dB
+                # instead of -12 dB) so melodies stay crisp like the arcade YM2203 while APU
+                # SFX still cut through; give short jingles (map/clear/key/miss) +1 (-3 dB).
+                if name in ("map", "clear", "key", "miss", "gameover"):
+                    atten = 1
+                else:
+                    atten = 2
                 volume = min(15, volume + atten)
                 if custom is None:
+                    # Ensure gameplay lead custom patches have crisp attack & rich modulation
+                    # so leads cut cleanly through the bass/harmony on VRC7.
+                    if name in ("stage", "boss", "stage3", "stage5", "map", "clear", "key"):
+                        patch = bytes([
+                            patch[0],
+                            patch[1],
+                            max(0, (patch[2] & 63) - 3) | (patch[2] & 0xC0),
+                            patch[3],
+                            (max(13, patch[4] >> 4) << 4) | (patch[4] & 15),
+                            (max(14, patch[5] >> 4) << 4) | (patch[5] & 15),
+                            patch[6],
+                            patch[7],
+                        ])
+                        volume = max(0, volume - 1)
                     custom = patch
                     if patch not in patches:
                         patches.append(patch)
@@ -550,6 +567,20 @@ def main():
                     # Voice 18 ($36 graveyard harmony): Violin/Strings (1) +0.
                     instruments[(layer, voice)] = (1, min(15, volume + 1), 0)
                     notes.append(f"${layer:04x} voice {voice}: built-in 1 +0 vol {min(15, volume + 1)} pitch {sounding:.0f}")
+                elif name in ("stage", "boss", "stage3", "stage5") and voice in (7, 9):
+                    # Arcade FM harmony/chords (voices 7 & 9): VRC7 Organ (8) / Synth Brass (7)
+                    # holds rich gothic sustain instead of decaying Piano (3).
+                    inst = 8 if voice == 7 else 7
+                    trans = 12 if (name == "boss" and voice == 9) else 0
+                    v_bal = min(15, volume + 1)
+                    instruments[(layer, voice)] = (inst, v_bal, trans)
+                    notes.append(f"${layer:04x} voice {voice}: built-in {inst} {trans:+d} vol {v_bal} pitch {sounding:.0f}")
+                elif name in ("stage", "boss", "stage5", "map") and voice in (15, 20, 25, 27):
+                    # Arcade FM bass lines: VRC7 Bass Guitar (13) gives tight, punchy YM2203 bass.
+                    trans = -12 if voice == 27 else 0
+                    v_bal = min(15, volume + 1)
+                    instruments[(layer, voice)] = (13, v_bal, trans)
+                    notes.append(f"${layer:04x} voice {voice}: built-in 13 {trans:+d} vol {v_bal} pitch {sounding:.0f}")
                 else:
                     number, transpose = nearest_builtin(patch)
                     # Avoid transposing low melodic voices (e.g. $3A bass voice 13) below C1

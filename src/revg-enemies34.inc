@@ -2390,13 +2390,47 @@ fire_arremer_shot:
 s4_sync_platforms:
     lda campaign_stage
     cmp #4
-    bne @s4p_done
+    beq :+
+    rts
+:
     lda ap_riding_plat
-    bpl @s4p_done               ; Never swap while Arthur is riding a platform
+    bmi :+
+    rts                         ; Never swap while Arthur is riding a platform
+:
+    ; Switch zones at the midpoints of the 4 solid islands (X=352, 608, 864)
+    ; so platforms never swap mid-chasm.
     lda player_x+1
-    cmp #4
-    bcc @s4_z
+    cmp #1
+    bcc @s4_z0
+    bne @s4_chk_z2
+    lda player_x
+    cmp #<352
+    bcc @s4_z0
+    bcs @s4_z1
+@s4_chk_z2:
+    cmp #2
+    bne @s4_chk_z3
+    lda player_x
+    cmp #<608
+    bcc @s4_z1
+    bcs @s4_z2
+@s4_chk_z3:
+    cmp #3
+    bne @s4_z3
+    lda player_x
+    cmp #<864
+    bcc @s4_z2
+@s4_z3:
     lda #3
+    bne @s4_z
+@s4_z2:
+    lda #2
+    bne @s4_z
+@s4_z1:
+    lda #1
+    bne @s4_z
+@s4_z0:
+    lda #0
 @s4_z:
     cmp s2_plat_zone
     beq @s4p_done
@@ -2444,26 +2478,26 @@ s4_sync_platforms:
     rts
 
 s4_plat_zones:
-    ; Zone 0 (X = 0..255): local X = 120, 136, 168, 200
-    .byte 2, <120, >120, <184, >184, 64,  0, 0
-    .byte 2, <136, >136, <152, >152, 64, 32, 0
-    .byte 2, <168, >168, <136, >136, 80, 16, 1
-    .byte 2, <200, >200, <104, >104, 80, 48, 1
-    ; Zone 1 (X = 256..511): local X = 360, 456, 504, 520
-    .byte 2, <360, >360, <120, >120, 80,  0, 0
-    .byte 2, <456, >456, <200, >200, 64, 32, 1
-    .byte 2, <504, >504, <120, >120, 80, 16, 0
-    .byte 2, <520, >520, <168, >168, 80, 48, 1
-    ; Zone 2 (X = 512..767): local X = 664, 680, 696, 776
-    .byte 2, <664, >664, <136, >136, 80,  0, 0
-    .byte 2, <680, >680, <168, >168, 80, 32, 1
-    .byte 2, <696, >696, <88,  >88,  80, 16, 0
-    .byte 2, <776, >776, <120, >120, 80, 48, 1
-    ; Zone 3 (X >= 768): local X = 984, 1000, 1032 (plus 776)
-    .byte 2, <776,  >776,  <120, >120, 80, 32, 0
-    .byte 2, <984,  >984,  <120, >120, 80,  0, 0
-    .byte 2, <1000, >1000, <200, >200, 80, 48, 1
-    .byte 2, <1032, >1032, <168, >168, 80, 16, 0
+    ; Zone 0 (Chasm 0: X=128..303, between Island 0 [0..127] and Island 1 [304..399])
+    .byte 2, <136, >136, <184, >184, 80,  0, 0
+    .byte 2, <160, >160, <152, >152, 80, 32, 0
+    .byte 2, <184, >184, <136, >136, 88, 16, 1
+    .byte 2, <208, >208, <104, >104, 88, 48, 1
+    ; Zone 1 (Chasm 1: X=400..527, between Island 1 [304..399] and Island 2 [528..687])
+    .byte 2, <384, >384, <120, >120, 80,  0, 0
+    .byte 2, <416, >416, <184, >184, 80, 32, 1
+    .byte 2, <440, >440, <120, >120, 88, 16, 0
+    .byte 2, <448, >448, <168, >168, 88, 48, 1
+    ; Zone 2 (Chasm 2: X=688..815, between Island 2 [528..687] and Island 3 [816..911])
+    .byte 2, <680, >680, <136, >136, 80,  0, 0
+    .byte 2, <704, >704, <168, >168, 80, 32, 1
+    .byte 2, <720, >720, <104, >104, 88, 16, 0
+    .byte 2, <736, >736, <120, >120, 88, 48, 1
+    ; Zone 3 (Chasm 3: X=912..1135, between Island 3 [816..911] and Island 4 [1136..1359])
+    .byte 2, <920,  >920,  <152, >152, 96,  0, 0
+    .byte 2, <960,  >960,  <120, >120, 96, 32, 1
+    .byte 2, <1008, >1008, <168, >168, 96, 16, 0
+    .byte 2, <1040, >1040, <136, >136, 96, 48, 1
 
 ; A = signed Y offset from pillar
 fire_pillar_shot:

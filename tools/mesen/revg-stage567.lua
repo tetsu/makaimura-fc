@@ -104,7 +104,7 @@ emu.addEventCallback(function()
         if scene == TITLE then phaseFrame = frame; phase = "title_wait" end
     elseif phase == "title_wait" then
         if frame == phaseFrame + 10 or frame == phaseFrame + 11 then
-            input = {start = true}
+            input = {right = true, start = true}
         elseif scene == PLAY then
             phase = "skip_s1"
         end
