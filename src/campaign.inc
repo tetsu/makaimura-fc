@@ -22,10 +22,25 @@ reset_campaign_clock:
 @arcade_clock:
     lda #64                     ; arcade clock ticks 1 second per 64 frames
     sta campaign_subsecond
+    lda campaign_stage
+    cmp #2
+    beq @arcade_clock_s2
     lda #campaign_zero + 2      ; arcade Stage 1 starts at 2:00
     sta campaign_clock
     lda #campaign_zero
     sta campaign_clock+1
+    sta campaign_clock+2
+    rts
+@arcade_clock_s2:
+    lda #campaign_zero + 1      ; arcade Stage 2: 1:30 start, 2:30 checkpoint
+    ldx checkpoint_reached
+    beq :+
+    lda #campaign_zero + 2
+:
+    sta campaign_clock
+    lda #campaign_zero + 3
+    sta campaign_clock+1
+    lda #campaign_zero
     sta campaign_clock+2
     rts
 .endif

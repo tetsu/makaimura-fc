@@ -79,6 +79,10 @@ STATIC_FRAMES = [(0x798E, 3), (0x971E, 3), (0x7AD5, 1), (0x7AD8, 1), (0x7ADB, 1)
 STATIC_FRAMES += [(0x7374, 3)]
 # The walks Arthur uses in the opening, naked and armoured, as animations.
 EXTRA_ANIMATIONS += [(0x95F2, 3), (0x9596, 3)]
+# Stage 2 (Section 1) enemies: Petit Devil ($02), Purple Flyer ($04 walk & fly),
+# Big Man ($0A walk), and Big Man's projectile (enemyshot $03).
+EXTRA_ANIMATIONS += [(0xA893, 0), (0xB10B, 0), (0xB19E, 2), (0x50E4, 3), (0xFD02, 0)]
+STATIC_FRAMES += [(0x5170, 3), (0x5184, 3), (0x51B0, 3)]
 
 
 def load_module(name, path):

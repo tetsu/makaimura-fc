@@ -63,6 +63,14 @@ oz_key_timer: .res 1
 oz_boss_seen: .res 1
 
 .segment "BANK6"
+revg_enemy_init_vec   = $c001
+revg_enemy_update_vec = $c004
+revg_enemy_shot_vec   = $c007
+.assert * = $c001, lderror, "BANK6 jump table must start at $C001"
+    jmp revg_objects_init
+    jmp revg_update_objects
+    jmp ap_shot_check_enemies
+
 ; --- Per-kind tables -----------------------------------------------------------------
 ;                 -   zom crow plnt pig knt arr uni mag shot item boom pop disc trig key spark
 ok_hp:     .byte 0, 0,  0,   0,   0,  0,  2,  9,  0,  0,  0,   0,   0,  0,   0,   0,  0
@@ -194,13 +202,13 @@ revg_update_objects:
 ob_free_rts:
     rts
 
-; The player's arcade Y (254 - feet).
+; The player's arcade Y ((stage_cam_y_max_page * 256 + 254) - feet).
 oz_player_y:
     lda #254
     sec
     sbc player_feet
     sta oz_py
-    lda #0
+    lda stage_cam_y_max_page
     sbc ap_player_y_hi
     sta oz_py+1
     rts
@@ -452,7 +460,7 @@ oz_on_ground:
     sec
     sbc ob_yl,x
     sta ap_probe_y
-    lda #0
+    lda stage_cam_y_max_page
     sbc ob_yh,x
     sta ap_probe_y_hi
     bmi @no
@@ -483,7 +491,7 @@ oz_snap_ground:
     sec
     sbc oz_t0
     sta ob_yl,x
-    lda #0
+    lda stage_cam_y_max_page
     sbc ap_probe_y_hi
     sta ob_yh,x
     lda #0

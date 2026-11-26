@@ -43,6 +43,7 @@ rs_ptile: .res 1
 rs_tmp: .res 4
 rs_nmi_half: .res 1
 rs_shot_i: .res 1
+rs_y_max_page: .res 1
 rs_obj_i: .res 1
 rs_obj_n: .res 1
 rs_a_cur: .res 2
@@ -617,7 +618,7 @@ rs_set_arcade_y:
     sec
     sbc rs_tmp
     sta rs_tmp
-    lda #0
+    lda rs_y_max_page
     sbc rs_tmp+1
     tax
     lda rs_tmp
@@ -633,6 +634,8 @@ rs_set_arcade_y:
 revg_draw_sprites:
     lda prg_bank0
     sta rs_stage_bank
+    lda stage_cam_y_max_page
+    sta rs_y_max_page
     jsr rs_drop_unsent
     inc rs_frame
     lda #0

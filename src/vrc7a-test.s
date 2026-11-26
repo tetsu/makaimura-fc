@@ -26,13 +26,17 @@ bank_tag_base = $80
 ; Bank 5 holds the later stage songs (arcade-music-data.inc).
 .segment "BANK6"
     .byte bank_tag_base + 6
+.segment "BANK49"
+    .byte bank_tag_base + 49
+.segment "BANK50"
+    .byte bank_tag_base + 50
 .ifdef NES_AREA_ART
 .include "nes-areas.inc"
 .else
 .segment "PAD_11"
     .byte bank_tag_base + 11
     .res $1fff, $ff
-.segment "PAD_19_62"
+.segment "PAD_19_48"
 .ifdef REVG_STAGE1
 ; Stage 1 background art from bank 19 (revg-background.inc reads it through $C000).
 .include "revg-section0-bg.inc"
@@ -45,16 +49,21 @@ revg_bg_banks
 revg_spr_banks
 ; The title and the opening demo (revg-opening.inc) after them.
 revg_frontend_banks
-.repeat 44 - revg_bg_bank_count - revg_spr_bank_count - revg_frontend_bank_count, index
+.repeat 30 - revg_bg_bank_count - revg_spr_bank_count - revg_frontend_bank_count, index
     .byte bank_tag_base + 19 + revg_bg_bank_count + revg_spr_bank_count + revg_frontend_bank_count + index
     .res $1fff, $ff
 .endrepeat
 .else
-.repeat 44, index
+.repeat 30, index
     .byte bank_tag_base + 19 + index
     .res $1fff, $ff
 .endrepeat
 .endif
+.segment "PAD_51_62"
+.repeat 12, index
+    .byte bank_tag_base + 51 + index
+    .res $1fff, $ff
+.endrepeat
 .endif
 .endif
 .segment "FIXED_TAG"
@@ -1372,6 +1381,7 @@ in_play_step: .res 1             ; 1 while update_game is running (lag-frame NMI
 .include "revg-background.inc"
 .include "revg-objects.inc"
 .include "revg-enemies.inc"
+.include "revg-enemies2.inc"
 .include "revg-opening.inc"
 .endif
 

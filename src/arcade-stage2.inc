@@ -69,6 +69,8 @@ stage2_height = 30
     course_is_scroll = 1
     .include "original-course.inc"
 .endscope
+.elseif .defined(REVG_STAGE1)
+    .include "revg-stage2.inc"
 .else
 arcade_stage2_header:
     stage_header stage2_width, stage2_height, 0, 1, 48, 200, 208, 0, 0, 208, 144, arcade_stage2_map, arcade_stage2_palettes

@@ -691,13 +691,23 @@ ap_load_stage_visuals:
     bne :-
     lda prg_bank2
     pha
-    lda #6
-    jsr select_bank2
-    jsr revg_objects_init
+    jsr ap_select_revg_enemy_bank
+    jsr revg_enemy_init_vec
     pla
     jsr select_bank2
 .endif
     rts
+
+.ifdef REVG_STAGE1
+ap_select_revg_enemy_bank:
+    lda #6
+    ldx campaign_stage
+    cpx #2
+    bne :+
+    lda #49
+:
+    jmp select_bank2
+.endif
 
 ; Compute 16-bit ap_cam_y = pan_y_page * 240 + pan_y.
 ap_update_cam_y:
@@ -945,11 +955,10 @@ ap_update_frame:
 @no_test_hit:
 .endif
 .ifdef REVG_STAGE1
-    ; The enemies, items and the shot checks of the game build are in Bank 6
-    ; (revg-enemies.inc).
-    lda #6
-    jsr select_bank2
-    jsr revg_update_objects
+    ; The enemies, items and the shot checks of the game build are in Bank 6 (Stage 1)
+    ; or Bank 49 (Stage 2).
+    jsr ap_select_revg_enemy_bank
+    jsr revg_enemy_update_vec
     jsr ap_update_shots
     jsr ap_check_hazard
 .else
@@ -2648,6 +2657,8 @@ ap_check_hazard:
     lda sd_flags
     and #sd_flag_vertical
     bne @vert_fall_check
+    lda stage_cam_y_max_page
+    bne @vert_fall_check
     lda ap_player_y_hi
     bne @fatal_hazard
     lda player_feet
@@ -2778,7 +2789,7 @@ ap_update_shots:
     jsr ap_shot_hits_tombstone
     ldx ap_loop_idx
     bcs @revg_reclaim
-    jsr ap_shot_check_enemies
+    jsr revg_enemy_shot_vec
     ldx ap_loop_idx
     bcs @revg_reclaim
     jmp @next_shot
@@ -2789,7 +2800,11 @@ ap_update_shots:
 .endif
     cmp #2
     bne @shot_flying
+.ifdef REVG_STAGE1
+    jsr revg_enemy_shot_vec
+.else
     jsr ap_shot_check_enemies
+.endif
     ldx ap_loop_idx
     dec ps_timer,x
     bne :+
@@ -2906,7 +2921,11 @@ ap_update_shots:
     jsr ap_shot_hits_tombstone
     ldx ap_loop_idx
     bcs @reclaim_shot
+.ifdef REVG_STAGE1
+    jsr revg_enemy_shot_vec
+.else
     jsr ap_shot_check_enemies
+.endif
     ldx ap_loop_idx
     bcs @reclaim_shot
     dec ps_timer,x
@@ -3213,6 +3232,9 @@ ap_tomb_support:
 ; must not be below the centre. A player more than 3 px from the centre height is put
 ; on top, 19 px above it. A miss clears ap_tomb_above ($9EAD).
 ap_tomb_box:
+    lda campaign_stage
+    cmp #1
+    bne @miss
     lda ap_player_y_hi
     bne @miss                   ; section 0 is one row of pages
     lda ap_probe_x
@@ -3274,6 +3296,9 @@ ap_tomb_box:
 ; Carry set if shot slot ap_loop_idx hits any tombstone platform.
 ap_shot_hits_tombstone:
 .ifdef REVG_STAGE1
+    lda campaign_stage
+    cmp #1
+    bne @revg_miss
     ; The section 0 tombstones (revg_tomb_*), arcade $F5FE: the shot point within 14 px of
     ; the centre X and from 8 px below to 4 px above the stone's Y (the floor; the box at
     ; $F67E + 8). The standing shot is 9 px above the feet and passes over; the crouching

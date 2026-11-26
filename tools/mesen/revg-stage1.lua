@@ -223,8 +223,9 @@ emu.addEventCallback(function()
         if frame == clearFrame + 20 then
             input = {start = true}
         elseif frame == clearFrame + 35 then
-            if not check(scene == TITLE, "START after clear returns to title") then return end
-            print(string.format("PASS: Stage 1 full route, ladder, raft, checkpoint, Unicorn, key, clear song, title (frame %d)", frame))
+            if not check(scene == PLAY and read(0x14) == 2 and read(0x0d) == 13,
+                    "START after Stage 1 clear advances to Stage 2 (bank 13)") then return end
+            print(string.format("PASS: Stage 1 full route, ladder, raft, checkpoint, Unicorn, key, clear song, -> Stage 2 (frame %d)", frame))
             emu.stop(0)
         end
     end

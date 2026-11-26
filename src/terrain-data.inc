@@ -279,7 +279,18 @@ read_map_cell:
 @read_lower_page:
     clc
     adc stage_width_cols
+    bcc @lower_no_carry
     jsr set_map_col_ptr
+    lda map_ptr+1
+    clc
+    adc #$10
+    sta map_ptr+1
+    lda #$ff
+    sta map_cached_col
+    bne @lower_read
+@lower_no_carry:
+    jsr set_map_col_ptr
+@lower_read:
     tya
     sec
     sbc #map_col_stride

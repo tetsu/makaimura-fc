@@ -103,7 +103,7 @@ original_course_count = 2
 .elseif .defined(REVG_STAGE1)
 ; Only Stage 1 uses the real arcade map so far. Its clear returns to the title instead of
 ; going on to the prototype Stage 2 (TODO C-1a).
-original_course_count = 1
+original_course_count = 2
 .endif
 
 start_arcade_stage:

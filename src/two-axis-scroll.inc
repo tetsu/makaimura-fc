@@ -178,8 +178,14 @@ draw_pan:
 .endif
 .ifdef REVG_STAGE1
     ; The real Stage 1 draws the arcade art by columns (revg-background.inc).
+    ; Stage 2+ uses 2-axis horizontal-mirroring scroll (revg_bg_active = 0).
+    lda #0
+    sta revg_bg_active
     lda arcade_mode
     beq pan_initial_rows
+    lda campaign_stage
+    cmp #1
+    bne pan_initial_rows
     sta revg_bg_active
     lda #$80
     sta $e000           ; Vertical mirroring: a 64-column ring.

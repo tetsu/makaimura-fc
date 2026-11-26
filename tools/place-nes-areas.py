@@ -10,7 +10,7 @@ from pathlib import Path
 
 DIRECTORY_BANK = 11
 FIRST_BANK = 19
-LAST_BANK = 50
+LAST_BANK = 48
 VIEWER_BANK = 51
 TRIAL_BANK = VIEWER_BANK + 1
 FIXED_BANK = 63
@@ -282,10 +282,10 @@ def make_include(areas, trials):
             ])
 
     tail = FIRST_BANK + len(banks)
-    if tail < VIEWER_BANK:
+    if tail <= LAST_BANK:
         lines.extend([
             '.segment "AREA_PAD"',
-            f".repeat {VIEWER_BANK - tail}, index",
+            f".repeat {LAST_BANK + 1 - tail}, index",
             f"    .byte bank_tag_base + {tail} + index",
             "    .res $1fff, $ff",
             ".endrepeat",
@@ -339,28 +339,29 @@ def make_include(areas, trials):
 
 def make_config(base_config, bank_count, trial_count):
     tail = FIRST_BANK + bank_count
-    memory = [
+    area_memory = [
         f"    PRG{bank}: start = $8000, size = $2000, type = ro, fill = yes, fillval = $FF;"
         for bank in range(FIRST_BANK, tail)
     ]
-    segments = [f"    BANK{bank}: load = PRG{bank}, type = ro;" for bank in range(FIRST_BANK, tail)]
-    if tail < VIEWER_BANK:
-        memory.append(f"    AREA_PAD: start = $0000, size = ${(VIEWER_BANK - tail) * BANK_SIZE:x},"
-                      " type = ro, fill = yes, fillval = $FF;")
-        segments.append("    AREA_PAD: load = AREA_PAD, type = ro;")
-    memory.append(f"    PRG{VIEWER_BANK}: start = $A000, size = $2000, type = ro, fill = yes, fillval = $FF;")
-    segments.append(f"    BANK{VIEWER_BANK}: load = PRG{VIEWER_BANK}, type = ro;")
+    area_segments = [f"    BANK{bank}: load = PRG{bank}, type = ro;" for bank in range(FIRST_BANK, tail)]
+    if tail <= LAST_BANK:
+        area_memory.append(f"    AREA_PAD: start = $0000, size = ${(LAST_BANK + 1 - tail) * BANK_SIZE:x},"
+                           " type = ro, fill = yes, fillval = $FF;")
+        area_segments.append("    AREA_PAD: load = AREA_PAD, type = ro;")
+    viewer_memory = [f"    PRG{VIEWER_BANK}: start = $A000, size = $2000, type = ro, fill = yes, fillval = $FF;"]
+    viewer_segments = [f"    BANK{VIEWER_BANK}: load = PRG{VIEWER_BANK}, type = ro;"]
     for bank in range(TRIAL_BANK, TRIAL_BANK + trial_count):
-        memory.append(f"    PRG{bank}: start = $8000, size = $2000, type = ro, fill = yes, fillval = $FF;")
-        segments.append(f"    BANK{bank}: load = PRG{bank}, type = ro;")
+        viewer_memory.append(f"    PRG{bank}: start = $8000, size = $2000, type = ro, fill = yes, fillval = $FF;")
+        viewer_segments.append(f"    BANK{bank}: load = PRG{bank}, type = ro;")
     tail_banks = FIXED_BANK - VIEWER_BANK - 1 - trial_count
     if tail_banks:
-        memory.append(f"    AREA_TAIL: start = $0000, size = ${tail_banks * BANK_SIZE:x},"
-                      " type = ro, fill = yes, fillval = $FF;")
-        segments.append("    AREA_TAIL: load = AREA_TAIL, type = ro;")
+        viewer_memory.append(f"    AREA_TAIL: start = $0000, size = ${tail_banks * BANK_SIZE:x},"
+                             " type = ro, fill = yes, fillval = $FF;")
+        viewer_segments.append("    AREA_TAIL: load = AREA_TAIL, type = ro;")
     config = base_config.splitlines()
     for pad, replacement_memory, replacement_segments in (
-        ("PAD_19_62", memory, segments),
+        ("PAD_19_48", area_memory, area_segments),
+        ("PAD_51_62", viewer_memory, viewer_segments),
         ("PAD_11", [f"    PRG{DIRECTORY_BANK}: start = $8000, size = $2000, type = ro, fill = yes, fillval = $FF;"],
          [f"    BANK{DIRECTORY_BANK}: load = PRG{DIRECTORY_BANK}, type = ro;"]),
     ):
