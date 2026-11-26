@@ -27,8 +27,16 @@ toggle_scene:
     beq show_sound_screen
     cmp #stage_view_scene
     beq show_sound_screen
+    cmp #option_scene
+    beq show_title_screen_entry
     cmp #sound_test_scene
+    bne :+
+    lda opt_return_to
     beq show_sound_screen
+    lda #0
+    sta opt_return_to
+    jmp show_option_screen_blanked
+:
     cmp #sprite_view_scene
     beq show_sound_screen
     ldx arcade_mode

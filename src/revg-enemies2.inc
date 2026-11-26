@@ -873,6 +873,7 @@ update:
 ; --- Player contact check -------------------------------------------------------------
 check_player_hit:
     lda ap_invuln
+    ora opt_invincible
     bne @no
     lda ap_state
     cmp #ap_state_knockback

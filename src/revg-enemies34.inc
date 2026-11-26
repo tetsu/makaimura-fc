@@ -2323,6 +2323,7 @@ u_key:
 check_player_hit:
     lda ap_invuln
     ora ap_clear_seq
+    ora opt_invincible
     bne @ph_ret
     lda ap_state
     cmp #ap_state_knockback

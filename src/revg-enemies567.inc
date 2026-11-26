@@ -485,6 +485,7 @@ check_onscreen_xy:
 
 check_player_hit:
     lda ap_invuln
+    ora opt_invincible
     bne @ph_no
     lda ap_state
     cmp #ap_state_dead

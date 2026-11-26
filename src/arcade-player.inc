@@ -268,8 +268,9 @@ ap_init_stage:
     sta ap_score_units+0
     sta ap_score_units+1
     sta ap_rank
-    sta ap_loop
     sta ap_bounce_back
+    lda opt_start_loop
+    sta ap_loop
     lda #<ap_extend_first
     sta ap_next_extend+0
     lda #>ap_extend_first
@@ -3540,6 +3541,10 @@ ap_check_items:
     rts
 
 ap_apply_player_damage:
+    lda opt_invincible
+    beq :+
+    rts
+:
 .ifdef REVG_STAGE1
     ; $F0A1 keeps $AE = attacker X - player X: Arthur flies away from that side.
     lda ap_probe_x

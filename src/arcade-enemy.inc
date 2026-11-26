@@ -164,6 +164,7 @@ ap_shot_check_enemies:
 ; --- Enemy contact (fixed enemies, enemy pool, and boss) ---
 ap_check_enemies_contact:
     lda ap_invuln
+    ora opt_invincible
     beq :+
     rts
 :
@@ -626,6 +627,7 @@ ap_update_ebolts:
     dec eb_timer,x
     beq @eb_reclaim
     lda ap_invuln
+    ora opt_invincible
     bne @eb_next
     sec
     lda player_x

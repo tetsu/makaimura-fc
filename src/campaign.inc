@@ -46,6 +46,11 @@ reset_campaign_clock:
 .endif
 
 tick_campaign_clock:
+    lda arcade_mode
+    beq :+
+    lda opt_no_timer
+    bne clock_done
+:
     dec campaign_subsecond
     bne clock_done
     lda #campaign_frames_per_second

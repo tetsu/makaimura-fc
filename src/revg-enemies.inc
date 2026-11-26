@@ -1240,6 +1240,7 @@ oz_kill:
 ; Enemies and their shots against the player.
 oz_player_contact:
     lda ap_invuln
+    ora opt_invincible
     beq :+
     rts
 :

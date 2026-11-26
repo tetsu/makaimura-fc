@@ -106,20 +106,26 @@ start_arcade_stage:
     lda #1
     sta ap_new_game
     lda #0
-    sta ap_weapon
     sta ap_score+0
     sta ap_score+1
     sta ap_score+2
     sta ap_score+3
-    sta ap_loop
     sta ap_bounce_back
+    lda opt_start_weapon
+    sta ap_weapon
+    lda opt_start_loop
+    sta ap_loop
     jsr blank_display
 .ifdef REVG_STAGE1
     jsr load_game_patterns
     jsr clear_screen            ; the title's name table would stay around the HUD
 .endif
     jsr reset_campaign_clock
-    lda #arcade_stage_bank
+    lda campaign_stage
+    sec
+    sbc #1
+    clc
+    adc #arcade_stage_bank
     jsr select_bank0
     jmp show_pan_game
 

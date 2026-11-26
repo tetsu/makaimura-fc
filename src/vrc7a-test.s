@@ -197,6 +197,7 @@ area_view_scene = 11
 opening_scene = 12              ; Scenes from here on run in Bank 2 (frontend.inc).
 map_scene = 13
 .endif
+option_scene = 14
 .endif
 
 .segment "CODE"
@@ -246,13 +247,19 @@ reset:
     jsr draw_screen
     lda $a000
     cmp #bank_tag_base + 1
-    bne memory_error
+    beq :+
+    jmp memory_error
+:
     lda $c000
     cmp #bank_tag_base + 2
-    bne memory_error
+    beq :+
+    jmp memory_error
+:
     lda $e000
     cmp #bank_tag_base + fixed_bank
-    bne memory_error
+    beq :+
+    jmp memory_error
+:
     ldx #0
 check_bank:
     stx $8000
@@ -296,6 +303,17 @@ check_bank:
     sta snd_lock
     sta snd_nmi_missed
     sta in_play_step
+    sta title_cursor
+    sta opt_cursor
+    sta opt_invincible
+    sta opt_start_loop
+    sta opt_start_weapon
+    sta opt_no_timer
+    sta opt_lives_idx
+    sta opt_return_to
+    lda #1
+    sta opt_start_stage
+    lda #0
 .ifdef REVG_STAGE1
     sta op_stage_song
 .endif
@@ -371,6 +389,11 @@ same_scene:
     cmp #stage_view_scene
     bne :+
     jsr update_stage_view
+    jmp main
+:
+    cmp #option_scene
+    bne :+
+    jsr update_option_screen
     jmp main
 :
 .ifdef REVG_STAGE1
@@ -450,7 +473,9 @@ same_scene:
     cmp #game_over_scene
     beq finish_campaign
     lda player_hit
-    beq dispatch_scene
+    bne :+
+    jmp dispatch_scene
+:
     jsr reset_campaign_clock
     jmp start_pressed
 finish_campaign:
@@ -481,12 +506,22 @@ check_campaign_start:
     jsr begin_arcade_game
     jmp audio_tick
 @title_start:
+    lda title_cursor
+    beq :+
+    jsr show_option_screen
+    jmp audio_tick
+:
     lda pad
     and #$08            ; Hold Up and press Start on the title for legacy campaign.
     bne @begin_campaign
 .ifdef REVG_STAGE1
     lda pad
     and #$01            ; Right+START skips the opening and the map (Mesen tests).
+    bne @begin_arcade
+    lda opt_start_stage
+    cmp #1
+    bne @begin_arcade
+    lda opt_start_loop
     bne @begin_arcade
     lda #1              ; (the opening starts its own music, op_tick)              ; The opening demo, then Stage 1 (revg-opening.inc).
     sta demo_active
@@ -523,7 +558,7 @@ dispatch_scene:
     cmp #game_over_scene
     beq clear_screen_idle
     cmp #title_scene
-    beq clear_screen_idle
+    beq title_screen_tick
 .endif
     cmp #4
     bne free_camera
@@ -541,6 +576,28 @@ game_screen:
 clear_screen_idle:
     jsr wait_terrain_frame
     jmp audio_tick
+.if PRG_ROM_UNITS = 32
+title_screen_tick:
+    lda pressed
+    and #$0c            ; Up / Down toggles 1P START <-> OPTION
+    beq @title_chk_a
+    lda title_cursor
+    eor #1
+    sta title_cursor
+    jsr submit_frame
+    jmp audio_tick
+@title_chk_a:
+    lda title_cursor
+    beq @title_wait
+    lda pressed
+    and #$80            ; A opens OPTION when highlighted
+    beq @title_wait
+    jsr show_option_screen
+    jmp audio_tick
+@title_wait:
+    jsr wait_terrain_frame
+    jmp audio_tick
+.endif
 free_camera:
     lda pad
     and #3
@@ -585,6 +642,14 @@ commit_horizontal:
     cmp #sprite_view_scene
     bne :+
     jmp commit_sprite_view
+:
+    cmp #title_scene
+    bne :+
+    jmp commit_title_cursor
+:
+    cmp #option_scene
+    bne :+
+    jmp commit_option_screen
 :
 .endif
     lda column_pending
@@ -1049,7 +1114,20 @@ load_menu_patterns:
     lda #<CHR_BACKGROUND_BYTES
     jmp upload_chr_patterns
 
+.if PRG_ROM_UNITS = 32
 draw_screen:
+    lda prg_bank2
+    pha
+    lda #2
+    jsr select_bank2
+    jsr draw_screen_b2
+    pla
+    jmp select_bank2
+.segment "BANK2"
+draw_screen_b2:
+.else
+draw_screen:
+.endif
     jsr load_menu_patterns
     jsr clear_screen
     ldy #0
@@ -1137,8 +1215,28 @@ next_line:
     jmp select_bank1
 .endif
 .endif
-.endif
     rts
+campaign_menu: .byte $14, $10, $18, $12, $13, $02, $11, $13, $00, $04, $02, $0d, $10, $02, $0a, $08, $0e ; UP+START CAMPAIGN
+campaign_menu_length = * - campaign_menu
+stage_view_menu: .byte $14, $10, $18, $02, 0, $12, $13, $02, $08, $06, 0, $15, $0a, $06, $16 ; UP+A STAGE VIEW
+stage_view_menu_length = * - stage_view_menu
+sound_test_menu: .byte $05, $0f, $16, $0e, $17, $02, $00, $12, $0f, $14, $0e, $05, $00, $13, $06, $12, $13 ; DOWN+A SOUND TEST
+sound_test_menu_length = * - sound_test_menu
+text_address: .byte $08, $68, $88, $a8, $c8, $e8, $48, $28
+static_line_count = * - text_address
+text_start: .byte 0, line2-screen_text, line3-screen_text, line4-screen_text, line5-screen_text, line6-screen_text, line7-screen_text, line8-screen_text
+screen_text: .byte $15, $11, $04, $01, $02, $00, $13, $06, $12, $13, $00, $0d, $06, $0e, $14, $ff ; VRC7A TEST MENU
+line2: .byte $0c, $06, $07, $13, $00, $07, $0d, $ff
+line3: .byte $11, $0a, $08, $09, $13, $00, $02, $10, $14, $ff
+line4: .byte $05, $0f, $16, $0e, $00, $03, $0f, $13, $09, $ff
+line5: .byte $12, $06, $0c, $06, $04, $13, $00, $13, $06, $11, $11, $02, $0a, $0e, $ff ; SELECT TERRAIN
+line6: .byte $12, $13, $02, $11, $13, $00, $10, $0c, $02, $17, $ff ; START PLAY
+line7: .byte $02, $00, $19, $05, $00, $04, $02, $0d, $06, $11, $02, $ff ; A 2D CAMERA
+line8: .byte $03, $00, $04, $0f, $14, $11, $12, $06, $00, $00, $05, $0f, $16, $0e, $00, $03, $00, $02, $0c, $13, $ff ; B COURSE  DOWN B ALT
+.segment "CODE"
+.else
+    rts
+.endif
 
 .if PRG_ROM_UNITS = 32
 show_title_screen:
@@ -1146,6 +1244,8 @@ show_title_screen:
     jsr select_bank0
     sta campaign_stage
     sta arcade_mode
+    sta title_cursor
+    sta opt_return_to
     lda #1
     jsr select_bank1
     lda #title_scene
@@ -1159,6 +1259,69 @@ show_title_screen:
     jsr select_bank2
     jsr draw_title_screen
     jmp enable_static_screen
+
+commit_title_cursor:
+    lda prg_bank2
+    pha
+    lda #2
+    jsr select_bank2
+    jsr title_commit_vram
+    jmp commit_bank2_done
+
+show_option_screen:
+    jsr blank_display
+show_option_screen_blanked:
+    lda #option_scene
+    sta scene
+    jsr call_bank8_audio_init
+    lda #2
+    jsr select_bank2
+    jsr opt_draw_screen
+    jmp enable_static_screen
+
+update_option_screen:
+    lda #2
+    jsr select_bank2
+    jsr opt_tick
+    beq @opt_wait
+    cmp #1
+    beq @opt_redraw
+    cmp #2
+    beq @opt_exit
+    ; A == 3: launch Sound Test and return to Option on SELECT.
+    lda #1
+    sta opt_return_to
+    lda #3
+    jsr select_bank1
+    jmp show_sound_test
+@opt_exit:
+    jsr blank_display
+    jmp show_title_screen
+@opt_redraw:
+    jsr submit_frame
+    lda #snd_se_shot
+    jsr call_bank8_play_se
+    jmp call_bank8_audio_tick
+@opt_wait:
+    jsr wait_terrain_frame
+    jmp call_bank8_audio_tick
+
+commit_option_screen:
+    lda prg_bank2
+    pha
+    lda #2
+    jsr select_bank2
+    jsr opt_commit_vram
+commit_bank2_done:
+    pla
+    jsr select_bank2
+    lda #0
+    sta $2005
+    sta $2005
+    rts
+
+opt_lives_table:
+    .byte 3, 5, 9
 
 ; Start in the arcade game with the player alive: pause or resume. C set when it did.
 toggle_pause:
@@ -1202,8 +1365,13 @@ begin_arcade_game:
     sta game_paused
     lda #1
     sta arcade_mode
+    lda opt_start_stage
+    bne :+
+    lda #1
+:
     sta campaign_stage
-    lda #campaign_initial_lives
+    ldx opt_lives_idx
+    lda opt_lives_table,x
     sta campaign_lives
     jmp start_arcade_stage
 
@@ -1280,15 +1448,10 @@ final_prompt: .byte $12, $13, $02, $11, $13, $00, $0d, $06, $0e, $14 ; START MEN
 .if nes_area_trial_count > 1
 trial_next_prompt: .byte $12, $13, $02, $11, $13, $00, $0e, $06, $18, $13 ; START NEXT
 .endif
-campaign_menu: .byte $14, $10, $18, $12, $13, $02, $11, $13, $00, $04, $02, $0d, $10, $02, $0a, $08, $0e ; UP+START CAMPAIGN
-campaign_menu_length = * - campaign_menu
-stage_view_menu: .byte $14, $10, $18, $02, 0, $12, $13, $02, $08, $06, 0, $15, $0a, $06, $16 ; UP+A STAGE VIEW
-stage_view_menu_length = * - stage_view_menu
-sound_test_menu: .byte $05, $0f, $16, $0e, $17, $02, $00, $12, $0f, $14, $0e, $05, $00, $13, $06, $12, $13 ; DOWN+A SOUND TEST
-sound_test_menu_length = * - sound_test_menu
 .endif
 clear_menu: .byte $12, $06, $0c, $06, $04, $13, $00, $0d, $06, $0e, $14 ; SELECT MENU
 clear_menu_length = * - clear_menu
+.if PRG_ROM_UNITS <> 32
 text_address: .byte $08, $68, $88, $a8, $c8, $e8, $48, $28
 static_line_count = * - text_address
 text_start: .byte 0, line2-screen_text, line3-screen_text, line4-screen_text, line5-screen_text, line6-screen_text, line7-screen_text, line8-screen_text
@@ -1300,6 +1463,7 @@ line5: .byte $12, $06, $0c, $06, $04, $13, $00, $13, $06, $11, $11, $02, $0a, $0
 line6: .byte $12, $13, $02, $11, $13, $00, $10, $0c, $02, $17, $ff ; START PLAY
 line7: .byte $02, $00, $19, $05, $00, $04, $02, $0d, $06, $11, $02, $ff ; A 2D CAMERA
 line8: .byte $03, $00, $04, $0f, $14, $11, $12, $06, $00, $00, $05, $0f, $16, $0e, $00, $03, $00, $02, $0c, $13, $ff ; B COURSE  DOWN B ALT
+.endif
 error_text: .byte $03, $02, $0e, $0b, $00, $0f, $11, $00, $11, $02, $0d, $00, $06, $11, $11, $0f, $11
 error_length = * - error_text
 pulse_period:
@@ -1412,6 +1576,15 @@ checkpoint_tile_x_hi: .res 1
 pan_row_start: .res 1            ; First ring column of a prepared row
 .if PRG_ROM_UNITS = 32
 in_play_step: .res 1             ; 1 while update_game is running (lag-frame NMI audio hook)
+title_cursor: .res 1             ; 0 = 1P START, 1 = OPTION
+opt_cursor: .res 1               ; 0..7 selected row in Option screen
+opt_invincible: .res 1           ; 0 = OFF, 1 = ON (ignore enemy/shot contact & frog)
+opt_start_stage: .res 1          ; 1..7 starting stage
+opt_start_loop: .res 1           ; 0 = Loop 1, 1 = Loop 2
+opt_start_weapon: .res 1         ; 0=Lance, 1=Dagger, 2=Torch, 3=Cross/Shield, 4=Axe
+opt_no_timer: .res 1             ; 0 = normal timer, 1 = timer disabled
+opt_lives_idx: .res 1            ; 0=3, 1=5, 2=9 initial lives
+opt_return_to: .res 1            ; 1 when Sound Test was opened from Option screen
 .endif
 
 .if PRG_ROM_UNITS = 32
