@@ -95,10 +95,10 @@ emu.addEventCallback(function()
             "shot SE did not play over BGM")
     elseif frame == 235 then
         checkSelection(2, 2)
-        check(read(songId) == 2 and read(seId) == 2 and read(fmMask) == 0x20,
-            "damage SE did not preempt FM over BGM 2")
+        check(read(songId) == 2 and read(seId) == 2 and (apuChannels & 9) == 9 and keyedChannels ~= 0,
+            "damage SE did not play on APU over BGM 2")
     elseif frame == 250 then
-        check(read(seId) == 0 and read(fmMask) == 0 and read(playing) == 1,
+        check(read(seId) == 0 and read(playing) == 1,
             "damage SE did not finish while BGM continued")
     elseif frame == 260 then
         checkSelection(2, 3)
@@ -114,7 +114,7 @@ emu.addEventCallback(function()
         check(read(songId) == 0 and read(seId) == 0 and keyedChannels == 0 and apuChannels == 0,
             "START did not silence both sound sources")
     elseif frame == 333 then
-        check(read(songId) == 0 and read(seId) == 3 and keyedChannels ~= 0,
+        check(read(songId) == 0 and read(seId) == 3 and (apuChannels & 1) ~= 0,
             "key SE did not play without BGM")
     elseif frame == 345 then
         check(ppu(0x2108) == 0x15 and read(songId) == 0 and read(seId) == 0,

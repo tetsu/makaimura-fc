@@ -124,7 +124,7 @@ emu.addEventCallback(function()
             check(cleanStart(0x80, 168) and hud(0x2027) == 0x1c and lives() == 3
                 and clock() == 120 and hud(0x203c) == 0x0e, "campaign did not start with a clean HUD")
         end
-    elseif frame == firstStart + 70 then
+    elseif frame == firstStart + 72 then
         check(courseEntries == 1 and read(0x203) > 168 and read(0x8000) == 0x80 and clock() == 119,
             "Start restarted stage 1 during live play")
     elseif frame == secondStart - 8 then

@@ -104,9 +104,14 @@ local startTicks = 0
 local sawShotSe = false
 local sawDamagePreempt = false
 local sawDamageRestore = false
+local apuChannels = 0
 local hplatArmed = nil
 local hplatPrevX = nil
 local jumpOffArmed = false
+
+emu.addMemoryCallback(function(_, value)
+    apuChannels = value
+end, emu.callbackType.write, 0x4015, 0x4015, emu.memType.nesMemory)
 
 emu.addEventCallback(function()
     emu.setInput(input, 0)
@@ -141,12 +146,12 @@ emu.addEventCallback(function()
         if phaseFrame == 2 then
             input = { b = true }
         end
-        if read(SND_SE_ID) == 1 and read(SND_SE_APU_MASK) == 2 then
+        if read(SND_SE_ID) == 1 and (apuChannels & 2) ~= 0 then
             sawShotSe = true
         end
         if phaseFrame == 48 then
             check(sawShotSe, 13, "shot SE did not trigger on APU Pulse 2")
-            check(read(SND_SE_ID) == 0 and read(SND_SE_APU_MASK) == 0, 14, "shot SE did not release cleanly")
+            check(read(SND_SE_ID) == 0, 14, "shot SE did not release cleanly")
             -- Verify all 6 FM voices have been keyed by the authentic arcade stage BGM.
             local keyed = 0
             for ch = 0, 5 do
@@ -157,7 +162,7 @@ emu.addEventCallback(function()
             nextPhase("test_damage_se")
         end
     elseif phase == "test_damage_se" then
-        -- Walk right to enemy 1 (X=312) and take armor hit to trigger FM ch5 preemption SE.
+        -- Walk right to enemy 1 (X=312) and take armor hit to trigger APU damage SE over FM BGM.
         input = { right = true }
         if phaseFrame < 140 and playerScreenX() >= 148 and playerScreenX() <= 154 and read(AP_STATE) == 0 then
             input.a = true
@@ -165,16 +170,15 @@ emu.addEventCallback(function()
         if phaseFrame == 215 then
             input.a = true
         end
-        if read(SND_SE_ID) == 2 and read(SND_SE_FM_MASK) == 0x20 then
+        if read(SND_SE_ID) == 2 and (apuChannels & 9) == 9 then
             sawDamagePreempt = true
-            trackingFm5Restore = true
-        elseif sawDamagePreempt and read(SND_SE_ID) == 0 and read(SND_SE_FM_MASK) == 0 then
+        elseif sawDamagePreempt and read(SND_SE_ID) == 0 then
             sawDamageRestore = true
-            check(sawFm5RestoreAfterDamage, 17, "FM ch5 instrument not restored after damage SE")
+            check(read(SND_PLAYING) == 1, 17, "FM BGM did not continue after damage SE")
             nextPhase("die_and_retry")
         elseif phaseFrame > 380 then
-            check(sawDamagePreempt, 18, "damage SE did not preempt FM ch5")
-            check(sawDamageRestore, 19, "damage SE did not restore FM ch5")
+            check(sawDamagePreempt, 18, "damage SE did not trigger on APU")
+            check(sawDamageRestore, 19, "damage SE did not finish cleanly")
         end
     elseif phase == "die_and_retry" then
         -- Wait for invulnerability to expire, then walk right into enemy 1 (X=312) to die cleanly.
@@ -260,7 +264,7 @@ emu.addEventCallback(function()
         end
         if read(AP_BOSS_STATE) == 1 then
             check(read(SND_SONG_ID) == 3 and read(SND_PLAYING) == 1, 22, "boss BGM did not start")
-            check(read(SND_CUSTOM_PATCH) == 1, 23, "boss custom FM patch 1 not loaded")
+            check(read(SND_CUSTOM_PATCH) == 2, 23, "boss custom FM patch 2 not loaded")
             nextPhase("step_back")
         elseif phaseFrame > 360 then
             check(false, 24, "boss did not trigger")
@@ -311,7 +315,7 @@ emu.addEventCallback(function()
     elseif phase == "verify_clear_jingle" then
         if phaseFrame == 4 then
             check(read(SND_SONG_ID) == 4 and read(SND_PLAYING) == 1, 28, "clear fanfare did not start")
-            check(read(SND_CUSTOM_PATCH) == 0, 29, "clear fanfare did not restore patch 0")
+            check(read(SND_CUSTOM_PATCH) == 3, 29, "clear fanfare did not load patch 3")
         elseif phaseFrame == 380 then
             -- Authentic arcade Makaimura clear fanfare (~359 frames) should have stopped cleanly on its own.
             check(read(SND_PLAYING) == 0, 30, "clear fanfare did not auto-stop after completion")

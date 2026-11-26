@@ -345,15 +345,21 @@ revg_bg_stream:
     bmi @no_col_cap
     ldx #revg_chr_with_column
     lda pan_need_row
-    bmi @cap_done
-    ldx #0                      ; diagonal scroll: defer BG CHR to keep VBlank safe
+    bpl @defer_chr              ; diagonal scroll: defer BG CHR to keep VBlank safe
+    lda campaign_hud_dirty
+    beq @cap_done
+@defer_chr:
+    ldx #0                      ; scroll + HUD dirty: defer BG CHR by 1 frame
     beq @cap_done
 @no_col_cap:
     lda pan_need_row
     bmi @cap_done
     ldx #revg_chr_with_column
+    lda campaign_hud_dirty
+    bne @defer_chr
 @cap_done:
     stx revg_count
+    cpx #0
     beq @stream_done
 @tile:
     ldx revg_q_head

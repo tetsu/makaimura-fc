@@ -826,6 +826,15 @@ upload_pan_row:
 :
     lda pan_row_tiles,x
     sta $2007
+    lda pan_row_tiles+1,x
+    sta $2007
+    lda pan_row_tiles+2,x
+    sta $2007
+    lda pan_row_tiles+3,x
+    sta $2007
+    inx
+    inx
+    inx
     inx
     cpx #32
     bne :-
@@ -837,13 +846,22 @@ upload_pan_row:
     lda revg_bg_active
     cmp #4
     bcc @legacy_row_attr
-    ldx #0
-:
-    lda revg2_row_attr,x
+    lda revg2_row_attr+0
     sta $2007
-    inx
-    cpx #8
-    bne :-
+    lda revg2_row_attr+1
+    sta $2007
+    lda revg2_row_attr+2
+    sta $2007
+    lda revg2_row_attr+3
+    sta $2007
+    lda revg2_row_attr+4
+    sta $2007
+    lda revg2_row_attr+5
+    sta $2007
+    lda revg2_row_attr+6
+    sta $2007
+    lda revg2_row_attr+7
+    sta $2007
     rts
 @legacy_row_attr:
 .endif

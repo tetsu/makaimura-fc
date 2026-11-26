@@ -26,11 +26,20 @@ $files = $images + @(
 $archiveName = 'vrc7a-352402-trial.zip'
 if ($Mesen) {
     & (Join-Path $root 'build.ps1') -Cc65Bin $Cc65Bin | Out-Null
-    $images = @('build/vrc7a-test.nes', 'build/vrc7a-test-512k-prototype.nes')
+    & (Join-Path $root 'build.ps1') -Hardware -Cc65Bin $Cc65Bin | Out-Null
+    $images = @('build/vrc7a-test.nes', 'build/vrc7a-test-512k-prototype.nes', 'build/vrc7a-test-512k.nes')
     $files = $images + @('docs/vrc7a-mesen-trial.md', 'tools/test-mesen.ps1')
     $suiteDir = Join-Path $PSScriptRoot 'mesen'
     $files += Get-ChildItem -LiteralPath $suiteDir -Filter '*-smoke.lua' -File | Sort-Object Name |
         ForEach-Object { "tools/mesen/$($_.Name)" }
+    $files += @(
+        'tools/mesen/revg-boot-flow.lua'
+        'tools/mesen/revg-stage1.lua'
+        'tools/mesen/revg-stage2.lua'
+        'tools/mesen/revg-stage34.lua'
+        'tools/mesen/revg-stage567.lua'
+        'tools/mesen/revg-options.lua'
+    )
     $archiveName = 'vrc7a-mesen-trial.zip'
 }
 

@@ -260,16 +260,19 @@ read_map_cell:
     bcc :+
     jmp @below_map
 :
+.if PRG_ROM_UNITS = 32
     pha
     lda stage_height_rows
     cmp #32
     bcs @read_nibble_map
     pla
+.endif
     cpy #map_col_stride
     bcs @read_lower_page
     jsr set_map_col_ptr
     lda (map_ptr),y
     rts
+.if PRG_ROM_UNITS = 32
 @read_nibble_map:
     pla
     sta map_tmp
@@ -334,6 +337,7 @@ read_map_cell:
     tax
     lda map_tmp
     rts
+.endif
 @read_lower_page:
     clc
     adc stage_width_cols
@@ -366,7 +370,9 @@ read_map_cell:
     rts
 
 .segment "RODATA"
+.if PRG_ROM_UNITS = 32
 nibble_mt: .byte mt_sky, mt_ladder, mt_floor, mt_dirt, mt_tomb
+.endif
 metatile_attr:
     .byte tile_type_air     ; mt_sky
     .byte tile_type_air     ; mt_gravel

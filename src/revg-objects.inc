@@ -676,23 +676,20 @@ revg_draw_sprites:
     sta rs_oam
     sta rs_full
     sta rs_req_n
-    ; Cap sprite CHR uploads to stay within NTSC VBlank alongside BG scroll/CHR/HUD.
-    ldx #2
-    lda pan_need_col
-    bpl @one_tile
-    lda pan_need_row
-    bpl @one_tile
-    lda revg_chr_count
-    ora campaign_hud_dirty
-    beq @set_budget
-@one_tile:
-    ldx #1
-    ; On diagonal scroll frames (both row and col), defer sprite CHR uploads to next frame.
-    lda pan_need_col
-    bmi @set_budget
-    lda pan_need_row
-    bmi @set_budget
+    ; Cap sprite CHR uploads to stay within NTSC VBlank (2273 cycles) alongside
+    ; BG scroll nametable, BG CHR streaming, HUD updates, and OAM DMA.
     ldx #0
+    lda pan_need_col
+    bpl @set_budget             ; Defer sprite CHR on any BG column upload frame.
+    lda pan_need_row
+    bpl @set_budget             ; Defer sprite CHR on any BG row upload frame.
+    lda revg_chr_count
+    cmp #2
+    bcs @set_budget             ; Defer sprite CHR when 2+ BG CHR tiles upload.
+    ldx #1
+    ora campaign_hud_dirty
+    bne @set_budget             ; 1 sprite tile when 1 BG CHR tile or HUD uploads.
+    ldx #2                      ; 2 sprite tiles on idle/non-scroll frames.
 @set_budget:
     stx rs_budget
     lda demo_active

@@ -527,7 +527,7 @@ emu.addEventCallback(function()
             local rem = (clockOneFrame + 59) - frame
             local vx = (read(AP_WEAPON) == 1) and 4 or 3
             local predBossX = predictBossX(rem)
-            local dist = (predBossX - 14) - pWorldX
+            local dist = (predBossX - 14) - (pWorldX + 16)
             local flight = math.floor((dist + vx - 1) / vx)
             if rem > 0 and rem - SHOT_INPUT_DELAY <= flight then
                 input = { b = true }
