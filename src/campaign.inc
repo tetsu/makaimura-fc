@@ -23,7 +23,7 @@ reset_campaign_clock:
     lda #64                     ; arcade clock ticks 1 second per 64 frames
     sta campaign_subsecond
     ldx campaign_stage
-    cpx #5
+    cpx #8
     bcc :+
     ldx #1
 :
@@ -40,8 +40,9 @@ reset_campaign_clock:
     lda #campaign_zero
     sta campaign_clock+2
     rts
-@ac_min: .byte campaign_zero+2, campaign_zero+2, campaign_zero+1, campaign_zero+2, campaign_zero+2
-@ac_sec: .byte campaign_zero,   campaign_zero,   campaign_zero+3, campaign_zero+3, campaign_zero
+; Arcade clocks: S1=2:00, S2=1:30(2:30 cp), S3=2:30, S4=2:00, S5=3:40, S6=3:40, S7=2:00
+@ac_min: .byte campaign_zero+2, campaign_zero+2, campaign_zero+1, campaign_zero+2, campaign_zero+2, campaign_zero+3, campaign_zero+3, campaign_zero+2
+@ac_sec: .byte campaign_zero,   campaign_zero,   campaign_zero+3, campaign_zero+3, campaign_zero,   campaign_zero+4, campaign_zero+4, campaign_zero
 .endif
 
 tick_campaign_clock:

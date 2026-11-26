@@ -177,25 +177,25 @@ draw_pan:
 :
 .endif
 .ifdef REVG_STAGE1
-    ; revg_bg_active: 1=Stage 1 (1-axis), 2=Stage 4 (1-axis), 3=Stage 2 (2-axis), 4=Stage 3 (2-axis).
+    ; revg_bg_active: 1=S1, 2=S4, 3=S7 (1-axis); 4=S2, 5=S3, 6=S5, 7=S6 (2-axis).
     lda #0
     sta revg_bg_active
     lda arcade_mode
     beq pan_initial_rows
     ldx campaign_stage
-    cpx #5
+    cpx #8
     bcs pan_initial_rows
     lda @revg_stage_bg_mode,x
     beq pan_initial_rows
     sta revg_bg_active
-    cmp #3
+    cmp #4
     bcs pan_initial_rows
     lda #$80
-    sta $e000           ; Vertical mirroring: a 64-column ring (Stages 1 & 4).
+    sta $e000           ; Vertical mirroring: a 64-column ring (Stages 1, 4 & 7).
     ldx #0
     jmp call_bank50_bg
 @revg_stage_bg_mode:
-    .byte 0, 1, 3, 4, 2
+    .byte 0, 1, 4, 5, 2, 6, 7, 3
 .endif
 pan_initial_rows:
     jsr prepare_pan_row
@@ -411,9 +411,11 @@ pan_y_done:
 ; A = world tile row. Return its start address and row within its
 ; physical nametable. Nametable 0 is $2000 and nametable 1 is $2800.
 pan_address_for_row:
+@wrap60:
     cmp #pan_page_rows*2
     bcc :+
     sbc #pan_page_rows*2
+    bcs @wrap60
 :
     ldy #$20
     cmp #pan_page_rows
@@ -440,7 +442,7 @@ pan_address_for_row:
 prepare_pan_row:
 .ifdef REVG_STAGE1
     lda revg_bg_active
-    cmp #3
+    cmp #4
     bcc :+
     ldx #4
     jmp call_bank50_bg
@@ -832,7 +834,7 @@ upload_pan_row:
     sta $2006
 .ifdef REVG_STAGE1
     lda revg_bg_active
-    cmp #3
+    cmp #4
     bcc @legacy_row_attr
     ldx #0
 :
@@ -896,6 +898,6 @@ apply_pan:
     rts
 
 .segment "RODATA"
-pan_page_tiles: .byte 0, 30, 60, 90, 120
+pan_page_tiles: .byte 0, 30, 60, 90, 120, 150
 pan_row_offset: .byte 30, 0
 pan_col_offset: .byte 32, 1

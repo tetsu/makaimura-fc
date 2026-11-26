@@ -9,6 +9,9 @@ stage6_height = 30
 
 .segment "BANK17"
     .byte bank_tag_base + arcade_stage6_bank
+.ifdef REVG_STAGE1
+    .include "revg-stage6.inc"
+.else
 arcade_stage6_header:
     stage_header stage6_width, stage6_height, 0, 1, 48, 200, 208, 0, 0, 208, 144, arcade_stage6_map, arcade_stage6_palettes
 .assert arcade_stage6_header = stage_header_base, lderror, "Stage 6 header offset mismatch"
@@ -108,3 +111,4 @@ arcade_stage6_spr_chr:
     .byte $00, $38, $fc, $fc, $24, $fc, $78, $f0
     .byte $fc, $fe, $ff, $fb, $fe, $fc, $78, $fc
     .byte $f8, $fc, $fe, $04, $fc, $f8, $70, $f8
+.endif

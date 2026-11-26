@@ -778,6 +778,79 @@ campaign_hud_labels: ; STG # LIFE # TIME ### CP #
     .byte $12, $13, $08, 0, 0, 0, $0c, $0a, $07, $06, 0, 0, 0
     .byte $13, $0a, $0d, $06, 0, 0, 0, 0, 0, $04, $10, 0, 0
 campaign_hud_length = * - campaign_hud_labels
+
+; Cold clear/game-over screen draw (in BANK7 after bank_tag_base + 7 so FIXED keeps headroom).
+draw_result_b7:
+    lda #$21
+    sta $2006
+    lda #$8a
+    sta $2006
+    ldx #0
+    ldy #game_over_title - clear_title
+    lda scene
+    cmp #game_over_scene
+    beq :+
+    ldy #0
+    jsr is_final_clear
+    bcc :+
+    ldy #final_title - clear_title
+:
+:
+    lda clear_title,y
+    iny
+    sta $2007
+    inx
+    cpx #clear_title_length
+    bne :-
+    lda #$21
+    sta $2006
+    lda #$cb
+    sta $2006
+    ldx #0
+    ldy #0
+    lda campaign_stage
+.if nes_area_trial_count > 1
+    bne @campaign_prompt
+    jsr next_trial_bank
+    beq :+
+    ldy #trial_next_prompt - clear_prompt
+    bne :+
+@campaign_prompt:
+.else
+    beq :+
+.endif
+    ldy #final_prompt - clear_prompt
+    lda scene
+    cmp #game_over_scene
+    beq :+
+    ldy #next_prompt - clear_prompt
+    lda arcade_mode
+    beq :+
+    ldy #arcade_next_prompt - clear_prompt
+:
+    jsr is_final_clear
+    bcc :+
+    ldy #final_prompt - clear_prompt
+:
+:
+    lda clear_prompt,y
+    iny
+    sta $2007
+    inx
+    cpx #clear_prompt_length
+    bne :-
+    lda #$21
+    sta $2006
+    lda #$eb
+    sta $2006
+    ldx #0
+:
+    lda clear_menu,x
+    sta $2007
+    inx
+    cpx #clear_menu_length
+    bne :-
+    rts
 campaign_controls: ; A JUMP  B FIRE  START RETRY
     .byte $02, 0, $18, $14, $0d, $10, 0, 0, $03, 0, $07, $0a, $11, $06, 0, 0
     .byte $12, $13, $02, $11, $13, 0, $11, $06, $13, $11, $17

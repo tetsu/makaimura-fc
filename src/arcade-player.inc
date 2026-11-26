@@ -711,6 +711,10 @@ ap_select_revg_enemy_bank:
     cpx #3
     beq @b51
     cpx #4
+    beq @b51
+    cpx #5
+    bcc @sel
+    lda #56
     bne @sel
 @b51:
     lda #51

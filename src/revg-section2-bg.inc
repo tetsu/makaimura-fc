@@ -8,15 +8,15 @@ revg3_bg_margin = 2
 revg3_bg_swap_column = 160
 ; Palettes (in the map bank): 0-3 up to the swap; 2 and 3 become zone 2 from it.
 ; 10/00/08 08/1C/2C 07/17/37 2D/00/10 08/0C/2C 2D/00/10
-revg3_bg_map_bank = 38
-revg3_bg_list_bank = 42
-revg3_bg_pattern_bank = 43
+revg3_bg_map_bank = 39
+revg3_bg_list_bank = 43
+revg3_bg_pattern_bank = 44
 revg3_bg_bank_count = 8
-; The data banks, placed by vrc7a-test.s in the padding from bank 38.
+; The data banks, placed by vrc7a-test.s in the padding from bank 39.
 .macro revg3_bg_banks
-; Bank 38: visual map page 0 (rows 0-14), metatiles and attributes.
+; Bank 39: visual map page 0 (rows 0-14), metatiles and attributes.
 .org $C000
-    .byte bank_tag_base + 38
+    .byte bank_tag_base + 39
 revg3_bg_mt_tl:
     .byte $00, $35, $59, $5F, $39, $2C, $6B, $86, $94, $94, $6F, $53, $41, $45, $49, $63, $73, $77, $98, $29, $A4, $34, $4F, $58, $A8, $6B, $79, $7D, $89, $90, $2D, $3D
     .byte $9C, $25, $81, $8C, $50, $A4, $55, $A8, $64, $AD, $A0, $AB, $B4, $B8, $A0, $35, $39, $3D, $A8, $EE, $F2, $B6, $41, $44, $48, $B3, $B7, $4C, $50, $54, $58, $5C
@@ -226,9 +226,9 @@ revg3_bg_attr_p0_r7:
     .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $55, $55, $55, $55, $55, $55, $55, $55, $55, $55, $00, $00, $00, $88, $AA, $AA, $AA, $AA, $AA, $AA, $AA
     .byte $59, $59, $A5, $A5, $59, $A5, $59, $A5, $00, $00, $00, $00, $00, $00, $00, $00
     .res $E000 - *, $FF
-; Bank 39: visual map page 1 (rows 15-29), metatiles and attributes.
+; Bank 40: visual map page 1 (rows 15-29), metatiles and attributes.
 .org $C000
-    .byte bank_tag_base + 39
+    .byte bank_tag_base + 40
     .byte $00, $35, $59, $5F, $39, $2C, $6B, $86, $94, $94, $6F, $53, $41, $45, $49, $63, $73, $77, $98, $29, $A4, $34, $4F, $58, $A8, $6B, $79, $7D, $89, $90, $2D, $3D
     .byte $9C, $25, $81, $8C, $50, $A4, $55, $A8, $64, $AD, $A0, $AB, $B4, $B8, $A0, $35, $39, $3D, $A8, $EE, $F2, $B6, $41, $44, $48, $B3, $B7, $4C, $50, $54, $58, $5C
     .byte $60, $AC, $64, $68, $6C, $70, $74, $78, $AE, $7C, $D2, $94, $BB, $50, $00, $00, $00, $E2, $F6, $65, $E8, $CB, $58, $AC, $B0, $C3, $C7, $D6, $28, $46, $5A, $CA
@@ -428,9 +428,9 @@ revg3_bg_attr_p1_r7:
     .byte $50, $00, $00, $00, $50, $55, $55, $55, $55, $55, $55, $55, $50, $50, $50, $55, $55, $55, $55, $55, $55, $55, $55, $00, $88, $AA, $AA, $AA, $AA, $AA, $55, $95
     .byte $9A, $9A, $55, $55, $9A, $55, $9A, $5A, $00, $00, $00, $00, $00, $00, $00, $00
     .res $E000 - *, $FF
-; Bank 40: visual map page 2 (rows 30-44), metatiles and attributes.
+; Bank 41: visual map page 2 (rows 30-44), metatiles and attributes.
 .org $C000
-    .byte bank_tag_base + 40
+    .byte bank_tag_base + 41
     .byte $00, $35, $59, $5F, $39, $2C, $6B, $86, $94, $94, $6F, $53, $41, $45, $49, $63, $73, $77, $98, $29, $A4, $34, $4F, $58, $A8, $6B, $79, $7D, $89, $90, $2D, $3D
     .byte $9C, $25, $81, $8C, $50, $A4, $55, $A8, $64, $AD, $A0, $AB, $B4, $B8, $A0, $35, $39, $3D, $A8, $EE, $F2, $B6, $41, $44, $48, $B3, $B7, $4C, $50, $54, $58, $5C
     .byte $60, $AC, $64, $68, $6C, $70, $74, $78, $AE, $7C, $D2, $94, $BB, $50, $00, $00, $00, $E2, $F6, $65, $E8, $CB, $58, $AC, $B0, $C3, $C7, $D6, $28, $46, $5A, $CA
@@ -630,9 +630,9 @@ revg3_bg_attr_p2_r7:
     .byte $55, $55, $55, $55, $55, $55, $55, $55, $55, $55, $55, $55, $55, $55, $55, $55, $55, $55, $55, $55, $55, $55, $55, $55, $59, $55, $AA, $AA, $AA, $AA, $55, $55
     .byte $55, $55, $55, $59, $A5, $59, $A5, $59, $59, $59, $A5, $59, $A5, $A5, $59, $59
     .res $E000 - *, $FF
-; Bank 41: visual map page 3 (rows 45-59), metatiles and attributes.
+; Bank 42: visual map page 3 (rows 45-59), metatiles and attributes.
 .org $C000
-    .byte bank_tag_base + 41
+    .byte bank_tag_base + 42
     .byte $00, $35, $59, $5F, $39, $2C, $6B, $86, $94, $94, $6F, $53, $41, $45, $49, $63, $73, $77, $98, $29, $A4, $34, $4F, $58, $A8, $6B, $79, $7D, $89, $90, $2D, $3D
     .byte $9C, $25, $81, $8C, $50, $A4, $55, $A8, $64, $AD, $A0, $AB, $B4, $B8, $A0, $35, $39, $3D, $A8, $EE, $F2, $B6, $41, $44, $48, $B3, $B7, $4C, $50, $54, $58, $5C
     .byte $60, $AC, $64, $68, $6C, $70, $74, $78, $AE, $7C, $D2, $94, $BB, $50, $00, $00, $00, $E2, $F6, $65, $E8, $CB, $58, $AC, $B0, $C3, $C7, $D6, $28, $46, $5A, $CA
@@ -832,9 +832,9 @@ revg3_bg_attr_p3_r7:
     .byte $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
     .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
     .res $E000 - *, $FF
-; Bank 42: upload lists.
+; Bank 43: upload lists.
 .org $C000
-    .byte bank_tag_base + 42
+    .byte bank_tag_base + 43
 revg3_bg_right_start_lo:
     .byte $00, $7F, $9A, $9A, $9E, $9E, $9E, $9E, $9E, $9E, $9E, $A6, $A6, $A6, $A6, $A6, $A6, $AA, $AA, $AA, $AA, $AA, $AA, $AA, $AA, $AA, $AA, $AA, $AA, $AA, $AA, $AE
     .byte $B6, $C2, $C2, $C2, $C2, $C2, $C2, $C2, $C2, $C2, $C2, $DB, $DB, $F3, $F3, $11, $23, $23, $23, $23, $24, $2C, $30, $33, $33, $33, $33, $33, $33, $33, $37, $4F
@@ -940,9 +940,9 @@ revg3_bg_left_id_hi:
     .byte $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01
     .byte $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01
     .res $E000 - *, $FF
-; Bank 43: tiles 0-255.
+; Bank 44: tiles 0-255.
 .org $C000
-    .byte bank_tag_base + 43
+    .byte bank_tag_base + 44
     .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 revg3_bg_patterns:
     .byte $8E, $C3, $E1, $67, $66, $16, $04, $AE, $F1, $FF, $FF, $FB, $FF, $FF, $FF, $5F, $AC, $B5, $FB, $8F, $C7, $7F, $3C, $58, $DB, $FB, $F7, $FF, $FF, $AE, $FF, $BF
@@ -1083,9 +1083,9 @@ revg3_bg_slots:
     .byte $D4, $D5, $D6, $D7, $D8, $D9, $DA, $DB, $DC, $DD, $DE, $DF, $4C, $4D, $4E, $4F, $98, $99, $9A, $9B, $CF, $D0, $D1, $94, $95, $96, $97, $A0, $A1, $A2, $A3, $A4
     .byte $A5, $A6, $A7, $29, $2A, $2B, $2C, $31, $32, $33, $34, $88, $89, $8A, $8B, $A8, $A9, $AA, $AB, $B3, $B4, $B5, $B6, $B7, $B8, $B9, $BA, $BB, $BC, $BD, $BE, $E0
     .res $E000 - *, $FF
-; Bank 44: tiles 256-511.
+; Bank 45: tiles 256-511.
 .org $C000
-    .byte bank_tag_base + 44
+    .byte bank_tag_base + 45
     .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
     .byte $00, $00, $00, $F8, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $3C, $00, $40, $00, $00, $00, $00, $48, $00, $00, $39, $7B, $7B, $7B, $7B, $33
     .byte $40, $10, $30, $10, $10, $18, $13, $10, $0F, $0F, $CF, $EF, $E7, $E7, $E0, $E0, $03, $00, $00, $00, $00, $01, $C3, $3E, $00, $7E, $FF, $FF, $FF, $FE, $3C, $00
@@ -1224,9 +1224,9 @@ revg3_bg_slots:
     .byte $AF, $B0, $B1, $B2, $B3, $B4, $B5, $B6, $B7, $B8, $B9, $BA, $BB, $50, $51, $52, $53, $55, $56, $57, $58, $64, $65, $66, $6B, $6C, $6D, $84, $A0, $A1, $A2, $A3
     .byte $A4, $A5, $A6, $A7, $A8, $A9, $AA, $AB, $AC, $AD, $AE, $AF, $B0, $B1, $B2, $B3, $B4, $B5, $B6, $B7, $B8, $B9, $25, $26, $27, $28, $2C, $2D, $2E, $46, $47, $48
     .res $E000 - *, $FF
-; Bank 45: tiles 512-591.
+; Bank 46: tiles 512-591.
 .org $C000
-    .byte bank_tag_base + 45
+    .byte bank_tag_base + 46
     .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
     .byte $FF, $DF, $A0, $A0, $80, $80, $C1, $FF, $00, $3E, $7F, $7F, $7F, $7F, $3E, $80, $7C, $3E, $0F, $0F, $0E, $04, $04, $0E, $F3, $F9, $F8, $F8, $F9, $FB, $FB, $F1
     .byte $FF, $DF, $81, $81, $81, $80, $C1, $FF, $00, $3E, $7F, $7F, $7F, $7F, $3E, $80, $20, $00, $17, $8A, $86, $82, $82, $47, $1F, $0F, $70, $7D, $7D, $7D, $7D, $38

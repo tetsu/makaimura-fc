@@ -32,6 +32,8 @@ bank_tag_base = $80
     .byte bank_tag_base + 50
 .segment "BANK51"
     .byte bank_tag_base + 51
+.segment "BANK56"
+    .byte bank_tag_base + 56
 .ifdef NES_AREA_ART
 .include "nes-areas.inc"
 .else
@@ -46,23 +48,28 @@ bank_tag_base = $80
 .include "revg-frontend-data.inc"
 .include "revg-section1-bg.inc"
 .include "revg-section2-bg.inc"
+.include "revg-section6-bg.inc"
 revg_bg_banks
 .reloc
-; The Stage 1-4 sprites (revg-objects.inc) follow from bank 24.
+; The Stage 1-7 sprites (revg-objects.inc) follow from bank 24 (7 banks: 5 tile + 2 meta).
 .assert revg_spr_tile_bank = 19 + revg_bg_bank_count, error, "Sprite banks must follow the background"
 revg_spr_banks
-; The title and the opening demo (revg-opening.inc) after them.
+; The title and the opening demo (revg-opening.inc) after them (bank 31).
 revg_frontend_banks
-; Stage 2 background art follows from bank 31.
+; Stage 2 background art follows from bank 32 (7 banks: 32..38).
 .assert revg2_bg_map_bank = 19 + revg_bg_bank_count + revg_spr_bank_count + revg_frontend_bank_count, error, "Stage 2 BG banks must follow frontend"
 revg2_bg_banks
 .reloc
-; Stage 3 background art follows from bank 38.
+; Stage 3 background art follows from bank 39 (8 banks: 39..46).
 .assert revg3_bg_map_bank = revg2_bg_map_bank + revg2_bg_bank_count, error, "Stage 3 BG banks must follow Stage 2 BG"
 revg3_bg_banks
 .reloc
-.repeat 30 - revg_bg_bank_count - revg_spr_bank_count - revg_frontend_bank_count - revg2_bg_bank_count - revg3_bg_bank_count, index
-    .byte bank_tag_base + revg3_bg_map_bank + revg3_bg_bank_count + index
+; Stage 7 background art follows from bank 47 (2 banks: 47..48).
+.assert revg7_bg_map_bank = revg3_bg_map_bank + revg3_bg_bank_count, error, "Stage 7 BG banks must follow Stage 3 BG"
+revg7_bg_banks
+.reloc
+.repeat 30 - revg_bg_bank_count - revg_spr_bank_count - revg_frontend_bank_count - revg2_bg_bank_count - revg3_bg_bank_count - revg7_bg_bank_count, index
+    .byte bank_tag_base + revg7_bg_map_bank + revg7_bg_bank_count + index
     .res $1fff, $ff
 .endrepeat
 .else
@@ -71,18 +78,29 @@ revg3_bg_banks
     .res $1fff, $ff
 .endrepeat
 .endif
-.segment "PAD_52_62"
+.segment "PAD_52_55"
 .ifdef REVG_STAGE1
 .include "revg-section3-bg.inc"
 revg4_bg_banks
 .reloc
-.repeat 11 - revg4_bg_bank_count, index
-    .byte bank_tag_base + 52 + revg4_bg_bank_count + index
+.else
+.repeat 4, index
+    .byte bank_tag_base + 52 + index
     .res $1fff, $ff
 .endrepeat
+.endif
+.segment "PAD_57_62"
+.ifdef REVG_STAGE1
+.include "revg-section4-bg.inc"
+.include "revg-section5-bg.inc"
+revg5_bg_banks
+.reloc
+.assert revg6_bg_map_bank = revg5_bg_map_bank + revg5_bg_bank_count, error, "Stage 6 BG banks must follow Stage 5 BG"
+revg6_bg_banks
+.reloc
 .else
-.repeat 11, index
-    .byte bank_tag_base + 52 + index
+.repeat 6, index
+    .byte bank_tag_base + 57 + index
     .res $1fff, $ff
 .endrepeat
 .endif
@@ -1405,6 +1423,7 @@ in_play_step: .res 1             ; 1 while update_game is running (lag-frame NMI
 .include "revg-enemies.inc"
 .include "revg-enemies2.inc"
 .include "revg-enemies34.inc"
+.include "revg-enemies567.inc"
 .include "revg-opening.inc"
 .endif
 

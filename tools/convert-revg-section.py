@@ -104,11 +104,11 @@ def main():
     world = json.loads((args.stages / "world.json").read_text(encoding="utf-8"))
     section = json.loads((args.stages / "sections.json").read_text(encoding="utf-8"))[args.section]
     map_height = section_map["height"]
-    if map_height not in (16, 32, 64):
+    if map_height not in (16, 32, 64, 80):
         raise SystemExit(f"unsupported section map height: {map_height}")
     vpages = map_height // 16
-    rows = ROWS * vpages  # 15 for 1-page, 30 for 2-page, 60 for 4-page
-    row_offset = 4 if vpages == 4 else 0
+    rows = ROWS * vpages  # 15 for 1-page, 30 for 2-page, 60 for 4-page, 75 for 5-page
+    row_offset = 4 if vpages == 4 else (5 if vpages == 5 else 0)
 
     cells, pits, tombs = convert(
         section_map["tiles"], world["collision"], section["support_list"],
@@ -139,12 +139,14 @@ def main():
             lower = col[16:rows] + [MT_DIRT] * (16 - (rows - 16))
             lines.append("    .byte " + ", ".join(f"{cell:2d}" for cell in lower))
     else:
-        # Engine 4-vertical-page layout (read_map_cell): 4-bit nibble packed, 32 bytes/col.
+        # Engine 4- or 5-vertical-page layout (read_map_cell): 4-bit nibble packed.
+        # 4-page: 32 bytes/col (64 rows); 5-page: 40 bytes/col (80 rows).
         # Byte r holds (row 2*r) in low nibble and (row 2*r+1) in high nibble.
+        packed_rows = 64 if vpages == 4 else 80
         for col in cells:
-            padded = col + [MT_DIRT] * (64 - rows)
+            padded = col + [MT_DIRT] * (packed_rows - rows)
             packed = []
-            for i in range(0, 64, 2):
+            for i in range(0, packed_rows, 2):
                 lo = NIBBLE_CODE[padded[i]]
                 hi = NIBBLE_CODE[padded[i + 1]]
                 packed.append((hi << 4) | lo)

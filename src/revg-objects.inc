@@ -131,14 +131,12 @@ revg_spr_upload:
     sta $2006
     lda rs_up_lo,y
     sta $2006
-    lda #8
+    lda #32
     sta rs_nmi_half
 @half:
-.repeat 4
     lda rs_up_data,x
     sta $2007
     inx
-.endrepeat
     dec rs_nmi_half
     bne @half
     iny
@@ -184,6 +182,10 @@ rs_init:
     bne :-
     inc rs_lptr+1
     dex
+    bne :-
+:
+    sta rs_tile_slot_4,y
+    iny
     bne :-
     ldx #rs_slots - 1
     lda #$ff
@@ -273,6 +275,12 @@ rs_get_slot_miss:
     beq @set1
     cpy #2
     beq @set2
+    cpy #3
+    beq @set3
+    ldy rs_tid
+    sta rs_tile_slot_4,y
+    jmp @queued
+@set3:
     ldy rs_tid
     sta rs_tile_slot_3,y
     jmp @queued
@@ -340,6 +348,13 @@ rs_evict:
     beq @clr1
     cmp #2
     beq @clr2
+    cmp #3
+    beq @clr3
+    lda #0
+    sta rs_tile_slot_4,y
+    clc
+    rts
+@clr3:
     lda #0
     sta rs_tile_slot_3,y
     clc
@@ -384,12 +399,20 @@ rs_resolve:
     iny
     sty rs_py
     lda (rs_ptr),y
-    and #$0c
+    and #$1c
     beq @p0
     cmp #$04
     beq @p1
     cmp #$08
     beq @p2
+    cmp #$0c
+    beq @p3
+    ldy rs_tid
+    lda rs_tile_slot_4,y
+    bne @hit
+    lda #4
+    bne @miss
+@p3:
     ldy rs_tid
     lda rs_tile_slot_3,y
     bne @hit
@@ -611,7 +634,7 @@ rs_set_fc_y:
     rts
 
 ; A = arcade Y low, X = high -> rs_oy = Y_top - Y - camera.
-; Y_top is $00FF (1-page), $01FF (2-page), or $03BF (4-page Stage 3 with row_offset=4).
+; Y_top: $00FF (1p), $01FF (2p), $03BF (4p Stage 3), $04AF (5p Stage 5 & 6).
 rs_set_arcade_y:
     sta rs_tmp
     stx rs_tmp+1
@@ -620,7 +643,12 @@ rs_set_arcade_y:
     cpy #3
     bne :+
     lda #$bf
+    bne @ytop_ok
 :
+    cpy #4
+    bne @ytop_ok
+    lda #$af
+@ytop_ok:
     sec
     sbc rs_tmp
     sta rs_tmp

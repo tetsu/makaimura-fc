@@ -48,7 +48,7 @@ default_stage_height = 15
 ; Stage header located immediately after the 1-byte bank tag at $8000.
 ; Every stage bank shares the same header layout in the $8000 window.
 .macro stage_header width_cols, height_rows, cam_x_max_hi, cam_y_max_page, start_x, cp_x, cp_feet, cp_cam_hi, cp_cam_y, goal_x_val, goal_feet_val, map_label, pal_label
-    .assert height_rows > 0 .and height_rows <= map_col_stride * 4, error, "Invalid stage height"
+    .assert height_rows > 0 .and height_rows <= map_col_stride * 5, error, "Invalid stage height"
     .assert (cp_feet .mod 8) = 0, error, "Invalid checkpoint scroll"
     .byte width_cols
     .byte height_rows
@@ -253,7 +253,9 @@ set_map_col_ptr:
 ; Returns metatile ID in A (mt_rock below the map). Preserves X and Y.
 read_map_cell:
     cpy stage_height_rows
-    bcs @below_map
+    bcc :+
+    jmp @below_map
+:
     pha
     lda stage_height_rows
     cmp #32
@@ -280,6 +282,26 @@ read_map_cell:
     clc
     adc stage_map_ptr+1
     sta map_ptr+1
+    ; 5-page maps (height_rows >= 65) use 40 bytes/col = col*32 + col*8.
+    lda stage_height_rows
+    cmp #65
+    bcc @nib_ptr_ok
+    lda map_tmp
+    asl a
+    asl a
+    asl a
+    clc
+    adc map_ptr
+    sta map_ptr
+    lda map_tmp
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    adc map_ptr+1
+    sta map_ptr+1
+@nib_ptr_ok:
     lda #$ff
     sta map_cached_col
     txa

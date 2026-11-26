@@ -100,9 +100,6 @@ campaign_stage_count = 2
 arcade_stage_count = 7
 .ifdef COURSE_SEQUENCE
 original_course_count = 2
-.elseif .defined(REVG_STAGE1)
-; Stages 1-4 use real Revision G maps, BG art, enemies, and bosses (C-1..C-4).
-original_course_count = 4
 .endif
 
 start_arcade_stage:
@@ -134,7 +131,7 @@ is_final_clear:
     rts
 @check_arcade_final:
     lda campaign_stage
-.if .defined(COURSE_SEQUENCE) .or .defined(REVG_STAGE1)
+.ifdef COURSE_SEQUENCE
     cmp #original_course_count
     rts
 .else
@@ -159,8 +156,8 @@ next_campaign_stage:
     jsr blank_display
     jmp show_sound_screen
 @arcade_next:
-.if .defined(COURSE_SEQUENCE) .or .defined(REVG_STAGE1)
-    ; The authored sequence ends after the second course, the real game after Stage 1.
+.ifdef COURSE_SEQUENCE
+    ; The authored sequence ends after the second course.
     jsr is_final_clear
     bcc @advance_stage
     jsr blank_display
@@ -330,10 +327,15 @@ draw_pan_game:
     beq @pan_page_done
     lda #1
     ldy stage_height_rows
-    cpy #45
+    cpy #65
     bcc :+
-    lda #3
+    lda #4
+    bne @set_start_yp
 :
+    cpy #45
+    bcc @set_start_yp
+    lda #3
+@set_start_yp:
     sta pan_y_page
     ldy #0
 .endif
@@ -650,29 +652,23 @@ show_course_clear:
     sta scene
 .endif
     jsr clear_screen
+.if PRG_ROM_UNITS = 32
+    lda prg_bank2
+    pha
+    lda #7
+    jsr select_bank2
+    jsr draw_result_b7
+    pla
+    jsr select_bank2
+    jmp enable_static_screen
+.else
     lda #$21
     sta $2006
     lda #$8a
     sta $2006
     ldx #0
-.if PRG_ROM_UNITS = 32
-    ldy #game_over_title - clear_title
-    lda scene
-    cmp #game_over_scene
-    beq :+
-    ldy #0
-    jsr is_final_clear
-    bcc :+
-    ldy #final_title - clear_title
 :
-.endif
-:
-.if PRG_ROM_UNITS = 32
-    lda clear_title,y
-    iny
-.else
     lda clear_title,x
-.endif
     sta $2007
     inx
     cpx #clear_title_length
@@ -682,40 +678,8 @@ show_course_clear:
     lda #$cb
     sta $2006
     ldx #0
-.if PRG_ROM_UNITS = 32
-    ldy #0
-    lda campaign_stage
-.if nes_area_trial_count > 1
-    bne @campaign_prompt
-    jsr next_trial_bank
-    beq :+
-    ldy #trial_next_prompt - clear_prompt
-    bne :+
-@campaign_prompt:
-.else
-    beq :+
-.endif
-    ldy #final_prompt - clear_prompt
-    lda scene
-    cmp #game_over_scene
-    beq :+
-    ldy #next_prompt - clear_prompt
-    lda arcade_mode
-    beq :+
-    ldy #arcade_next_prompt - clear_prompt
 :
-    jsr is_final_clear
-    bcc :+
-    ldy #final_prompt - clear_prompt
-:
-.endif
-:
-.if PRG_ROM_UNITS = 32
-    lda clear_prompt,y
-    iny
-.else
     lda clear_prompt,x
-.endif
     sta $2007
     inx
     cpx #clear_prompt_length
@@ -732,6 +696,7 @@ show_course_clear:
     cpx #clear_menu_length
     bne :-
     jmp enable_static_screen
+.endif
 
 follow_both_axes:
     ; Follow the player's feet toward scanline 160 by at most one pixel.

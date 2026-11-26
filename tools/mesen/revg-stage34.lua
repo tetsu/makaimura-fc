@@ -112,7 +112,7 @@ emu.addEventCallback(function()
             local y = read(PLAYER_FEET) + 256 * read(PLAYER_Y_HI)
             if not check(read(PRG_BANK0) == 14, "Stage 3 must map bank 14") then return end
             if not check(read(PAN_Y_PAGE) == 3, "Stage 3 must start on bottom vertical page 3") then return end
-            if not check(read(REVG_BG_ACTIVE) == 4, "Stage 3 must use revg_bg_active=4") then return end
+            if not check(read(REVG_BG_ACTIVE) == 5, "Stage 3 must use revg_bg_active=5") then return end
             if not check(readWord(PLAYER_X) == 80 and y == 896, "Stage 3 must start at (80, 896)") then return end
             if not check(countArcadeBgTiles(0x400) > 100, "Stage 3 nametable must have arcade cave tiles") then return end
             phaseFrame = frame

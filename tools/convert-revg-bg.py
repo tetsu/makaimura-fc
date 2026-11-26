@@ -250,6 +250,8 @@ def main():
                         help="first PRG bank number for this section's BG data")
     parser.add_argument("--restarts", type=int, default=40,
                         help="random restarts for palette fitting")
+    parser.add_argument("--pack-list", action="store_true",
+                        help="pack upload lists into the map bank (saves 1 bank for tiny 1-page sections)")
     args = parser.parse_args()
 
     ex = load_extractor()
@@ -278,7 +280,9 @@ def main():
 
     width = tilemap["width"]
     rows = list(range(FIRST_ROW, LAST_ROW + 1)) if vpages == 1 else (
-        list(range(4, 64)) if vpages == 4 else list(range(0, 30))
+        list(range(5, 80)) if vpages == 5 else (
+            list(range(4, 64)) if vpages == 4 else list(range(0, 30))
+        )
     )
 
     # The second zone palettes replace palettes 2-3 when the camera reaches column swap.
@@ -584,6 +588,45 @@ def main():
             table(items, f"{pfx}_attr_row{r}", attributes[r::7])
         table(items, f"{pfx}_palette", (c for p in palettes[:4] for c in [BLACK] + p))
         table(items, f"{pfx}_palette_forest", (c for p in palettes[4:] for c in [BLACK] + p))
+        list_bank_offset = 0 if args.pack_list else 1
+    elif vpages == 5:
+        # 5-vertical-page packed layout (75 rows = 5 x 15 rows) in a single map bank:
+        # mt_tl/tr/bl/br sit at the exact same offsets as vpages == 2/4 ($C001..$C400).
+        def pal_at_5p(col, row):
+            if col >= width or not 0 <= row < len(rows):
+                return 0
+            return attribute_palette[metatile_list[vmap[col][row]][4]]
+        mt_cols = [
+            [0 if meta[q] == BLANK else FIRST_SLOT + slot_of[meta[q]] for meta in metatile_list]
+            + [0] * (256 - len(metatile_list))
+            for q in range(4)
+        ]
+        items = bank("packed 5-page visual map (rows 0-74), metatiles and attributes")
+        for q, name in enumerate(("tl", "tr", "bl", "br")):
+            table(items, f"{pfx}_mt_{name}", mt_cols[q])
+        table(items, f"{pfx}_map_lo", ("__lo__", [f"{pfx}_map_row{r}" for r in range(75)]))
+        table(items, f"{pfx}_map_hi", ("__hi__", [f"{pfx}_map_row{r}" for r in range(75)]))
+        table(items, f"{pfx}_attr_lo",
+              ("__lo__", [f"{pfx}_attr_p{p}_r{ar}" for p in range(5) for ar in range(8)]))
+        table(items, f"{pfx}_attr_hi",
+              ("__hi__", [f"{pfx}_attr_p{p}_r{ar}" for p in range(5) for ar in range(8)]))
+        table(items, f"{pfx}_palette", (c for p in palettes[:4] for c in [BLACK] + p))
+        table(items, f"{pfx}_palette_zone2", (c for p in palettes[4:] for c in [BLACK] + p))
+        for r in range(75):
+            table(items, f"{pfx}_map_row{r}", (vmap[col][r] for col in range(width)))
+        for page in range(5):
+            row_base = page * 15
+            for ar in range(8):
+                top = row_base + 2 * ar
+                bottom = top + 1
+                row_attrs = []
+                for pair in range(0, width, 2):
+                    val = (pal_at_5p(pair, top)
+                           | (pal_at_5p(pair + 1, top) << 2)
+                           | (pal_at_5p(pair, bottom) << 4)
+                           | (pal_at_5p(pair + 1, bottom) << 6))
+                    row_attrs.append(val)
+                table(items, f"{pfx}_attr_p{page}_r{ar}", row_attrs)
         list_bank_offset = 1
     else:
         # 2-vertical-page layout (30 rows = 15 rows per nametable):
@@ -634,7 +677,8 @@ def main():
         list_bank_offset = vpages
 
     # Upload list bank: the tiles to upload when the camera enters each column, for each direction.
-    items = bank("upload lists")
+    if not (vpages == 1 and args.pack_list):
+        items = bank("upload lists")
     for name, lists in (("right", right), ("left", left)):
         flat, starts = [], []
         for entries in lists:

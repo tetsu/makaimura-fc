@@ -21,8 +21,9 @@ from pathlib import Path
 # Arcade enemy type -> FC object kind (src/revg-enemies.inc / revg-enemies2.inc / revg-enemies34.inc).
 KINDS = {
     0x00: "ok_pig", 0x01: "ok_crow", 0x02: "ok_devil", 0x03: "ok_knight",
-    0x04: "ok_flyer", 0x05: "ok_arremer", 0x07: "ok_magician", 0x08: "ok_unicorn",
-    0x0A: "ok_bigman", 0x0B: "ok_zombie", 0x0C: "ok_dragon", 0x0E: "ok_fire",
+    0x04: "ok_flyer", 0x05: "ok_arremer", 0x06: "ok_satan", 0x07: "ok_magician",
+    0x08: "ok_unicorn", 0x09: "ok_skull", 0x0A: "ok_bigman", 0x0B: "ok_zombie",
+    0x0C: "ok_dragon", 0x0D: "ok_astaroth", 0x0E: "ok_fire",
     0x11: "ok_plant", 0x12: "ok_pillar",
 }
 # The scheduler of each type a group can start (one pattern at a time per type).
@@ -31,10 +32,15 @@ SCHEDULED_BY_SECTION = {
     1: [0x02, 0x04, 0x01, 0x08, 0x0B],
     2: [0x00, 0x04, 0x05, 0x0B, 0x0C],
     3: [0x02, 0x0C],
+    4: [0x00, 0x02],
+    5: [0x00, 0x05, 0x08, 0x0A, 0x0C],
+    6: [],
 }
 
 
 def word(values, name):
+    if not values:
+        return [f"{name}_lo:", f"{name}_hi:"]
     return [f"{name}_lo: .byte " + ", ".join(f"<{v & 0xFFFF}" for v in values),
             f"{name}_hi: .byte " + ", ".join(f">{v & 0xFFFF}" for v in values)]
 
@@ -65,9 +71,9 @@ def main():
     lines.append(f"{p}_fix_kind: .byte " + ", ".join(KINDS[e["type"]] for e in fixed))
     lines.append(f"{p}_fix_var: .byte " + ", ".join(str(e["variant"]) for e in fixed))
     lines += word([e["x"] - x_min for e in fixed], f"{p}_fix_x") + word([e["y"] - y_min for e in fixed], f"{p}_fix_y")
-    support = [s for s in section["support_list"] if s["type"] == 0]
+    support = [s for s in section["support_list"] if s["type"] == 0 and s["x"] >= x_min and s["y"] >= y_min]
     lines.append(f"{p}_sup_count = {len(support)}")
-    lines.append(f"{p}_sup_var: .byte " + ", ".join(str(s["variant"]) for s in support))
+    lines.append(f"{p}_sup_var:" + (" .byte " + ", ".join(str(s["variant"]) for s in support) if support else ""))
     lines += word([s["x"] - x_min for s in support], f"{p}_sup_x") + word([s["y"] - y_min for s in support], f"{p}_sup_y")
     lines.append("")
 
@@ -107,12 +113,12 @@ def main():
         flat += [0] * (9 - len(flat))
         lines.append(f"    .byte {', '.join(map(str, flat))}   ; page {page:#05x}")
     lines.append("; Schedulers: " + ", ".join(f"{i} {KINDS[t]}" for i, t in enumerate(scheduled)))
-    lines.append(f"{p}_sched_kind: .byte " + ", ".join(KINDS[t] for t in scheduled))
-    lines.append(f"{p}_pat_start: .byte " + ", ".join(map(str, starts)))
-    lines.append(f"{p}_pat_count: .byte " + ", ".join(map(str, counts)))
+    lines.append(f"{p}_sched_kind:" + (" .byte " + ", ".join(KINDS[t] for t in scheduled) if scheduled else ""))
+    lines.append(f"{p}_pat_start:" + (" .byte " + ", ".join(map(str, starts)) if starts else ""))
+    lines.append(f"{p}_pat_count:" + (" .byte " + ", ".join(map(str, counts)) if counts else ""))
     lines += word([r["x"] for r in records], f"{p}_rec_x") + word([r["y"] for r in records], f"{p}_rec_y")
-    lines.append(f"{p}_rec_var: .byte " + ", ".join(str(r["variant"]) for r in records))
-    lines.append(f"{p}_rec_wait: .byte " + ", ".join(str(r["wait"]) for r in records))
+    lines.append(f"{p}_rec_var:" + (" .byte " + ", ".join(str(r["variant"]) for r in records) if records else ""))
+    lines.append(f"{p}_rec_wait:" + (" .byte " + ", ".join(str(r["wait"]) for r in records) if records else ""))
     args.output.write_text("\n".join(lines) + "\n", newline="\n")
     print(f"{args.output}: {len(fixed)} placed enemies, {len(support)} triggers, "
           f"{len(used)} patterns, {len(records)} records")

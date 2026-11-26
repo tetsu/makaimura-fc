@@ -95,6 +95,20 @@ STATIC_FRAMES += [
     (0x5795, 8), (0x57A1, 8),
     (0x55EC, 1), (0x5602, 8), (0x5631, 10),
 ]
+# Stage 5-7 (Sections 4-6) enemies & bosses: Satan ($06) + shot ($0B),
+# Floor Skull ($09), Astaroth ($0D) + shot ($0A), Cross item ($5B40).
+EXTRA_ANIMATIONS += [
+    (0x4E2B, 4), (0xFDCF, 0),
+    (0xCD04, 3),
+    (0x54C8, 6),
+    (0x5B40, 0),
+]
+STATIC_FRAMES += [
+    (0x4EA9, 4),
+    (0xCB80, 0), (0xCC10, 2),
+    (0x5512, 6), (0x553A, 6),
+    (0xFDBF, 0), (0xFDC7, 0),
+]
 
 
 def load_module(name, path):
@@ -303,8 +317,8 @@ def main():
             p["palette"] = pal
             p["tile"], p["flip"] = place(indices(p["rgb"], best[pal]))
     last_id = max(tiles)
-    if last_id >= 1024:
-        raise SystemExit(f"tile id {last_id}: the tile id has 10 bits")
+    if last_id >= 2048:
+        raise SystemExit(f"tile id {last_id}: the tile id has 11 bits")
 
     # --- records -----------------------------------------------------------------------
     tile_banks = last_id // 256 + 1

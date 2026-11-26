@@ -50,59 +50,64 @@ revg2_tmp3: .res 1
 revg_nmi_cnt: .res 1
 
 .segment "BANK50"
-; Per-mode lookup tables indexed by revg_bg_active (1=S1, 2=S4, 3=S2, 4=S3).
+; Per-mode lookup tables indexed by revg_bg_active:
+;   1=S1, 2=S4, 3=S7 (1-axis); 4=S2, 5=S3 (2-axis multi-bank); 6=S5, 7=S6 (2-axis 5p packed).
 revg_bg_map_bank_tbl:
-    .byte 0, revg_bg_map_bank, revg4_bg_map_bank, revg2_bg_map_bank, revg3_bg_map_bank
+    .byte 0, revg_bg_map_bank, revg4_bg_map_bank, revg7_bg_map_bank, revg2_bg_map_bank, revg3_bg_map_bank, revg5_bg_map_bank, revg6_bg_map_bank
 revg_bg_list_bank_tbl:
-    .byte 0, revg_bg_list_bank, revg4_bg_list_bank, revg2_bg_list_bank, revg3_bg_list_bank
+    .byte 0, revg_bg_list_bank, revg4_bg_list_bank, revg7_bg_list_bank, revg2_bg_list_bank, revg3_bg_list_bank, revg5_bg_list_bank, revg6_bg_list_bank
 revg_bg_pat_bank_tbl:
-    .byte 0, revg_bg_pattern_bank, revg4_bg_pattern_bank, revg2_bg_pattern_bank, revg3_bg_pattern_bank
+    .byte 0, revg_bg_pattern_bank, revg4_bg_pattern_bank, revg7_bg_pattern_bank, revg2_bg_pattern_bank, revg3_bg_pattern_bank, revg5_bg_pattern_bank, revg6_bg_pattern_bank
 revg_bg_swap_col_tbl:
-    .byte 0, revg_bg_swap_column, revg4_bg_swap_column, revg2_bg_swap_column, revg3_bg_swap_column
+    .byte 0, revg_bg_swap_column, revg4_bg_swap_column, revg7_bg_swap_column, revg2_bg_swap_column, revg3_bg_swap_column, revg5_bg_swap_column, revg6_bg_swap_column
 revg_bg_pal_lo_tbl:
-    .byte 0, <revg_bg_palette, <revg4_bg_palette, <revg2_bg_palette, <revg3_bg_palette
+    .byte 0, <revg_bg_palette, <revg4_bg_palette, <revg7_bg_palette, <revg2_bg_palette, <revg3_bg_palette, <revg5_bg_palette, <revg6_bg_palette
 revg_bg_pal_hi_tbl:
-    .byte 0, >revg_bg_palette, >revg4_bg_palette, >revg2_bg_palette, >revg3_bg_palette
+    .byte 0, >revg_bg_palette, >revg4_bg_palette, >revg7_bg_palette, >revg2_bg_palette, >revg3_bg_palette, >revg5_bg_palette, >revg6_bg_palette
 revg_bg_pal2_lo_tbl:
-    .byte 0, <revg_bg_palette_forest, <revg4_bg_palette_forest, <revg2_bg_palette_zone2, <revg3_bg_palette_zone2
+    .byte 0, <revg_bg_palette_forest, <revg4_bg_palette_forest, <revg7_bg_palette_forest, <revg2_bg_palette_zone2, <revg3_bg_palette_zone2, <revg5_bg_palette_zone2, <revg6_bg_palette_zone2
 revg_bg_pal2_hi_tbl:
-    .byte 0, >revg_bg_palette_forest, >revg4_bg_palette_forest, >revg2_bg_palette_zone2, >revg3_bg_palette_zone2
+    .byte 0, >revg_bg_palette_forest, >revg4_bg_palette_forest, >revg7_bg_palette_forest, >revg2_bg_palette_zone2, >revg3_bg_palette_zone2, >revg5_bg_palette_zone2, >revg6_bg_palette_zone2
 revg_bg_r_slo_lo:
-    .byte 0, <revg_bg_right_start_lo, <revg4_bg_right_start_lo, <revg2_bg_right_start_lo, <revg3_bg_right_start_lo
+    .byte 0, <revg_bg_right_start_lo, <revg4_bg_right_start_lo, <revg7_bg_right_start_lo, <revg2_bg_right_start_lo, <revg3_bg_right_start_lo, <revg5_bg_right_start_lo, <revg6_bg_right_start_lo
 revg_bg_r_slo_hi:
-    .byte 0, >revg_bg_right_start_lo, >revg4_bg_right_start_lo, >revg2_bg_right_start_lo, >revg3_bg_right_start_lo
+    .byte 0, >revg_bg_right_start_lo, >revg4_bg_right_start_lo, >revg7_bg_right_start_lo, >revg2_bg_right_start_lo, >revg3_bg_right_start_lo, >revg5_bg_right_start_lo, >revg6_bg_right_start_lo
 revg_bg_r_shi_lo:
-    .byte 0, <revg_bg_right_start_hi, <revg4_bg_right_start_hi, <revg2_bg_right_start_hi, <revg3_bg_right_start_hi
+    .byte 0, <revg_bg_right_start_hi, <revg4_bg_right_start_hi, <revg7_bg_right_start_hi, <revg2_bg_right_start_hi, <revg3_bg_right_start_hi, <revg5_bg_right_start_hi, <revg6_bg_right_start_hi
 revg_bg_r_shi_hi:
-    .byte 0, >revg_bg_right_start_hi, >revg4_bg_right_start_hi, >revg2_bg_right_start_hi, >revg3_bg_right_start_hi
+    .byte 0, >revg_bg_right_start_hi, >revg4_bg_right_start_hi, >revg7_bg_right_start_hi, >revg2_bg_right_start_hi, >revg3_bg_right_start_hi, >revg5_bg_right_start_hi, >revg6_bg_right_start_hi
 revg_bg_r_ilo_lo:
-    .byte 0, <revg_bg_right_id_lo, <revg4_bg_right_id_lo, <revg2_bg_right_id_lo, <revg3_bg_right_id_lo
+    .byte 0, <revg_bg_right_id_lo, <revg4_bg_right_id_lo, <revg7_bg_right_id_lo, <revg2_bg_right_id_lo, <revg3_bg_right_id_lo, <revg5_bg_right_id_lo, <revg6_bg_right_id_lo
 revg_bg_r_ilo_hi:
-    .byte 0, >revg_bg_right_id_lo, >revg4_bg_right_id_lo, >revg2_bg_right_id_lo, >revg3_bg_right_id_lo
+    .byte 0, >revg_bg_right_id_lo, >revg4_bg_right_id_lo, >revg7_bg_right_id_lo, >revg2_bg_right_id_lo, >revg3_bg_right_id_lo, >revg5_bg_right_id_lo, >revg6_bg_right_id_lo
 revg_bg_r_ihi_lo:
-    .byte 0, <revg_bg_right_id_hi, <revg4_bg_right_id_hi, <revg2_bg_right_id_hi, <revg3_bg_right_id_hi
+    .byte 0, <revg_bg_right_id_hi, <revg4_bg_right_id_hi, <revg7_bg_right_id_hi, <revg2_bg_right_id_hi, <revg3_bg_right_id_hi, <revg5_bg_right_id_hi, <revg6_bg_right_id_hi
 revg_bg_r_ihi_hi:
-    .byte 0, >revg_bg_right_id_hi, >revg4_bg_right_id_hi, >revg2_bg_right_id_hi, >revg3_bg_right_id_hi
+    .byte 0, >revg_bg_right_id_hi, >revg4_bg_right_id_hi, >revg7_bg_right_id_hi, >revg2_bg_right_id_hi, >revg3_bg_right_id_hi, >revg5_bg_right_id_hi, >revg6_bg_right_id_hi
 revg_bg_l_slo_lo:
-    .byte 0, <revg_bg_left_start_lo, <revg4_bg_left_start_lo, <revg2_bg_left_start_lo, <revg3_bg_left_start_lo
+    .byte 0, <revg_bg_left_start_lo, <revg4_bg_left_start_lo, <revg7_bg_left_start_lo, <revg2_bg_left_start_lo, <revg3_bg_left_start_lo, <revg5_bg_left_start_lo, <revg6_bg_left_start_lo
 revg_bg_l_slo_hi:
-    .byte 0, >revg_bg_left_start_lo, >revg4_bg_left_start_lo, >revg2_bg_left_start_lo, >revg3_bg_left_start_lo
+    .byte 0, >revg_bg_left_start_lo, >revg4_bg_left_start_lo, >revg7_bg_left_start_lo, >revg2_bg_left_start_lo, >revg3_bg_left_start_lo, >revg5_bg_left_start_lo, >revg6_bg_left_start_lo
 revg_bg_l_shi_lo:
-    .byte 0, <revg_bg_left_start_hi, <revg4_bg_left_start_hi, <revg2_bg_left_start_hi, <revg3_bg_left_start_hi
+    .byte 0, <revg_bg_left_start_hi, <revg4_bg_left_start_hi, <revg7_bg_left_start_hi, <revg2_bg_left_start_hi, <revg3_bg_left_start_hi, <revg5_bg_left_start_hi, <revg6_bg_left_start_hi
 revg_bg_l_shi_hi:
-    .byte 0, >revg_bg_left_start_hi, >revg4_bg_left_start_hi, >revg2_bg_left_start_hi, >revg3_bg_left_start_hi
+    .byte 0, >revg_bg_left_start_hi, >revg4_bg_left_start_hi, >revg7_bg_left_start_hi, >revg2_bg_left_start_hi, >revg3_bg_left_start_hi, >revg5_bg_left_start_hi, >revg6_bg_left_start_hi
 revg_bg_l_ilo_lo:
-    .byte 0, <revg_bg_left_id_lo, <revg4_bg_left_id_lo, <revg2_bg_left_id_lo, <revg3_bg_left_id_lo
+    .byte 0, <revg_bg_left_id_lo, <revg4_bg_left_id_lo, <revg7_bg_left_id_lo, <revg2_bg_left_id_lo, <revg3_bg_left_id_lo, <revg5_bg_left_id_lo, <revg6_bg_left_id_lo
 revg_bg_l_ilo_hi:
-    .byte 0, >revg_bg_left_id_lo, >revg4_bg_left_id_lo, >revg2_bg_left_id_lo, >revg3_bg_left_id_lo
+    .byte 0, >revg_bg_left_id_lo, >revg4_bg_left_id_lo, >revg7_bg_left_id_lo, >revg2_bg_left_id_lo, >revg3_bg_left_id_lo, >revg5_bg_left_id_lo, >revg6_bg_left_id_lo
 revg_bg_l_ihi_lo:
-    .byte 0, <revg_bg_left_id_hi, <revg4_bg_left_id_hi, <revg2_bg_left_id_hi, <revg3_bg_left_id_hi
+    .byte 0, <revg_bg_left_id_hi, <revg4_bg_left_id_hi, <revg7_bg_left_id_hi, <revg2_bg_left_id_hi, <revg3_bg_left_id_hi, <revg5_bg_left_id_hi, <revg6_bg_left_id_hi
 revg_bg_l_ihi_hi:
-    .byte 0, >revg_bg_left_id_hi, >revg4_bg_left_id_hi, >revg2_bg_left_id_hi, >revg3_bg_left_id_hi
+    .byte 0, >revg_bg_left_id_hi, >revg4_bg_left_id_hi, >revg7_bg_left_id_hi, >revg2_bg_left_id_hi, >revg3_bg_left_id_hi, >revg5_bg_left_id_hi, >revg6_bg_left_id_hi
 
 .assert revg3_bg_mt_tl = revg2_bg_mt_tl, lderror, "revg3_bg_mt_tl offset mismatch"
 .assert revg3_bg_map_lo = revg2_bg_map_lo, lderror, "revg3_bg_map_lo offset mismatch"
 .assert revg3_bg_attr_lo = revg2_bg_attr_lo, lderror, "revg3_bg_attr_lo offset mismatch"
+.assert revg5_bg_mt_tl = revg2_bg_mt_tl, lderror, "revg5_bg_mt_tl offset mismatch"
+.assert revg6_bg_mt_tl = revg2_bg_mt_tl, lderror, "revg6_bg_mt_tl offset mismatch"
+.assert revg6_bg_map_lo = revg5_bg_map_lo, lderror, "revg6_bg_map_lo offset mismatch"
+.assert revg6_bg_attr_lo = revg5_bg_attr_lo, lderror, "revg6_bg_attr_lo offset mismatch"
 
 ; X = dispatch index:
 ;   0 = revg_bg_draw_screen (Stages 1 & 4)
@@ -159,12 +164,21 @@ revg_bg_draw_screen:
     lda revg_bg_active
     cmp #2
     beq @s4_bound
+    cmp #3
+    beq @s7_bound
     lda pan_data_x_hi
     cmp #>(revg_bg_camera_columns * 2 + 30)
     bne :+
     lda pan_data_x
     cmp #<(revg_bg_camera_columns * 2 + 30)
 :
+    bcs @done
+    bcc @do_col
+@s7_bound:
+    lda pan_data_x_hi
+    bne @done
+    lda pan_data_x
+    cmp #32
     bcs @done
     bcc @do_col
 @s4_bound:
@@ -559,10 +573,10 @@ revg_dequeue_tile:
     rts
 
 ; Fill pan_col_tiles and attribute bytes for tile column pan_data_x (9 bits).
-; Dispatches to revg2_prepare_column when revg_bg_active >= 3 (2-axis: Stage 2 & 3).
+; Dispatches to revg2_prepare_column when revg_bg_active >= 4 (2-axis: Stages 2, 3, 5, 6).
 revg_prepare_column:
     lda revg_bg_active
-    cmp #3
+    cmp #4
     bcc :+
     jmp revg2_prepare_column
 :
@@ -599,6 +613,10 @@ revg_prepare_column:
     cmp #2
     bne :+
     jmp @s4_col
+:
+    cmp #3
+    bne :+
+    jmp @s7_col
 :
     lda #revg_bg_map_bank
     jsr select_bank2
@@ -670,6 +688,42 @@ revg_prepare_column:
     pla
     jmp select_bank2
 
+@s7_col:
+    lda #revg7_bg_map_bank
+    jsr select_bank2
+    ldy revg_mcol
+    lda pan_data_x
+    lsr a
+    bcc :+
+    jmp @s7_right
+:
+.repeat revg_bg_view_rows, row
+    ldx .ident(.sprintf("revg7_bg_map_row%d", row)),y
+    lda revg7_bg_mt_tl,x
+    sta pan_col_tiles + 2 * row
+    lda revg7_bg_mt_bl,x
+    sta pan_col_tiles + 2 * row + 1
+.endrepeat
+    jmp @s7_attributes
+@s7_right:
+.repeat revg_bg_view_rows, row
+    ldx .ident(.sprintf("revg7_bg_map_row%d", row)),y
+    lda revg7_bg_mt_tr,x
+    sta pan_col_tiles + 2 * row
+    lda revg7_bg_mt_br,x
+    sta pan_col_tiles + 2 * row + 1
+.endrepeat
+@s7_attributes:
+    tya
+    lsr a
+    tay
+.repeat 7, row
+    lda .ident(.sprintf("revg7_bg_attr_row%d", row)),y
+    sta revg_col_attr + row
+.endrepeat
+    pla
+    jmp select_bank2
+
 ; --- Stage 2 (2-axis) row & column preparation in BANK50 --------------------------------
 ; Prepare pan_row_tiles[0..31] and revg2_row_attr[0..7] for pan_need_row (0..59).
 revg2_prepare_row:
@@ -699,13 +753,14 @@ revg2_prepare_row:
     iny
     bne @row_vp
 @row_vp_ok:
-    sty revg2_tmp0              ; page (0..3)
+    sty revg2_tmp0              ; page (0..4)
     ldx revg_bg_active
+    cpx #6
+    bcs @row_packed5
     tya
     clc
     adc revg_bg_map_bank_tbl,x
     jsr select_bank2
-
     ; Map row pointer for local metatile row = pan_local_y >> 1 (0..14).
     lda pan_local_y
     lsr a
@@ -714,6 +769,18 @@ revg2_prepare_row:
     sta revg_ptr
     lda revg2_bg_map_hi,y
     sta revg_ptr+1
+    jmp @row_ptr_ok
+@row_packed5:
+    lda revg_bg_map_bank_tbl,x
+    jsr select_bank2
+    lda pan_need_row
+    lsr a                       ; global metatile row (0..74)
+    tay
+    lda revg5_bg_map_lo,y
+    sta revg_ptr
+    lda revg5_bg_map_hi,y
+    sta revg_ptr+1
+@row_ptr_ok:
     lda pan_local_y
     and #1
     sta revg2_tmp1              ; 0 = top half (tl/tr), 1 = bottom half (bl/br)
@@ -796,10 +863,28 @@ revg2_prepare_row:
     bpl :-
     jmp @row_done
 @do_row_attr:
+    lda revg_bg_active
+    cmp #6
+    bcs @do_row_attr5
     lda revg2_bg_attr_lo,y
     sta revg_ptr
     lda revg2_bg_attr_hi,y
     sta revg_ptr+1
+    jmp @ra_ptr_ok
+@do_row_attr5:
+    tya
+    sta revg2_tmp1              ; ar (0..7)
+    lda revg2_tmp0              ; page (0..4)
+    asl a
+    asl a
+    asl a
+    ora revg2_tmp1              ; page * 8 + ar (0..39)
+    tay
+    lda revg5_bg_attr_lo,y
+    sta revg_ptr
+    lda revg5_bg_attr_hi,y
+    sta revg_ptr+1
+@ra_ptr_ok:
     ; First attribute pair = (start_x + 3) >> 2 (covers all 8 visible attribute columns).
     lda revg2_tmp2
     clc
@@ -887,10 +972,12 @@ revg2_prepare_column:
     bne @col_vp
 @col_vp_ok:
     sta revg2_tmp0              ; local tile row (0..29)
+    ldx revg_bg_active
+    cpx #6
+    bcs @col_packed5
     cpy revg2_tmp3
     beq :+
     sty revg2_tmp3
-    ldx revg_bg_active
     tya
     clc
     adc revg_bg_map_bank_tbl,x
@@ -903,6 +990,23 @@ revg2_prepare_column:
     sta revg_ptr
     lda revg2_bg_map_hi,y
     sta revg_ptr+1
+    jmp @col_ptr_ok
+@col_packed5:
+    lda revg2_tmp3
+    beq :+
+    lda #0
+    sta revg2_tmp3
+    lda revg_bg_map_bank_tbl,x
+    jsr select_bank2
+:
+    lda pan_data_y
+    lsr a                       ; global metatile row (0..74)
+    tay
+    lda revg5_bg_map_lo,y
+    sta revg_ptr
+    lda revg5_bg_map_hi,y
+    sta revg_ptr+1
+@col_ptr_ok:
     ldy revg_mcol
     lda (revg_ptr),y
     tax                         ; metatile id
@@ -929,7 +1033,9 @@ revg2_prepare_column:
     inc pan_data_y
     inx
     cpx pan_col_length
-    bne @col_loop
+    beq :+
+    jmp @col_loop
+:
 
     ; Compute 8 column attribute bytes spanning the visible vertical window.
     lda pan_col_addr+1
@@ -972,12 +1078,19 @@ revg2_prepare_column:
     iny
     bne @ca_vp
 @ca_vp_ok:
-    sty revg2_tmp0              ; current page (0..3)
+    sty revg2_tmp0              ; current page (0..4)
     ldx revg_bg_active
+    cpx #6
+    bcs @ca_sel5
     tya
     clc
     adc revg_bg_map_bank_tbl,x
     jsr select_bank2
+    jmp @ca_loop_init
+@ca_sel5:
+    lda revg_bg_map_bank_tbl,x
+    jsr select_bank2
+@ca_loop_init:
 
     ldx #0
     lda revg2_tmp1              ; ar = ar_start
@@ -985,11 +1098,13 @@ revg2_prepare_column:
 @cattr_loop:
     cpx revg2_attr_split
     bne @cattr_same
-    ; Switch to next vertical page (wrapping at 2 for S2 or 4 for S3), ar = 0.
+    ; Switch to next vertical page (mod 2 for S2, mod 4 for S3, mod 5 for S5/S6), ar = 0.
     ldy revg2_tmp0
     iny
     lda revg_bg_active
-    cmp #4
+    cmp #6
+    bcs @ca_mod5
+    cmp #5
     beq @ca_mod4
     tya
     and #1
@@ -997,6 +1112,17 @@ revg2_prepare_column:
 @ca_mod4:
     tya
     and #3
+    jmp @ca_setp
+@ca_mod5:
+    tya
+    cmp #5
+    bcc @ca_setp5
+    lda #0
+@ca_setp5:
+    sta revg2_tmp0
+    lda #0
+    sta revg_count
+    jmp @cattr_same
 @ca_setp:
     sta revg2_tmp0
     ldy revg_bg_active
@@ -1014,10 +1140,26 @@ revg2_prepare_column:
     lda #0                      ; preserve HUD palette 0 on $2000 attr row 0
     beq @cattr_st
 @cattr_read:
+    lda revg_bg_active
+    cmp #6
+    bcs @cattr_read5
     lda revg2_bg_attr_lo,y
     sta revg_ptr
     lda revg2_bg_attr_hi,y
     sta revg_ptr+1
+    jmp @cattr_fetch
+@cattr_read5:
+    lda revg2_tmp0
+    asl a
+    asl a
+    asl a
+    ora revg_count              ; page * 8 + ar (0..39)
+    tay
+    lda revg5_bg_attr_lo,y
+    sta revg_ptr
+    lda revg5_bg_attr_hi,y
+    sta revg_ptr+1
+@cattr_fetch:
     ldy revg2_tmp2
     lda (revg_ptr),y
 @cattr_st:
@@ -1025,7 +1167,9 @@ revg2_prepare_column:
     inc revg_count
     inx
     cpx #8
-    bne @cattr_loop
+    beq :+
+    jmp @cattr_loop
+:
 
     pla
     jmp select_bank2
@@ -1116,7 +1260,7 @@ revg_upload:
     sta revg_pal_pending
 @nt_updates:
     lda revg_bg_active
-    cmp #3
+    cmp #4
     bcs revg_upload_s2_nt
     lda pan_need_col
     bmi revg_upload_done
