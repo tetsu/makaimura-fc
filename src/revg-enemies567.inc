@@ -8,6 +8,19 @@ s567_boss_rem: .res 1           ; Remaining bosses in stage (S5: 1, S6: 2, S7: 1
 s567_sy: .res 2                 ; Player shot arcade Y (lo/hi)
 s567_rng_hi: .res 1             ; High byte of 16-bit RNG (kept separate from oz_reg_page)
 rs_tile_slot_4: .res 256        ; Sprite tile id 1024..1279 -> slot + 1 (kept at end of WRAM)
+; High Score table, Name Entry state, and Title Attract Demo (kept at very end of WRAM)
+hs_magic: .res 1                ; $A5 once default high-score table is initialized
+hs_scores: .res 20              ; 5 entries x 4 digits (x100 pts)
+hs_names: .res 15               ; 5 entries x 3 letter indices (0..25 = A..Z)
+ne_rank: .res 1                 ; 0..4 rank slot being entered
+ne_pos: .res 1                  ; 0..2 active letter cursor
+ne_chars: .res 3                ; 3 active letter indices (0..25)
+attract_idle_lo: .res 1         ; Title screen idle frame counter (low)
+attract_idle_hi: .res 1         ; Title screen idle frame counter (high)
+attract_active: .res 1          ; 1 while Title Attract Demo is running
+attract_timer_lo: .res 1        ; Remaining attract demo frames (low)
+attract_timer_hi: .res 1        ; Remaining attract demo frames (high)
+attract_prev_pad: .res 1        ; Previous scripted pad byte for rising-edge pressed
 
 .segment "BANK56"
 .scope s567

@@ -1728,6 +1728,8 @@ ap_revg_jump_check:
     lda #0
     sta ap_jump_phase
     sta ap_shot_phase
+    lda #snd_se_jump
+    jsr call_bank8_play_se
 @no_jump:
     rts
 .endif
@@ -2038,6 +2040,8 @@ ap_air_fall:
     sta ap_move_dir
 .ifdef REVG_STAGE1
     sta ap_shoot_lock           ; $9544
+    lda #snd_se_land
+    jsr call_bank8_play_se
 .endif
     jmp ap_reset_velocity
 @air_fall_accel:

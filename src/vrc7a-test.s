@@ -166,8 +166,8 @@ nes_area_trial_count = 0
 .if PRG_ROM_UNITS = 32
 .include "campaign.inc"
 .include "sound-driver.inc"
-.include "arcade-music-data.inc"
 .include "arcade-gfx-data.inc"
+.include "arcade-music-data.inc"
 .include "arcade-stage.inc"
 .include "arcade-stage2.inc"
 .include "arcade-stage3.inc"
@@ -196,6 +196,7 @@ area_view_scene = 11
 .ifdef REVG_STAGE1
 opening_scene = 12              ; Scenes from here on run in Bank 2 (frontend.inc).
 map_scene = 13
+name_entry_scene = 15
 .endif
 option_scene = 14
 .endif
@@ -359,6 +360,26 @@ main:
     ldx pad
     stx previous
     sta pressed
+.ifdef REVG_STAGE1
+    lda attract_active
+    beq @no_attract
+    lda pressed
+    bne @end_attract
+    lda player_hit
+    bne @end_attract
+    jsr step_attract_demo
+    bcc @no_attract
+@end_attract:
+    lda #0
+    sta attract_active
+    sta pad
+    sta pressed
+    jsr blank_display
+    jsr show_title_screen
+    jmp audio_tick
+@no_attract:
+.endif
+    lda pressed
     and #$20            ; Select: switch between audio controls and terrain.
     beq same_scene
     jsr toggle_scene
@@ -397,6 +418,11 @@ same_scene:
     jmp main
 :
 .ifdef REVG_STAGE1
+    cmp #name_entry_scene
+    bne :+
+    jsr update_name_entry_screen
+    jmp main
+:
     cmp #opening_scene
     bcc :+
     jsr update_frontend_scene
@@ -482,6 +508,15 @@ finish_campaign:
     jsr blank_display
     lda arcade_mode
     beq @finish_to_sound
+.ifdef REVG_STAGE1
+    lda attract_active
+    bne @finish_to_title
+    jsr check_highscore_b2
+    bcc @finish_to_title
+    jsr show_name_entry_screen
+    jmp audio_tick
+@finish_to_title:
+.endif
     jsr show_title_screen
     jmp audio_tick
 @finish_to_sound:
@@ -549,7 +584,9 @@ dispatch_scene:
     jmp sound_screen
 :
     cmp #3
-    beq pan_screen
+    bne :+
+    jmp pan_screen
+:
     cmp #2
     beq game_screen
     cmp #clear_scene
@@ -561,7 +598,8 @@ dispatch_scene:
     beq title_screen_tick
 .endif
     cmp #4
-    bne free_camera
+    beq game_screen
+    jmp free_camera
 game_screen:
 .if PRG_ROM_UNITS = 32
     lda #1
@@ -579,6 +617,14 @@ clear_screen_idle:
 .if PRG_ROM_UNITS = 32
 title_screen_tick:
     lda pressed
+.ifdef REVG_STAGE1
+    beq @title_idle_tick
+    lda #0
+    sta attract_idle_lo
+    sta attract_idle_hi
+    lda pressed
+@title_idle_tick:
+.endif
     and #$0c            ; Up / Down toggles 1P START <-> OPTION
     beq @title_chk_a
     lda title_cursor
@@ -595,6 +641,21 @@ title_screen_tick:
     jsr show_option_screen
     jmp audio_tick
 @title_wait:
+.ifdef REVG_STAGE1
+    inc attract_idle_lo
+    bne :+
+    inc attract_idle_hi
+:
+    lda attract_idle_hi
+    cmp #>600
+    bne :+
+    lda attract_idle_lo
+    cmp #<600
+    bcc :+
+    jsr start_attract_demo
+    jmp audio_tick
+:
+.endif
     jsr wait_terrain_frame
     jmp audio_tick
 .endif
@@ -651,6 +712,12 @@ commit_horizontal:
     bne :+
     jmp commit_option_screen
 :
+.ifdef REVG_STAGE1
+    cmp #name_entry_scene
+    bne :+
+    jmp commit_name_entry
+:
+.endif
 .endif
     lda column_pending
     beq commit_render
@@ -751,6 +818,11 @@ audio_tick:
     cmp #title_scene
     beq @bank8_audio_tick
     cmp #option_scene
+    beq @bank8_audio_tick
+.ifdef REVG_STAGE1
+    cmp #name_entry_scene
+    beq @bank8_audio_tick
+.endif
     bne @legacy_audio_tick
 @bank8_audio_tick:
     jsr call_bank8_audio_tick
@@ -1276,6 +1348,10 @@ show_title_screen:
     sta demo_finish
     sta death_timer
     sta death_timer+1
+    sta attract_active
+    sta attract_idle_lo
+    sta attract_idle_hi
+    sta attract_prev_pad
 .endif
     lda #1
     jsr select_bank1
@@ -1432,6 +1508,81 @@ update_frontend_scene:
     jsr begin_arcade_game
 @tick:
     jmp call_bank8_audio_tick
+
+check_highscore_b2:
+    lda #2
+    jsr select_bank2
+    jmp fe_check_highscore
+
+show_name_entry_screen:
+    lda #name_entry_scene
+    sta scene
+    lda #0
+    sta campaign_stage
+    sta arcade_mode
+    lda #snd_song_name_entry
+    jsr call_bank8_play_song
+    lda #2
+    jsr select_bank2
+    jsr fe_draw_name_entry
+    jmp enable_static_screen
+
+update_name_entry_screen:
+    lda #2
+    jsr select_bank2
+    jsr fe_update_name_entry
+    beq @ne_wait
+    cmp #2
+    beq @ne_done
+    jsr submit_frame
+    jmp call_bank8_audio_tick
+@ne_done:
+    jsr blank_display
+    jsr show_title_screen
+    jmp call_bank8_audio_tick
+@ne_wait:
+    jsr wait_terrain_frame
+    jmp call_bank8_audio_tick
+
+commit_name_entry:
+    lda prg_bank2
+    pha
+    lda #2
+    jsr select_bank2
+    jsr fe_commit_name_entry
+    jmp commit_bank2_done
+
+start_attract_demo:
+    lda #0
+    sta attract_idle_lo
+    sta attract_idle_hi
+    sta attract_prev_pad
+    sta game_paused
+    lda #<360
+    sta attract_timer_lo
+    lda #>360
+    sta attract_timer_hi
+    lda #1
+    sta attract_active
+    sta arcade_mode
+    sta campaign_stage
+    lda #3
+    sta campaign_lives
+    jsr start_arcade_stage
+    ; Attract demo runs silently like the arcade cabinet.
+    jmp call_bank8_audio_init
+
+step_attract_demo:
+    lda prg_bank2
+    pha
+    lda #2
+    jsr select_bank2
+    jsr fe_attract_step
+    pla
+    php
+    jsr select_bank2
+    plp
+    rts
 .endif
 .endif
 
@@ -1463,11 +1614,7 @@ clear_screen:
 clear_title: .byte $04, $0f, $14, $11, $12, $06, $00, $04, $0c, $06, $02, $11 ; COURSE CLEAR
 clear_title_length = * - clear_title
 .if PRG_ROM_UNITS = 32
-.ifdef REVG_STAGE1
-final_title: .byte $12, $13, $02, $08, $06, campaign_zero + 1, $00, $04, $0c, $06, $02, $11 ; STAGE1 CLEAR
-.else
 final_title: .byte $07, $0a, $0e, $02, $0c, $00, $04, $0c, $06, $02, $11, $00 ; FINAL CLEAR
-.endif
 game_over_title: .byte $08, $02, $0d, $06, $00, $0f, $15, $06, $11, $00, $00, $00 ; GAME OVER
 .endif
 clear_prompt: .byte $12, $13, $02, $11, $13, $00, $10, $0c, $02, $17 ; START PLAY

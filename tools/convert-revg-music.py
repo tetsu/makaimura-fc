@@ -49,7 +49,8 @@ NOTE_MAX = 0x5F
 VRC7_HZ = 3579545.0 / 72.0
 OPN_FM_HZ = 1500000.0 / 72.0 / 2.0   # 1.5 MHz, prescaler 1/3: f = fnum * this / 2^(20 - block)
 MAX_TICKS = 240 * 600
-DATA_BANKS = (9, 5)            # $8000 banks for the song streams (src/vrc7a-512k.cfg)
+DATA_BANKS = (9, 5, 10)        # $8000 banks for the song streams (src/vrc7a-512k.cfg)
+BANK_RESERVED = {9: 1, 5: 1, 10: 0x0AC1}  # Bank 10 already holds arcade-gfx-data.inc + tag
 
 # (name, sound commands as (tick, command), looping). The order is the song id - 1
 # (src/sound-driver.inc).
@@ -66,6 +67,7 @@ SONGS = [
     ("stage5", [(0, 0x30), (1, 0x29)], True),     # sections 4-5
     ("miss", [(0, 0x31)], False),                 # Arthur dies with lives left
     ("key", [(0, 0x3E)], False),                  # key appearance fanfare ($7409)
+    ("name_entry", [(0, 0x26)], True),            # high-score name entry theme ($26)
 ]
 
 # The VRC7 built-in patches (the 2019 die dump, as in Mesen's MesenCore.dll).
@@ -614,7 +616,7 @@ def main():
         songs.append((name, first_patch, body, size))
 
     # Fill the data banks in song order.
-    placement, used = {}, {bank: 1 for bank in DATA_BANKS}
+    placement, used = {}, dict(BANK_RESERVED)
     for name, _, _, size in songs:
         bank = next((b for b in DATA_BANKS if used[b] + size <= 0x2000), None)
         if bank is None:
@@ -630,7 +632,9 @@ def main():
     lines += ["arc_trk_lo:"] + [f"    .byte {', '.join(f'<arc_{s[0]}_ch{c}' for c in range(6))}" for s in songs]
     lines += ["arc_trk_hi:"] + [f"    .byte {', '.join(f'>arc_{s[0]}_ch{c}' for c in range(6))}" for s in songs]
     for bank in DATA_BANKS:
-        lines += ["", f'.segment "BANK{bank}"', f"    .byte bank_tag_base + {bank}"]
+        lines += ["", f'.segment "BANK{bank}"']
+        if bank != 10:
+            lines.append(f"    .byte bank_tag_base + {bank}")
         for name, _, body, size in songs:
             if placement[name] == bank:
                 lines += [""] + body

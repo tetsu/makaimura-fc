@@ -661,9 +661,29 @@ show_course_clear:
 .if PRG_ROM_UNITS = 32
     lda prg_bank2
     pha
+.ifdef REVG_STAGE1
+    lda arcade_mode
+    beq @result_b7
+    lda scene
+    cmp #clear_scene
+    bne @result_b7
+    ; Loop 2 Stage 7 is FINAL CLEAR (drawn by BANK7); all other stage clears show the Makai map.
+    lda campaign_stage
+    cmp #7
+    bne @show_map
+    lda ap_loop
+    bne @result_b7
+@show_map:
+    lda #2
+    jsr select_bank2
+    jsr fe_draw_progress_map
+    jmp @result_done
+@result_b7:
+.endif
     lda #7
     jsr select_bank2
     jsr draw_result_b7
+@result_done:
     pla
     jsr select_bank2
     jmp enable_static_screen

@@ -40,6 +40,7 @@ if ($Mesen) {
         'tools/mesen/revg-stage34.lua'
         'tools/mesen/revg-stage567.lua'
         'tools/mesen/revg-options.lua'
+        'tools/mesen/revg-frontend.lua'
     )
     $archiveName = 'vrc7a-mesen-trial.zip'
 }

@@ -385,9 +385,7 @@ fe_draw_scene:
 @map:
     lda #fe_map_frames
     sta fe_timer
-    lda #<fe_map_lines
-    ldx #>fe_map_lines
-    jmp fe_draw_lines
+    jmp fe_draw_progress_map
 
 ; Once per frame. A = 0 to stay, the next scene, or $ff to start Stage 1. START skips.
 fe_tick:
@@ -414,9 +412,637 @@ fe_opening_lines:
     fe_line $21ab, "WAS TAKEN"
     fe_line $21ec, "BY SATAN"
     .byte 0
-fe_map_lines:
-    fe_line $218c, "STAGE 1"
-    fe_line $21cb, "GRAVEYARD"
+
+; --- Stage Progression Map Screen (Bank 2, REVG_STAGE1) -----------------------
+; Draws the 7-stage Makai route map with landmarks, connecting path, stage
+; numbers, and Arthur's marker above the next stage. Display must be off.
+fe_draw_progress_map:
+    jsr load_menu_patterns
+    ; Upload 8 map-art tiles ($38..$3F) to CHR-RAM $0380..$03FF.
+    lda #$03
+    sta $2006
+    lda #$80
+    sta $2006
+    ldx #0
+@chr_loop:
+    lda fe_map_chr_data,x
+    sta $2007
+    inx
+    cpx #128
+    bne @chr_loop
+    jsr clear_screen
+    ; Load 4-palette Makai Map palette ($3F00..$3F0F).
+    lda #$3f
+    sta $2006
+    lda #$00
+    sta $2006
+    ldx #0
+@pal_loop:
+    lda fe_map_palette,x
+    sta $2007
+    inx
+    cpx #16
+    bne @pal_loop
+    ; Draw static map header, route landmarks, and prompt.
+    lda #<fe_map_static_lines
+    ldx #>fe_map_static_lines
+    jsr fe_draw_lines
+    ; Draw connecting dotted path between stages (tile $3E).
+    ldx #0
+@path_loop:
+    lda fe_map_path_hi,x
+    beq @path_done
+    sta $2006
+    lda fe_map_path_lo,x
+    sta $2006
+    lda #$3e
+    sta $2007
+    inx
+    bne @path_loop
+@path_done:
+    ; Draw 7 landmark icons + stage digits 1..7.
+    ldx #0
+@node_loop:
+    lda fe_map_node_hi,x
+    sta $2006
+    lda fe_map_node_lo,x
+    sta $2006
+    lda fe_map_node_tile,x
+    sta $2007
+    lda fe_map_num_hi,x
+    sta $2006
+    lda fe_map_num_lo,x
+    sta $2006
+    txa
+    clc
+    adc #campaign_zero + 1
+    sta $2007
+    inx
+    cpx #7
+    bne @node_loop
+    ; Write cleared stage number at $2090 ("STAGE X CLEAR").
+    lda #$20
+    sta $2006
+    lda #$90
+    sta $2006
+    lda campaign_stage
+    bne :+
+    lda #1
+:
+    clc
+    adc #campaign_zero
+    sta $2007
+    ; Compute next stage index (0..6): campaign_stage (mod 7).
+    lda campaign_stage
+    cmp #7
+    bcc :+
+    lda #0
+:
+    tax
+    ; Place Arthur's marker ($3F) above the next stage landmark.
+    lda fe_map_mark_hi,x
+    sta $2006
+    lda fe_map_mark_lo,x
+    sta $2006
+    lda #$3f
+    sta $2007
+    ; Write next stage number at $22D1 ("NEXT STAGE Y").
+    lda #$22
+    sta $2006
+    lda #$d1
+    sta $2006
+    txa
+    clc
+    adc #campaign_zero + 1
+    sta $2007
+    ; Set attribute table: palette 1 (blue) on left half, palette 2 (red/castle) on right half.
+    lda #$23
+    sta $2006
+    lda #$c8
+    sta $2006
+    ldx #0
+@attr_loop:
+    lda fe_map_attrs,x
+    sta $2007
+    inx
+    cpx #40
+    bne @attr_loop
+    rts
+
+fe_map_palette:
+    .byte $0f, $30, $28, $16    ; Pal 0: white / gold text
+    .byte $0f, $11, $21, $30    ; Pal 1: graveyard / village / cavern (blue/white)
+    .byte $0f, $16, $27, $38    ; Pal 2: bridge / castle / throne (crimson/gold)
+    .byte $0f, $28, $38, $30    ; Pal 3: active marker highlight
+
+fe_map_static_lines:
+    fe_line $208a, "STAGE 1 CLEAR"
+    fe_line $22c6, "NEXT STAGE 2"
+    fe_line $2327, "START TO CONTINUE"
+    .byte 0
+
+; 7 stage landmarks (bottom-left Stage 1 -> top-right Stage 7)
+fe_map_node_hi: .byte $22, $22, $22, $21, $21, $21, $21
+fe_map_node_lo: .byte $64, $28, $0c, $d0, $94, $58, $1b
+fe_map_node_tile: .byte $38, $39, $3a, $3b, $3c, $3c, $3d
+fe_map_num_hi:  .byte $22, $22, $22, $21, $21, $21, $21
+fe_map_num_lo:  .byte $84, $48, $2c, $f0, $b4, $78, $3b
+fe_map_mark_hi: .byte $22, $22, $21, $21, $21, $21, $20
+fe_map_mark_lo: .byte $44, $08, $ec, $b0, $74, $38, $fb
+
+; Dotted path tiles connecting the 7 landmarks (terminated by 0)
+fe_map_path_hi:
+    .byte $22, $22, $22, $22, $22, $22, $21, $21, $21, $21, $21, $21, $21, $21, $21, $21, 0
+fe_map_path_lo:
+    .byte $66, $47, $2a, $0b, $0e, $ef, $d2, $b3, $96, $77, $5a, $3b, $19, $1a, $59, $95
+
+; 40 attribute bytes covering rows 4..23 ($23C8..$23EF)
+fe_map_attrs:
+    .byte $55,$55,$55,$55,$aa,$aa,$aa,$aa
+    .byte $55,$55,$55,$55,$aa,$aa,$aa,$aa
+    .byte $55,$55,$55,$55,$aa,$aa,$aa,$aa
+    .byte $55,$55,$55,$55,$aa,$aa,$aa,$aa
+    .byte $55,$55,$55,$55,$aa,$aa,$aa,$aa
+
+; 8 custom 8x8 2bpp tiles ($38..$3F) for the Makai Stage Map
+fe_map_chr_data:
+    ; $38: Graveyard Cross
+    .byte $18,$18,$7e,$7e,$18,$18,$18,$3c, $00,$00,$18,$18,$00,$00,$18,$3c
+    ; $39: Village Tower
+    .byte $18,$3c,$7e,$ff,$66,$66,$7e,$7e, $00,$18,$3c,$00,$42,$42,$42,$7e
+    ; $3A: Cavern Arch
+    .byte $3c,$7e,$e7,$c3,$c3,$c3,$c3,$ff, $00,$3c,$66,$42,$42,$42,$42,$ff
+    ; $3B: Hanging Bridge
+    .byte $81,$c3,$ff,$ff,$24,$24,$00,$00, $81,$81,$ff,$00,$24,$24,$00,$00
+    ; $3C: Castle Battlement
+    .byte $aa,$ff,$ff,$7e,$66,$66,$7e,$ff, $aa,$aa,$7e,$42,$42,$42,$7e,$ff
+    ; $3D: Demon Throne (Crown/Horns)
+    .byte $81,$c3,$e7,$ff,$db,$ff,$7e,$ff, $81,$42,$66,$ff,$5a,$ff,$3c,$ff
+    ; $3E: Route Path Dot
+    .byte $00,$00,$18,$3c,$3c,$18,$00,$00, $00,$00,$00,$18,$18,$00,$00,$00
+    ; $3F: Arthur Helmet Marker
+    .byte $3c,$7e,$ff,$db,$ff,$7e,$3c,$18, $18,$3c,$7e,$7e,$5a,$3c,$18,$00
+
+; --- High Score Table, Name Entry, and Title Attract Demo (Bank 2) ------------
+hs_magic_val = $a5
+
+; Initialize default 5-entry high score table in WRAM once per cold boot.
+hs_ensure_init:
+    lda hs_magic
+    cmp #hs_magic_val
+    beq @hs_ready
+    ldx #19
+:
+    lda hs_default_scores,x
+    sta hs_scores,x
+    dex
+    bpl :-
+    ldx #14
+:
+    lda hs_default_names,x
+    sta hs_names,x
+    dex
+    bpl :-
+    lda #hs_magic_val
+    sta hs_magic
+@hs_ready:
+    rts
+
+; Compare ap_score (4 bytes) against hs_scores (5 entries).
+; Returns C=1 if qualified (shifts table down, inserts ap_score at ne_rank,
+; clears ne_chars to AAA and ne_pos=0), or C=0 if below 5th place.
+fe_check_highscore:
+    jsr hs_ensure_init
+    ldx #0                      ; rank 0..4
+@cmp_rank:
+    txa
+    asl a
+    asl a
+    tay                         ; y = rank * 4
+    lda ap_score+0
+    cmp hs_scores+0,y
+    bcc @next_rank
+    bne @qualifies
+    lda ap_score+1
+    cmp hs_scores+1,y
+    bcc @next_rank
+    bne @qualifies
+    lda ap_score+2
+    cmp hs_scores+2,y
+    bcc @next_rank
+    bne @qualifies
+    lda ap_score+3
+    cmp hs_scores+3,y
+    bcs @qualifies
+@next_rank:
+    inx
+    cpx #5
+    bne @cmp_rank
+    clc
+    rts
+@qualifies:
+    stx ne_rank
+    ; Shift lower score entries down (from rank 3 down to ne_rank).
+    ldx #3
+@shift_loop:
+    cpx ne_rank
+    bcc @shift_done
+    ; Score: copy 4 bytes from x*4 to (x+1)*4
+    txa
+    asl a
+    asl a
+    tay
+    lda hs_scores+0,y
+    sta hs_scores+4,y
+    lda hs_scores+1,y
+    sta hs_scores+5,y
+    lda hs_scores+2,y
+    sta hs_scores+6,y
+    lda hs_scores+3,y
+    sta hs_scores+7,y
+    ; Name: copy 3 bytes from x*3 to (x+1)*3
+    stx map_tmp
+    txa
+    asl a
+    clc
+    adc map_tmp
+    tay
+    lda hs_names+0,y
+    sta hs_names+3,y
+    lda hs_names+1,y
+    sta hs_names+4,y
+    lda hs_names+2,y
+    sta hs_names+5,y
+    dex
+    bpl @shift_loop
+@shift_done:
+    ; Insert ap_score at ne_rank*4 and clear initials to AAA.
+    lda ne_rank
+    asl a
+    asl a
+    tay
+    lda ap_score+0
+    sta hs_scores+0,y
+    lda ap_score+1
+    sta hs_scores+1,y
+    lda ap_score+2
+    sta hs_scores+2,y
+    lda ap_score+3
+    sta hs_scores+3,y
+    lda #0
+    sta ne_pos
+    sta ne_chars+0
+    sta ne_chars+1
+    sta ne_chars+2
+    lda ne_rank
+    asl a
+    clc
+    adc ne_rank
+    tay
+    lda #0
+    sta hs_names+0,y
+    sta hs_names+1,y
+    sta hs_names+2,y
+    sec
+    rts
+
+; Draw full Name Entry + Top 5 High Score Ranking screen. Display must be off.
+fe_draw_name_entry:
+    jsr hs_ensure_init
+    jsr load_menu_patterns
+    ; Upload X ($38), > ($39), Q ($3A), Z ($3B) to CHR-RAM $0380..$03BF.
+    lda #$03
+    sta $2006
+    lda #$80
+    sta $2006
+    ldx #0
+:
+    lda opt_tile_x_chr,x
+    sta $2007
+    inx
+    cpx #32
+    bne :-
+    ldx #0
+:
+    lda ne_extra_glyphs,x
+    sta $2007
+    inx
+    cpx #32
+    bne :-
+    jsr clear_screen
+    lda #$3f
+    sta $2006
+    lda #$00
+    sta $2006
+    ldx #0
+:
+    lda opt_palette,x
+    sta $2007
+    inx
+    cpx #4
+    bne :-
+    lda #<ne_static_lines
+    ldx #>ne_static_lines
+    jsr fe_draw_lines
+    ; Draw all 5 ranking rows (1ST..5TH: score + 3-letter name).
+    ldx #0
+@row_loop:
+    stx map_tmp
+    lda ne_row_hi,x
+    sta $2006
+    lda ne_row_lo,x
+    sta $2006
+    ; Rank digit '1'..'5'
+    txa
+    clc
+    adc #campaign_zero + 1
+    sta $2007
+    lda #0
+    sta $2007
+    sta $2007
+    ; 6-digit score (4 BCD digits + "00")
+    txa
+    asl a
+    asl a
+    tay
+    lda hs_scores+0,y
+    clc
+    adc #campaign_zero
+    sta $2007
+    lda hs_scores+1,y
+    clc
+    adc #campaign_zero
+    sta $2007
+    lda hs_scores+2,y
+    clc
+    adc #campaign_zero
+    sta $2007
+    lda hs_scores+3,y
+    clc
+    adc #campaign_zero
+    sta $2007
+    lda #campaign_zero
+    sta $2007
+    sta $2007
+    lda #0
+    sta $2007
+    sta $2007
+    ; 3-letter name
+    ldx map_tmp
+    txa
+    asl a
+    clc
+    adc map_tmp
+    tay
+    ldx hs_names+0,y
+    lda ne_alpha_tiles,x
+    sta $2007
+    ldx hs_names+1,y
+    lda ne_alpha_tiles,x
+    sta $2007
+    ldx hs_names+2,y
+    lda ne_alpha_tiles,x
+    sta $2007
+    ldx map_tmp
+    inx
+    cpx #5
+    bne @row_loop
+    jmp fe_commit_name_entry
+
+; VBlank / forced-blank commit: draws active 3 letters, cursor, and live rank row initials.
+fe_commit_name_entry:
+    ; Active 3 letters at $210d..$210f
+    lda #$21
+    sta $2006
+    lda #$0d
+    sta $2006
+    ldx ne_chars+0
+    lda ne_alpha_tiles,x
+    sta $2007
+    ldx ne_chars+1
+    lda ne_alpha_tiles,x
+    sta $2007
+    ldx ne_chars+2
+    lda ne_alpha_tiles,x
+    sta $2007
+    ; Cursor '>' under active letter at $212d..$212f
+    lda #$21
+    sta $2006
+    lda #$2d
+    sta $2006
+    ldx #0
+@cur_c:
+    lda #0
+    cpx ne_pos
+    bne :+
+    lda #opt_arrow_tile
+:
+    sta $2007
+    inx
+    cpx #3
+    bne @cur_c
+    ; Mirror live initials into the player's rank row in the High Score table.
+    ldx ne_rank
+    lda ne_row_hi,x
+    sta $2006
+    lda ne_row_lo,x
+    clc
+    adc #11
+    sta $2006
+    ldx ne_chars+0
+    lda ne_alpha_tiles,x
+    sta $2007
+    ldx ne_chars+1
+    lda ne_alpha_tiles,x
+    sta $2007
+    ldx ne_chars+2
+    lda ne_alpha_tiles,x
+    sta $2007
+    rts
+
+; Process one frame of Name Entry input.
+; Returns A=0 (idle), A=1 (redraw), A=2 (confirmed & saved).
+fe_update_name_entry:
+    lda pressed
+    and #$10                    ; START: confirm immediately
+    bne @confirm
+    lda pressed
+    and #$08                    ; Up: next letter (A->B->...->Z->A)
+    beq @chk_down
+    ldx ne_pos
+    lda ne_chars,x
+    clc
+    adc #1
+    cmp #26
+    bcc :+
+    lda #0
+:
+    sta ne_chars,x
+    lda #1
+    rts
+@chk_down:
+    lda pressed
+    and #$04                    ; Down: previous letter (A->Z->...->B->A)
+    beq @chk_left
+    ldx ne_pos
+    lda ne_chars,x
+    sec
+    sbc #1
+    bpl :+
+    lda #25
+:
+    sta ne_chars,x
+    lda #1
+    rts
+@chk_left:
+    lda pressed
+    and #$42                    ; Left or B: previous character slot
+    beq @chk_right
+    lda ne_pos
+    beq @idle
+    dec ne_pos
+    lda #1
+    rts
+@chk_right:
+    lda pressed
+    and #$81                    ; Right or A: next slot (A on slot 2 confirms)
+    beq @idle
+    lda ne_pos
+    cmp #2
+    bcc @adv_pos
+    lda pressed
+    and #$80                    ; Only A confirms on slot 2
+    bne @confirm
+@idle:
+    lda #0
+    rts
+@adv_pos:
+    inc ne_pos
+    lda #1
+    rts
+@confirm:
+    ; Save ne_chars into hs_names[ne_rank*3 .. +2]
+    lda ne_rank
+    asl a
+    clc
+    adc ne_rank
+    tay
+    lda ne_chars+0
+    sta hs_names+0,y
+    lda ne_chars+1
+    sta hs_names+1,y
+    lda ne_chars+2
+    sta hs_names+2,y
+    ; Sync ap_top_score if 1st place
+    lda ne_rank
+    bne @done_confirm
+    ldx #3
+:
+    lda hs_scores,x
+    sta ap_top_score,x
+    dex
+    bpl :-
+@done_confirm:
+    lda #2
+    rts
+
+; Scripted input generator for Title Attract Demo (Stage 1 graveyard, 360 frames).
+; Decrements attract_timer; returns C=1 when expired, else C=0 with scripted pad/pressed.
+fe_attract_step:
+    lda attract_timer_lo
+    ora attract_timer_hi
+    beq @expired
+    lda attract_timer_lo
+    bne :+
+    dec attract_timer_hi
+:
+    dec attract_timer_lo
+    ; Script: walk right continuously, throw lance every 28 frames, jump at timer mod 96 == 16..20.
+    lda #$01                    ; Right
+    ldx attract_timer_lo
+    txa
+    and #$1f
+    cmp #4
+    bne @no_b
+    lda #$41                    ; Right + B (shoot)
+    bne @apply_pad
+@no_b:
+    txa
+    and #$3f
+    cmp #18
+    bne @only_r
+    lda #$81                    ; Right + A (jump)
+    bne @apply_pad
+@only_r:
+    lda #$01
+@apply_pad:
+    sta pad
+    lda attract_prev_pad
+    eor #$ff
+    and pad
+    sta pressed
+    lda pad
+    sta attract_prev_pad
+    clc
+    rts
+@expired:
+    sec
+    rts
+
+; 26-letter alphabet tile lookup (A..Z -> tile ID in menu font + $38=X, $3A=Q, $3B=Z).
+ne_alpha_tiles:
+    fe_glyph 'A'
+    fe_glyph 'B'
+    fe_glyph 'C'
+    fe_glyph 'D'
+    fe_glyph 'E'
+    fe_glyph 'F'
+    fe_glyph 'G'
+    fe_glyph 'H'
+    fe_glyph 'I'
+    fe_glyph 'J'
+    fe_glyph 'K'
+    fe_glyph 'L'
+    fe_glyph 'M'
+    fe_glyph 'N'
+    fe_glyph 'O'
+    fe_glyph 'P'
+    .byte $3a                   ; Q
+    fe_glyph 'R'
+    fe_glyph 'S'
+    fe_glyph 'T'
+    fe_glyph 'U'
+    fe_glyph 'V'
+    fe_glyph 'W'
+    .byte $38                   ; X
+    fe_glyph 'Y'
+    .byte $3b                   ; Z
+
+ne_extra_glyphs:
+    .byte $00,$0e,$11,$11,$11,$15,$12,$0d, $00,$00,$00,$00,$00,$00,$00,$00 ; Q ($3A)
+    .byte $00,$1f,$01,$02,$04,$08,$10,$1f, $00,$00,$00,$00,$00,$00,$00,$00 ; Z ($3B)
+
+hs_default_scores:
+    .byte 0, 1, 0, 0            ; 010000
+    .byte 0, 0, 5, 0            ; 005000
+    .byte 0, 0, 3, 0            ; 003000
+    .byte 0, 0, 2, 0            ; 002000
+    .byte 0, 0, 1, 0            ; 001000
+hs_default_names:
+    .byte 2, 0, 15              ; CAP
+    .byte 2, 14, 12             ; COM
+    .byte 0, 17, 19             ; ART
+    .byte 7, 20, 17             ; HUR
+    .byte 6, 13, 6              ; GNG
+
+ne_row_hi: .byte $21, $22, $22, $22, $22
+ne_row_lo: .byte $c9, $09, $49, $89, $c9
+
+ne_static_lines:
+    fe_line $208b, "NAME ENTRY"
+    fe_line $20c7, "ENTER YOUR INITIALS"
+    fe_line $218a, "HIGH SCORES"
+    fe_line $2324, "UP DN  A NEXT  START OK"
     .byte 0
 .endif
 
