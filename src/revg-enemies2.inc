@@ -2180,23 +2180,35 @@ u_key:
     jmp ap_add_score
 
 ; --- Dynamic Stage 2 moving platform zone loader (all 14 arcade supports $03/$04) ---
-; Zones by camera_high:
-;   0 (cam < 2048): Tower support $03 var 0 (X=392, Y=342) + chasm $03 var 1 (X=720, Y=384)
-;   1 (2048..2559): Ice Palace Channel 1 (2448, 2480, 2512) + Channel 2 left (2608)
-;   2 (2560..2815): Ice Palace Channel 2 (2608, 2640, 2672) + Channel 3 left (2800)
-;   3 (2816..3071): Ice Palace Channel 3 (2800, 2848, 2896) + Channel 4 left (2992)
-;   4 (>= 3072):    Ice Palace Channel 3 right (2896) + Channel 4 (2992, 3024)
+; Zone boundaries are placed on solid stone piers so platforms never swap over water:
+;   0 (player_x < 2048):      Tower elevator $03 var 0 (X=392, Y=318, 198..438) + falling $03 var 1 (X=720, Y=360)
+;   1 (2048 <= x < 2560):     Channel 1 (2448, 2480, 2512) + Channel 2 left (2608)
+;   2 (2560 <= x < 2736):     Channel 2 (2608, 2640, 2672) + Channel 3 left (2800)
+;   3 (2736 <= x < 2944):     Channel 3 all 4 bricks (2800, 2832, 2864, 2896)
+;   4 (player_x >= 2944):     Channel 3 right (2896) + Channel 4 (2992, 3024)
 sync_platforms:
     lda ap_riding_plat
-    bpl @sp_done                ; Never swap platform slots while Arthur is riding one
+    bmi :+
+    rts                         ; Never swap platform slots while Arthur is riding one
+:
     lda player_x+1
-    cmp #8
+    cmp #>2048                  ; 8
     bcc @z0
-    cmp #10
+    cmp #>2560                  ; 10
     bcc @z1
-    beq @z2
-    cmp #11
-    beq @z3
+    bne @chk_z3
+    ; High byte == 10 (2560..2815): split between Zone 2 and Zone 3 at pier midpoint X = 2736 ($0AB0).
+    lda player_x
+    cmp #<2736
+    bcc @z2
+    bcs @z3
+@chk_z3:
+    cmp #>2944                  ; 11 (2816..3071): split between Zone 3 and Zone 4 at pier midpoint X = 2944 ($0B80).
+    bne @z4
+    lda player_x
+    cmp #<2944
+    bcc @z3
+@z4:
     lda #4
     bne @chk_z
 @z0:
@@ -2257,30 +2269,33 @@ sync_platforms:
     rts
 
 s2_plat_zones:
-    ; Zone 0: Tower falling platforms (support $03: drop when Arthur steps on them)
-    .byte 4, <392,  >392,  <342, >342, 112, 0, 0
-    .byte 4, <704,  >704,  <384, >384, 96,  0, 0
-    .byte 0, 0,     0,     0,    0,    0,   0, 0
-    .byte 0, 0,     0,     0,    0,    0,   0, 0
-    ; Zone 1: Ice Palace Channel 1 (2448, 2480, 2512) + Channel 2 left (2608)
-    .byte 3, <2448, >2448, <456, >456, 96,  0, 0
-    .byte 3, <2480, >2480, <424, >424, 96, 32, 0
-    .byte 3, <2512, >2512, <392, >392, 96, 64, 0
-    .byte 3, <2608, >2608, <360, >360, 96,  0, 1
-    ; Zone 2: Ice Palace Channel 2 (2608, 2640, 2672) + Channel 3 left (2800)
-    .byte 3, <2608, >2608, <456, >456, 96,  0, 0
-    .byte 3, <2640, >2640, <424, >424, 96, 32, 0
-    .byte 3, <2672, >2672, <392, >392, 96, 64, 0
-    .byte 3, <2800, >2800, <360, >360, 96,  0, 1
-    ; Zone 3: Ice Palace Channel 3 (2800, 2848, 2896) + Channel 4 left (2992)
-    .byte 3, <2800, >2800, <456, >456, 96,  0, 0
-    .byte 3, <2848, >2848, <424, >424, 96, 32, 0
-    .byte 3, <2896, >2896, <392, >392, 96, 64, 0
-    .byte 3, <2992, >2992, <360, >360, 96,  0, 1
-    ; Zone 4: Ice Palace Channel 3 right (2896) + Channel 4 (2992, 3024)
-    .byte 3, <2896, >2896, <424, >424, 96, 32, 0
-    .byte 3, <2992, >2992, <456, >456, 96,  0, 0
-    .byte 3, <3024, >3024, <392, >392, 96, 64, 0
-    .byte 0, 0,     0,     0,    0,    0,   0, 0
+    ; Zone 0: Tower 64x16 ice platforms ($03 var 0 vertical elevator 198..438, $03 var 1 fast-drop 3 px/F)
+    .byte 3, <392,  >392,  <318, >318, 240, 120, 1
+    .byte 4, <720,  >720,  <360, >360, 168,   0, 0
+    .byte 0, 0,     0,     0,    0,    0,     0, 0
+    .byte 0, 0,     0,     0,    0,    0,     0, 0
+    ; Zones 1..4: Village water-channel 32x16 stone bricks ($04 var 0..3, sweep FC feet 240..464, pier=432)
+    ;   var 0: y=432 phase=0 (UP)   timer=32    var 1: y=432 phase=1 (DOWN) timer=192
+    ;   var 2: y=368 phase=0 (UP)   timer=96    var 3: y=368 phase=1 (DOWN) timer=128
+    ; Zone 1: Channel 1 (2448 v0, 2480 v1, 2512 v2) + Channel 2 left (2608 v3)
+    .byte 3, <2448, >2448, <432, >432, 224,  32, 0
+    .byte 3, <2480, >2480, <432, >432, 224, 192, 1
+    .byte 3, <2512, >2512, <368, >368, 224,  96, 0
+    .byte 3, <2608, >2608, <368, >368, 224, 128, 1
+    ; Zone 2: Channel 2 (2608 v3, 2640 v0, 2672 v1) + Channel 3 left (2800 v2)
+    .byte 3, <2608, >2608, <368, >368, 224, 128, 1
+    .byte 3, <2640, >2640, <432, >432, 224,  32, 0
+    .byte 3, <2672, >2672, <432, >432, 224, 192, 1
+    .byte 3, <2800, >2800, <368, >368, 224,  96, 0
+    ; Zone 3: Channel 3 all 4 bricks (2800 v2, 2832 v3, 2864 v0, 2896 v1)
+    .byte 3, <2800, >2800, <368, >368, 224,  96, 0
+    .byte 3, <2832, >2832, <368, >368, 224, 128, 1
+    .byte 3, <2864, >2864, <432, >432, 224,  32, 0
+    .byte 3, <2896, >2896, <432, >432, 224, 192, 1
+    ; Zone 4: Channel 3 right (2896 v1) + Channel 4 (2992 v2, 3024 v3)
+    .byte 3, <2896, >2896, <432, >432, 224, 192, 1
+    .byte 3, <2992, >2992, <368, >368, 224,  96, 0
+    .byte 3, <3024, >3024, <368, >368, 224, 128, 1
+    .byte 0, 0,     0,     0,    0,    0,     0, 0
 
 .endscope

@@ -46,14 +46,16 @@ revg2_desc:
     .byte revg2_boss_hp, 0
     .byte revg2_boss_fire_period
 
-; Stage 2 initial platforms (Zone 0: Tower). Ice Palace zones 1..4 are synced by BANK49 s2::sync_platforms.
+; Stage 2 initial platforms (Zone 0: Tower). Village water channels (zones 1..4) synced by BANK49 s2::sync_platforms.
+; Support $03 var 0: 64x16 vertical elevator at local X=392 (start feet Y=318, sweeps 198..438).
+; Support $03 var 1: 64x16 falling ledge at local X=720 (start feet Y=360, drops 3 px/F when stood on).
 revg2_plats:
-    .byte 4                             ; plat_falling (tower support $03 var 0 at local X=392, Y=342)
-    .word 392, 342
-    .byte 112
-    .byte 4                             ; plat_falling (tower chasm support $03 var 1 at local X=704, Y=384)
-    .word 704, 384
-    .byte 96
+    .byte 3                             ; plat_moving_v (support $03 var 0: vertical tower elevator)
+    .word 392, 318
+    .byte 240
+    .byte 4                             ; plat_falling (support $03 var 1: drops 3 px/F when stood on)
+    .word 720, 360
+    .byte 168
     .byte 0                             ; unused in Zone 0
     .word 0, 0
     .byte 0

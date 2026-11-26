@@ -1312,10 +1312,14 @@ ap_update_platforms:
     sta plat_dy,x
     lda plat_type,x
     cmp #plat_moving_h
-    beq @do_moving_h
+    bne :+
+    jmp @do_moving_h
+:
     cmp #plat_moving_v
-    beq @do_moving_v
-    cmp #4                      ; plat_falling (arcade support $03 var 1: drops when stood on)
+    bne :+
+    jmp @do_moving_v
+:
+    cmp #4                      ; plat_falling (arcade support $03 var 1: drops 3 px/F when stood on)
     beq @do_falling
     jmp @next_plat
 @do_falling:
@@ -1326,20 +1330,26 @@ ap_update_platforms:
     lda #1
     sta plat_phase,x
 @fall_drop:
-    inc plat_y,x
-    bne :+
+    ; Revision G support $03 var 1 ($58FC dir=2): drops at 3 px/frame carrying Arthur.
+    lda plat_y,x
+    clc
+    adc #3
+    sta plat_y,x
+    bcc :+
     inc plat_y_hi,x
 :
-    lda #1
+    lda #3
     sta plat_dy,x
-    inc plat_timer,x
     lda plat_timer,x
+    clc
+    adc #3
+    sta plat_timer,x
     cmp plat_span,x
     bcc @fall_done
-    ; Reached bottom of drop: reset back to starting Y so player is never soft-locked.
+    ; Reached bottom of drop: reset back to exact starting Y so player is never soft-locked.
     lda plat_y,x
     sec
-    sbc plat_span,x
+    sbc plat_timer,x
     sta plat_y,x
     bcs :+
     dec plat_y_hi,x
@@ -2607,7 +2617,41 @@ ap_check_support:
     ldx #0
 @check_plat_loop:
     lda plat_type,x
-    beq @next_plat_chk
+    bne :+
+    jmp @next_plat_chk
+:
+    ; Authentic Revision G per-support horizontal hitbox widths ($9EB8):
+    ;   Stage 2 Tower ($03, 64x16 rf_5878): +/-31 px (full 63)
+    ;   Stage 4 & 5 ($05, 48x16 rf_5896):   +/-26 px (full 53)
+    ;   Stage 1 raft ($02) & Stage 2 water bricks ($04): +/-16 px (full 33)
+    lda #16
+    ldy #33
+    pha
+    lda campaign_stage
+    cmp #2
+    bne @plat_chk_s45
+    lda plat_x_hi,x
+    cmp #4                      ; Tower is local X < 1024; Village water channels >= 2432
+    bcs @plat_w_default
+    pla
+    lda #31
+    ldy #63
+    bne @plat_w_ready
+@plat_chk_s45:
+    cmp #4
+    beq @plat_w_orb
+    cmp #5
+    bne @plat_w_default
+@plat_w_orb:
+    pla
+    lda #26
+    ldy #53
+    bne @plat_w_ready
+@plat_w_default:
+    pla
+@plat_w_ready:
+    sta ap_tmp2                 ; half-width
+    sty ap_loop_idx             ; full width + 1
     sec
     lda player_x
     sbc plat_x_lo,x
@@ -2617,20 +2661,26 @@ ap_check_support:
     sta ap_tmp1
     clc
     lda ap_tmp0
-    adc #16
+    adc ap_tmp2
     sta ap_tmp0
     lda ap_tmp1
     adc #0
     bne @next_plat_chk
     lda ap_tmp0
-    cmp #33
+    cmp ap_loop_idx
     bcs @next_plat_chk
-    ; 16-bit vertical crossing: prev_feet <= plat_y and player_feet >= plat_y
+    ; 16-bit vertical crossing: prev_feet <= plat_y + 2 (2px grace for rising platforms)
+    ; and player_feet >= plat_y.
+    lda plat_y,x
+    clc
+    adc #2
+    sta ap_tmp0
     lda plat_y_hi,x
+    adc #0
     cmp ap_prev_feet_hi
     bcc @next_plat_chk
     bne @chk_plat_bot
-    lda plat_y,x
+    lda ap_tmp0
     cmp ap_prev_feet
     bcc @next_plat_chk
 @chk_plat_bot:
@@ -2652,7 +2702,9 @@ ap_check_support:
 @next_plat_chk:
     inx
     cpx #ap_max_plats
-    bne @check_plat_loop
+    beq :+
+    jmp @check_plat_loop
+:
 
     ; Static 2D tile support (X - ap_foot_probe, then X + ap_foot_probe). The arcade $8B0A looks at
     ; X - 8 first and then the tile 16 px to the right ($8C09 and $8BDD for size class 1).

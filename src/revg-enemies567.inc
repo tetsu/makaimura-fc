@@ -27,10 +27,14 @@ gate_open_pending: .res 1       ; Non-zero: NMI writes 4 blank ($00) tiles at ga
 gate_open_hi: .res 1            ; PPU nametable address high byte for gate opening row
 gate_open_lo: .res 1            ; PPU nametable address low byte for gate opening row
 s2_plat_zone: .res 1            ; Stage 2 active moving-platform camera zone ($ff = none)
-fe_map_scroll_x: .res 1         ; Makai Map horizontal scroll X (0..255 across $2000->$2400)
+fe_map_scroll_x: .res 1         ; Makai Map horizontal scroll X (0..143 across $2000->$2400)
 fe_map_mode: .res 1             ; 0=stage clear -> next stage, 1=opening/miss -> start/restart stage
 fe_idle_lo: .res 1              ; Auto-advance timer (low) for Makai Map & Game Over
 fe_idle_hi: .res 1              ; Auto-advance timer (high) for Makai Map & Game Over
+fe_map_active: .res 1           ; 1 while arcade Makai Map VRC7 IRQ split + pin sprite are active
+fe_map_pin_x: .res 1            ; Arcade Arthur pin base X ($6485 start / $6493 checkpoint)
+fe_map_pin_y: .res 1            ; Arcade Arthur pin OAM Y (arcade_y - 17)
+fe_map_pin_late: .res 1         ; 0=Stages 1-4 (show before scroll), 1=Stages 5-7 (show at scroll=143)
 
 .segment "BANK56"
 .scope s567

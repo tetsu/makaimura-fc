@@ -636,10 +636,14 @@ clear_screen_idle:
     jsr wait_terrain_frame
 .ifdef REVG_STAGE1
     lda arcade_mode
-    beq @csi_audio
+    bne :+
+    jmp @csi_audio
+:
     lda scene
     cmp #clear_scene
-    bne @csi_chk_gameover
+    beq :+
+    jmp @csi_chk_gameover
+:
     ; Loop 2 Stage 7 final clear waits for START; all other Makai Maps scroll and auto-advance.
     lda fe_map_mode
     bne @csi_scroll
@@ -647,46 +651,21 @@ clear_screen_idle:
     cmp #7
     bne @csi_scroll
     lda ap_loop
-    bne @csi_audio
+    beq @csi_scroll
+    jmp @csi_audio
 @csi_scroll:
-    lda fe_map_scroll_x
-    cmp #255
-    beq @csi_apply
-    inc fe_map_scroll_x
-@csi_apply:
-    bit $2002
-    lda fe_map_scroll_x
-    sta $2005
-    lda #0
-    sta $2005
-    inc fe_idle_lo
-    bne :+
-    inc fe_idle_hi
-:
-    lda fe_idle_hi
-    cmp #>300
+    lda #2
+    jsr select_bank2
+    jsr fe_map_tick
     bcc @csi_audio
-    bne @csi_auto_map
-    lda fe_idle_lo
-    cmp #<300
-    bcc @csi_audio
-@csi_auto_map:
     jmp advance_campaign
 @csi_chk_gameover:
     cmp #game_over_scene
     bne @csi_audio
-    inc fe_idle_lo
-    bne :+
-    inc fe_idle_hi
-:
-    lda fe_idle_hi
-    cmp #>240
+    lda #2
+    jsr select_bank2
+    jsr fe_gameover_tick
     bcc @csi_audio
-    bne @csi_auto_go
-    lda fe_idle_lo
-    cmp #<240
-    bcc @csi_audio
-@csi_auto_go:
     jmp finish_campaign
 @csi_audio:
 .endif
@@ -1591,20 +1570,6 @@ show_frontend_scene:
 
 update_frontend_scene:
     jsr wait_terrain_frame
-    lda scene
-    cmp #map_scene
-    bne :+
-    lda fe_map_scroll_x
-    cmp #255
-    beq @fe_apply_scr
-    inc fe_map_scroll_x
-@fe_apply_scr:
-    bit $2002
-    lda fe_map_scroll_x
-    sta $2005
-    lda #0
-    sta $2005
-:
     lda #2
     jsr select_bank2
     jsr fe_tick

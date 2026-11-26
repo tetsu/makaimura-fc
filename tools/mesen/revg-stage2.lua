@@ -105,11 +105,13 @@ emu.addEventCallback(function()
             if not check(read(PAN_Y_PAGE) == 1, "Stage 2 starts on lower vertical page 1") then return end
             if not check(readWord(PLAYER_X) == 80 and y == 400, "Stage 2 starts at (80, 400)") then return end
             if not check(read(S2_BOSS_REM) == 2, "Stage 2 starts with 2 Unicorn bosses") then return end
-            -- Verify Zone 0 Tower falling platforms (support $03 at X=392 and chasm X=704)
+            -- Verify Zone 0 Tower platforms: $03 var 0 vertical elevator (type 3, X=392, Y=318)
+            -- and $03 var 1 fast-drop ledge (type 4, X=720, Y=360).
             local pt0, pt1 = read(0x603e), read(0x603f)
+            local px0 = read(0x6042) + 256 * read(0x6046)
             local px1 = read(0x6043) + 256 * read(0x6047)
-            if not check(pt0 == 4 and pt1 == 4 and px1 == 704,
-                    string.format("Stage 2 tower falling platforms missing (t0=%d t1=%d px1=%d)", pt0, pt1, px1)) then return end
+            if not check(pt0 == 3 and pt1 == 4 and px0 == 392 and px1 == 720,
+                    string.format("Stage 2 tower platforms mismatch (t0=%d t1=%d px0=%d px1=%d)", pt0, pt1, px0, px1)) then return end
             -- Test high-tower fall from upper page 0 (y=80) down to ground floor page 1 (y=400):
             -- vertical camera must track at up to 5 px/f and Arthur must NOT pit-die mid-tower.
             write(0x09, 0)         -- pan_y = 0

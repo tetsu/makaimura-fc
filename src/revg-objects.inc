@@ -1258,7 +1258,11 @@ rs_spin_frame4:
 @done:
     rts
 
-; --- The raft over the lake: the arcade's grass island (support $02, shape 2) ----------
+; --- Moving & falling platforms: authentic Revision G frames per stage/support type ---
+;   Stage 1 ($02):            rf_5871 (32x16 grass raft)
+;   Stage 2 Tower ($03):      rf_5878 (64x16 blue/white ice elevator & falling ledge)
+;   Stage 2 Water ($04):      rf_5885 (32x16 grey stone brick platform)
+;   Stage 4 & 5 ($05):        rf_5896 (48x16 eyeball cluster platform)
 rs_draw_platforms:
     ldx #0
 @plat:
@@ -1266,23 +1270,38 @@ rs_draw_platforms:
     lda plat_type,x
     cmp #plat_moving_h
     bcc @next
+    lda campaign_stage
+    cmp #2
+    beq @plat_s2
+    cmp #4
+    beq @plat_orb
+    cmp #5
+    beq @plat_orb
     lda #<rf_5871
+    ldy #>rf_5871
+    jmp @plat_set_fid
+@plat_s2:
+    lda plat_x_hi,x
+    cmp #4                      ; Tower ($03) is local X < 1024; Water channels ($04) >= 2432
+    bcs @plat_s2_brick
+    lda #<rf_5878
+    ldy #>rf_5878
+    jmp @plat_set_fid
+@plat_s2_brick:
+    lda #<rf_5885
+    ldy #>rf_5885
+    jmp @plat_set_fid
+@plat_orb:
+    lda #<rf_5896
+    ldy #>rf_5896
+@plat_set_fid:
     sta rs_fid
     sta rs_last
-    lda #>rf_5871
-    sta rs_fid+1
-    sta rs_last+1
+    sty rs_fid+1
+    sty rs_last+1
     lda #0
     sta rs_mirror
-    lda #$ff
-    ldy campaign_stage
-    cpy #4
-    beq @orb_pal
-    cpy #5
-    bne :+
-@orb_pal:
-    lda #2                      ; Stage 4 & 5 eyeball/orb moving platforms (distinct cyan/blue look)
-:
+    lda #$ff                    ; Use each arcade platform frame's own fitted palette
     sta rs_pal
     lda plat_x_lo,x
     pha
@@ -1291,7 +1310,7 @@ rs_draw_platforms:
     pla
     jsr rs_set_x
     ldx rs_shot_i
-    ; The raft's object point is 24 px under where the player stands (arcade Y 36 and 60).
+    ; Arcade support object center is 24 px under where Arthur stands ($9EB8: y_off=24/23/21).
     lda plat_y,x
     clc
     adc #24

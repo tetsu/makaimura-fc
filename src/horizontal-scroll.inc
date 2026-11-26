@@ -63,6 +63,7 @@ blank_display:
     sta render_pending
 .ifdef REVG_STAGE1
     sta revg_bg_active
+    sta fe_map_active
 .endif
     lda #$80
     sta $e000           ; Restore left/right nametables for the other scenes.
@@ -101,6 +102,25 @@ enable_static_screen:
     lda #$80
     sta $2000
     rts
+
+.ifdef REVG_STAGE1
+; Enable Makai Map with fixed top HUD/text (rows 0..15), scrolling bottom panorama
+; (rows 16..27 via VRC7a scanline IRQ at scanline 127), and 8x16 Arthur pin sprite.
+enable_map_screen:
+    bit $2002
+    jsr restore_hud_view        ; $2000 = $A0 (8x16 sprites + NMI), $2005 = 0, 0
+    lda #0
+    sta terrain_frame
+    cli                         ; Enable VRC7a raster split IRQ
+:
+    lda terrain_frame
+    beq :-
+    lda #0
+    sta terrain_frame
+    lda #$1e                    ; Enable BG + sprites
+    sta $2001
+    rts
+.endif
 
 enable_terrain:
     lda scene
@@ -483,17 +503,34 @@ terrain_nmi:
     pha
     lda scene
     cmp #2
-    beq :+
+    beq @arm_irq
     cmp #4
-    bne :++
-:
+    beq @arm_irq
+.ifdef REVG_STAGE1
+    lda fe_map_active
+    beq @no_irq
+.else
+    bne @no_irq
+.endif
+@arm_irq:
     lda #2              ; One IRQ in scanline mode, then disable on ack.
     sta $f000
-:
+@no_irq:
     inc terrain_frame
     lda render_pending
     bne nmi_commit
     ; A repeated frame still needs the fixed HUD view above the raster split.
+.ifdef REVG_STAGE1
+    lda fe_map_active
+    beq @chk_play_hud
+    lda #0
+    sta $2003
+    lda #>sprites
+    sta $4014           ; Upload blinking Arthur pin OAM sprite during VBlank
+    jsr restore_hud_view
+    jmp nmi_done
+@chk_play_hud:
+.endif
     lda scene
     cmp #2
     beq nmi_keep_hud

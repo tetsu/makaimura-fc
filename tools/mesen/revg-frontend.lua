@@ -97,15 +97,19 @@ emu.addEventCallback(function()
         end
     elseif step == 5 then
         if scene == CLEAR and sf >= 10 then
-            -- Verify authentic arcade Makai Map: 'X' ($38) in "NEXT STAGE" at $2108,
-            -- Arthur pin marker ($39) at $22cb (above Door 1), and panorama tiles ($40+) in rows 16..27.
+            -- Verify authentic arcade Makai Map: stationary "PLAYER 1" HUD ($2022) & "PLAYER ONE READY" ($2188),
+            -- continuous 399px panorama tiles ($40+) in rows 16..27, and blinking 16x16 Arthur pin OAM sprite
+            -- at exact Stage 2 start position X=86, OAM_Y=174 (tiles $01/$03).
             local mapTiles = 0
             for a = 0x2200, 0x237f do
                 if readNt(a) >= 0x40 then mapTiles = mapTiles + 1 end
             end
-            if not check(readNt(0x2108) == 0x38 and readNt(0x22cb) == 0x39 and mapTiles >= 100,
-                    string.format("Authentic Makai Map missing ($2108=%02x $22cb=%02x mapTiles=%d)",
-                        readNt(0x2108), readNt(0x22cb), mapTiles)) then return end
+            local hudOk = (readNt(0x2022) == 0x10 and readNt(0x2188) == 0x10) -- 'P' in PLAYER 1 & PLAYER ONE READY
+            local pinTileOk = (read(0x201) == 0x01 and read(0x205) == 0x03)
+            local pinXOk = (read(0x203) == 86 and read(0x207) == 94)
+            if not check(hudOk and pinTileOk and pinXOk and mapTiles >= 100,
+                    string.format("Authentic Makai Map missing (hud=%s pinT=%02x/%02x pinX=%d/%d mapTiles=%d)",
+                        tostring(hudOk), read(0x201), read(0x205), read(0x203), read(0x207), mapTiles)) then return end
             input = {start = true}
             nextStep()
         elseif not check(sf < 200, "Stage 1 did not reach CLEAR map") then return end
@@ -123,9 +127,12 @@ emu.addEventCallback(function()
             for a = 0x2600, 0x277f do
                 if readNt(a) >= 0x40 then mapTiles = mapTiles + 1 end
             end
-            if not check(read(SND_SONG_ID) == 11 and readNt(0x2108) == 0x38 and readNt(0x26d1) == 0x39 and mapTiles >= 140,
-                    string.format("Authentic scrolling Makai Map (Right/Castle) missing (song=%d $2108=%02x $26d1=%02x mapTiles=%d)",
-                        read(SND_SONG_ID), readNt(0x2108), readNt(0x26d1), mapTiles)) then return end
+            -- Continuous 399px map has 143px (18 tile columns) in $2600..$277F -> ~100+ non-empty castle tiles.
+            local hudOk = (readNt(0x2022) == 0x10 and readNt(0x2188) == 0x10)
+            local pinTileOk = (read(0x201) == 0x01 and read(0x205) == 0x03)
+            if not check(read(SND_SONG_ID) == 11 and hudOk and pinTileOk and mapTiles >= 80,
+                    string.format("Authentic scrolling Makai Map (Right/Castle) missing (song=%d hud=%s pinT=%02x/%02x mapTiles=%d)",
+                        read(SND_SONG_ID), tostring(hudOk), read(0x201), read(0x205), mapTiles)) then return end
             input = {start = true}
             nextStep()
         elseif not check(sf < 200, "Stage 4 did not reach Right Makai Map") then return end

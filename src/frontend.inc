@@ -415,11 +415,13 @@ fe_opening_lines:
 
 ; --- Stage Progression Map Screen (Bank 2, REVG_STAGE1) -----------------------
 ; Draws the authentic arcade Makai panorama (from Bank 11: revg-map-data.inc) in
-; rows 16..27 ($2200..$237F) with menu text in the black upper half and Arthur's
-; marker pin above the next stage landmark. Display must be off.
+; rows 16..27 ($2200/$2600, continuous 399px scrolled 0..143 via VRC7a scanline IRQ
+; at scanline 127), stationary arcade HUD ("PLAYER 1", "TOP SCORE", live scores,
+; "PLAYER ONE READY") in rows 0..15 ($2000), and the real 16x16 blinking Arthur
+; helmet pin sprite ($25B) at exact arcade $6485/$6493 coordinates. Display must be off.
 fe_draw_progress_map:
     jsr load_menu_patterns
-    ; Keep 'X' at tile $38 ($0380) and Arthur's marker pin at tile $39 ($0390).
+    ; Keep 'X' at tile $38 ($0380) for "NEXT STAGE" / clear banners if needed.
     lda #$03
     sta $2006
     lda #$80
@@ -431,13 +433,6 @@ fe_draw_progress_map:
     inx
     cpx #16
     bne @x_chr_loop
-    ldx #0
-@pin_chr_loop:
-    lda fe_map_pin_chr,x
-    sta $2007
-    inx
-    cpx #16
-    bne @pin_chr_loop
     jsr clear_screen
     ; Compute target stage index (0..6):
     ; - fe_map_mode != 0 (Opening / Miss Retry): current stage (campaign_stage - 1)
@@ -471,7 +466,8 @@ fe_draw_progress_map:
 @have_next:
     sta map_tmp                 ; save target stage index (0..6)
 
-    ; Map Bank 11 ($8000) to upload the full 512px scrolling arcade Makai panorama ($2000 + $2400).
+    ; Map Bank 11 ($8000) to upload the continuous 399px arcade Makai panorama ($2000 + $2400)
+    ; and the authentic 16x16 Arthur marker pin sprite ($1000..$103F).
     lda #$80
     sta $e000                   ; Vertical mirroring: $2000 left half + $2400 right half
     lda #0
@@ -492,7 +488,19 @@ fe_draw_progress_map:
     ldx #>(revg_map_tile_count * 16)
     lda #<(revg_map_tile_count * 16)
     jsr upload_chr_patterns
-    ; Shared palette ($3F00..$3F0F)
+    ; Upload authentic 16x16 Arthur pin sprite (two 8x16 tiles, 64 bytes) to $1000..$103F.
+    lda #$10
+    sta $2006
+    lda #$00
+    sta $2006
+    ldx #0
+@pin_spr_chr:
+    lda revg_map_pin_chr,x
+    sta $2007
+    inx
+    cpx #64
+    bne @pin_spr_chr
+    ; Shared BG palette ($3F00..$3F0F) and Arthur pin sprite palette 0 ($3F10..$3F13).
     lda #$3f
     sta $2006
     lda #$00
@@ -504,7 +512,14 @@ fe_draw_progress_map:
     inx
     cpx #16
     bne :-
-    ; Clear right nametable ($2400..$27FF) so upper half is clean black.
+    ldx #0
+:
+    lda revg_map_pin_palette,x
+    sta $2007
+    inx
+    cpx #4
+    bne :-
+    ; Clear right nametable ($2400..$27FF) so upper half and right padding are clean black.
     lda #$24
     sta $2006
     lda #$00
@@ -558,31 +573,54 @@ fe_draw_progress_map:
     pla
     jsr select_bank0
 
-    ; Draw text banner in the black upper half (rows 4..13) on $2000 and $2400.
-    lda fe_map_mode
-    beq @draw_clear_banner
-    lda #<fe_map_ready_lines
-    ldx #>fe_map_ready_lines
+    ; Draw stationary arcade top HUD + center banner on $2000 (rows 0..15 stay fixed via IRQ).
+    lda #<fe_map_hud_lines
+    ldx #>fe_map_hud_lines
     jsr fe_draw_lines
-    ; Write current stage number at $2111 ("STAGE X").
-    lda #$21
-    sta $2006
-    lda #$11
-    sta $2006
-    ldx map_tmp
-    txa
-    clc
-    adc #campaign_zero + 1
-    sta $2007
-    jmp @draw_map_pin
-@draw_clear_banner:
-    lda #<fe_map_static_lines
-    ldx #>fe_map_static_lines
-    jsr fe_draw_lines
-    ; Write cleared stage number at $2090 ("STAGE X CLEAR").
+    ; Live 6-digit PLAYER 1 score at $2043..$2048
     lda #$20
     sta $2006
-    lda #$90
+    lda #$43
+    sta $2006
+    ldx #0
+@map_p1_sc:
+    lda ap_score,x
+    clc
+    adc #campaign_zero
+    sta $2007
+    inx
+    cpx #4
+    bne @map_p1_sc
+    lda #campaign_zero
+    sta $2007
+    sta $2007
+    ; Live 6-digit TOP SCORE at $204e..$2053
+    lda #$20
+    sta $2006
+    lda #$4e
+    sta $2006
+    ldx #0
+@map_top_sc:
+    lda ap_top_score,x
+    clc
+    adc #campaign_zero
+    sta $2007
+    inx
+    cpx #4
+    bne @map_top_sc
+    lda #campaign_zero
+    sta $2007
+    sta $2007
+
+    lda fe_map_mode
+    bne @setup_map_pin
+    ; On Stage Clear, also show "STAGE X CLEAR" above "PLAYER ONE READY".
+    lda #<fe_map_clear_lines
+    ldx #>fe_map_clear_lines
+    jsr fe_draw_lines
+    lda #$21
+    sta $2006
+    lda #$2f
     sta $2006
     lda campaign_stage
     bne :+
@@ -591,24 +629,69 @@ fe_draw_progress_map:
     clc
     adc #campaign_zero
     sta $2007
-    ; Write next stage number at $2111 ("NEXT STAGE Y").
-    lda #$21
-    sta $2006
-    lda #$11
-    sta $2006
+
+@setup_map_pin:
+    ; Select exact arcade Arthur marker pin coordinates ($6485 start / $6493 checkpoint).
     ldx map_tmp
-    txa
+    lda fe_map_pin_y_tbl,x
+    sta fe_map_pin_y
+    lda fe_map_mode
+    beq @pin_use_start
+    lda checkpoint_reached
+    beq @pin_use_start
+    lda fe_map_pin_cp_x,x
+    jmp @pin_have_x
+@pin_use_start:
+    lda fe_map_pin_start_x,x
+@pin_have_x:
+    sta fe_map_pin_x
+    lda #0
+    cpx #4
+    bcc :+
+    lda #1                      ; Stages 5..7: spawn pin at Castle once scroll reaches 143
+:
+    sta fe_map_pin_late
+
+    ; Clear OAM buffer to $FE (offscreen), configure Arthur pin tiles/attr,
+    ; and place initial Arthur pin for Stages 1..4 (Stages 5..7 appear after scroll=143).
+    ldx #0
+    lda #$fe
+@clr_map_oam:
+    sta sprites,x
+    inx
+    bne @clr_map_oam
+    lda #$01                    ; Tile $01 -> $1000..$101F (left 8x16 half of Arthur pin)
+    sta sprites+1
+    lda #$03                    ; Tile $03 -> $1020..$103F (right 8x16 half of Arthur pin)
+    sta sprites+5
+    lda #$00                    ; Sprite palette 0
+    sta sprites+2
+    sta sprites+6
+    lda fe_map_pin_late
+    bne @arm_map_split
+    lda fe_map_pin_y
+    sta sprites+0
+    sta sprites+4
+    lda fe_map_pin_x
+    sta sprites+3
     clc
-    adc #campaign_zero + 1
-    sta $2007
-@draw_map_pin:
-    ; Place Arthur's marker pin ($39) above the target stage landmark on the 512px panorama.
-    lda fe_map_mark_hi,x
-    sta $2006
-    lda fe_map_mark_lo,x
-    sta $2006
-    lda #$39
-    sta $2007
+    adc #8
+    sta sprites+7
+
+@arm_map_split:
+    ; Arm VRC7a scanline IRQ at scanline 127 (21 vblank + 127 visible = 148 lines)
+    ; so rows 0..15 stay fixed at scroll X=0 while rows 16..27 scroll 0..143.
+    lda #$02                    ; Y=128 (coarse_y=16, fine_y=0, nt=0) -> $2006 hi = $02
+    sta split_address_high
+    lda #$80                    ; split_y = 128
+    sta split_y
+    lda #0
+    sta split_x
+    sta split_address_low
+    lda #256 - 148
+    sta $e010
+    lda #1
+    sta fe_map_active
     rts
 
 ; Upload 384 nametable bytes from (map_ptr) to (A:$00)..(A+1:$7F) (rows 16..27).
@@ -631,33 +714,113 @@ fe_map_upload_nt:
     bne :-
     rts
 
-fe_map_static_lines:
-    fe_line $208a, "STAGE 1 CLEAR"
-    fe_line $2106, "NEXT STAGE 2"
-    fe_line $2168, "PLAYER ONE READY"
-    fe_line $21c7, "START TO CONTINUE"
-    fe_line $248a, "MAKAI PROGRESSION"
-    fe_line $2568, "PLAYER ONE READY"
-    fe_line $25c7, "START TO CONTINUE"
+; Per-frame update for the Makai Map screen (called from FIXED clear_screen_idle with BANK2 mapped).
+; Authentic Revision G timeline ($6424/$6430/$6449):
+;   frames   0.. 63: hold at scroll X = 0 (left side Stages 1..4)
+;   frames  64..206: scroll X = 0 -> 143 at 1 px/frame
+;   frames 207..285: hold at scroll X = 143 (right side Castle Stages 5..7)
+;   frame       286: returns C=1 to auto-advance into stage; C=0 otherwise.
+fe_map_tick:
+    inc fe_idle_lo
+    bne :+
+    inc fe_idle_hi
+:
+    lda fe_idle_hi
+    bne @do_pan
+    lda fe_idle_lo
+    cmp #64
+    bcc @apply_split
+@do_pan:
+    lda fe_map_scroll_x
+    cmp #143
+    beq @apply_split
+    inc fe_map_scroll_x
+@apply_split:
+    ; Update VRC7a split scroll target (scanline 128, coarse_y=16, fine_y=0, nt=0).
+    lda fe_map_scroll_x
+    sta split_x
+    lsr a
+    lsr a
+    lsr a
+    sta split_address_low
+    ; Update blinking 16x16 Arthur pin OAM sprite (8F on / 8F off, matching arcade $6473).
+    lda #$fe
+    sta sprites+0
+    sta sprites+4
+    lda fe_idle_lo
+    and #$08
+    bne @chk_end
+    lda fe_map_pin_late
+    bne @pin_late
+    lda fe_map_pin_x
+    sec
+    sbc fe_map_scroll_x
+    bcc @chk_end                ; Scrolled off left edge
+    beq @chk_end
+    jmp @pin_show
+@pin_late:
+    lda fe_map_scroll_x
+    cmp #143
+    bcc @chk_end                ; Wait until Castle reaches full view
+    lda fe_map_pin_x
+@pin_show:
+    sta sprites+3
+    clc
+    adc #8
+    sta sprites+7
+    lda fe_map_pin_y
+    sta sprites+0
+    sta sprites+4
+@chk_end:
+    lda fe_idle_hi
+    cmp #>286
+    bcc @stay
+    bne @done
+    lda fe_idle_lo
+    cmp #<286
+    bcc @stay
+@done:
+    sec
+    rts
+@stay:
+    clc
+    rts
+
+; Per-frame auto-advance timer for GAME OVER screen (240F -> returns C=1).
+fe_gameover_tick:
+    inc fe_idle_lo
+    bne :+
+    inc fe_idle_hi
+:
+    lda fe_idle_hi
+    cmp #>240
+    bcc @go_stay
+    bne @go_done
+    lda fe_idle_lo
+    cmp #<240
+    bcc @go_stay
+@go_done:
+    sec
+    rts
+@go_stay:
+    clc
+    rts
+
+fe_map_hud_lines:
+    fe_line $2022, "PLAYER 1"
+    fe_line $202d, "TOP SCORE"
+    fe_line $2188, "PLAYER ONE READY"
     .byte 0
 
-fe_map_ready_lines:
-    fe_line $2088, "PLAYER ONE READY"
-    fe_line $210b, "STAGE 1"
-    fe_line $21c7, "START TO CONTINUE"
-    fe_line $2488, "PLAYER ONE READY"
-    fe_line $25c7, "START TO CONTINUE"
+fe_map_clear_lines:
+    fe_line $2129, "STAGE 1 CLEAR"
     .byte 0
 
-; Arthur marker pin coordinates on the 512px scrolling Makai panorama (Stages 1..7)
-; Left ($22xx): Graveyard(4,23), Door1(11,22), Door2(20,22), Door3(26,22)
-; Right ($26xx): Door4(17,22), Door5(22,20), Throne(22,17)
-fe_map_mark_hi: .byte $22, $22, $22, $22, $26, $26, $26
-fe_map_mark_lo: .byte $e4, $cb, $d4, $da, $d1, $96, $36
-
-; Arthur helmet pin marker (tile $39)
-fe_map_pin_chr:
-    .byte $3c,$7e,$ff,$db,$ff,$7e,$3c,$18, $18,$3c,$7e,$7e,$5a,$3c,$18,$00
+; Authentic Revision G Arthur marker pin coordinates ($6485 start, $6493 checkpoint).
+; OAM_Y = arcade_y - 17 ($BF->174, $AF->158, $9C->139).
+fe_map_pin_start_x: .byte 24, 86, 159, 209, 137, 165, 165
+fe_map_pin_cp_x:    .byte 69, 110, 181, 236, 137, 165, 165
+fe_map_pin_y_tbl:   .byte 174, 174, 174, 174, 174, 158, 139
 
 ; --- High Score Table, Name Entry, and Title Attract Demo (Bank 2) ------------
 hs_magic_val = $a5

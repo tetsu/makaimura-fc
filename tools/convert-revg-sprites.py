@@ -109,6 +109,11 @@ STATIC_FRAMES += [
     (0x5512, 6), (0x553A, 6),
     (0xFDBF, 0), (0xFDC7, 0),
 ]
+# Authentic moving/falling platforms from Sections 1, 3, 4:
+#   $5878 (shape 7, 64x16): Stage 2 Tower ice elevator / falling platform (support $03)
+#   $5885 (shape 2, 32x16): Stage 2 Village water-channel stone brick platform (support $04)
+#   $5896 (shape 5, 48x16): Stage 4 & 5 eyeball cluster platform (support $05)
+STATIC_FRAMES += [(0x5878, 7), (0x5885, 2), (0x5896, 5)]
 
 
 def load_module(name, path):

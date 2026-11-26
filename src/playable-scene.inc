@@ -712,6 +712,12 @@ show_course_clear:
 @result_done:
     pla
     jsr select_bank2
+.ifdef REVG_STAGE1
+    lda fe_map_active
+    beq :+
+    jmp enable_map_screen
+:
+.endif
     jmp enable_static_screen
 .else
     lda #$21
