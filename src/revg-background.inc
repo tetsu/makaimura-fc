@@ -250,6 +250,7 @@ revg_bg_load_all:
     sta revg_zone
     sta revg_pal_pending
     sta revg_fade_pending
+    sta gate_open_pending
     sta revg_chr_count
     sta revg_q_head
     sta revg_q_tail
@@ -1320,6 +1321,19 @@ revg_upload_attr_run:
     cpx revg_nmi_cnt
     bne revg_upload_attr_run
 revg_upload_done:
+    lda gate_open_pending
+    beq @gate_done
+    lda gate_open_hi
+    sta $2006
+    lda gate_open_lo
+    sta $2006
+    lda #0
+    sta $2007
+    sta $2007
+    sta $2007
+    sta $2007
+    sta gate_open_pending
+@gate_done:
     rts
 revg_upload_s2_nt:
     lda pan_need_row

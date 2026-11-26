@@ -677,11 +677,16 @@ revg_draw_sprites:
     sta rs_full
     sta rs_req_n
     ; Cap sprite CHR uploads to stay within NTSC VBlank (2273 cycles) alongside
-    ; BG scroll nametable, BG CHR streaming, HUD updates, and OAM DMA.
-    ; During the opening cutscene (demo_active != 0), no scrolling occurs, so allow 2 tiles/frame.
-    ldx #2
+    ; BG scroll nametable, BG CHR streaming, HUD updates, palette fades, and OAM DMA.
     lda demo_active
+    beq @normal_budget
+    ldx #1
+    lda campaign_hud_dirty
+    ora revg_fade_pending
+    bne @set_budget             ; 1 sprite tile when HUD or palette fade uploads in opening.
+    ldx #2
     bne @set_budget
+@normal_budget:
     ldx #0
     lda pan_need_col
     bpl @set_budget             ; Defer sprite CHR on any BG column upload frame.
@@ -692,7 +697,8 @@ revg_draw_sprites:
     bcs @set_budget             ; Defer sprite CHR when 2+ BG CHR tiles upload.
     ldx #1
     ora campaign_hud_dirty
-    bne @set_budget             ; 1 sprite tile when 1 BG CHR tile or HUD uploads.
+    ora revg_fade_pending
+    bne @set_budget             ; 1 sprite tile when 1 BG CHR tile, HUD, or fade uploads.
     ldx #2                      ; 2 sprite tiles on idle/non-scroll frames.
 @set_budget:
     stx rs_budget

@@ -28,7 +28,7 @@ local frame = 0
 local phase = "boot"
 local input = {}
 local phaseFrame = 0
-local sawS3Bat, sawS3Pillar, sawS3Dragon, sawS3Key = false, false, false, false
+local sawS3Bat, sawS3BatSwoop, sawS3Zombie, sawS3Pillar, sawS3Dragon, sawS3Key = false, false, false, false, false, false
 local sawS4Fire, sawS4Dragon, sawS4Key = false, false, false
 
 local function read(addr) return emu.read(addr, emu.memType.nesMemory) end
@@ -120,16 +120,38 @@ emu.addEventCallback(function()
         end
     elseif phase == "s3_enemies" then
         write(AP_ARMOR, 2)
-        if countKind(OK_BAT) > 0 then sawS3Bat = true end
-        if frame == phaseFrame + 10 then
+        local nb, bidx = countKind(OK_BAT)
+        if nb > 0 then
+            sawS3Bat = true
+            -- Verify Cave Bat swoop speed is +-1.25 px/F (vxi == 0x01 or 0xFE, never broken 0xFF)
+            for i = 0, 19 do
+                if read(OB_KIND + i) == OK_BAT and read(0x69af + i) == 2 then
+                    sawS3BatSwoop = true
+                    local vxi = read(0x6a9f + i) -- ob_vxi
+                    if not check(vxi == 1 or vxi == 0xfe,
+                            string.format("Stage 3 Cave Bat swoop vxi wrong (got $%02X)", vxi)) then return end
+                end
+            end
+        end
+        -- Verify Stage 3 Zombies are grounded on the floor (never spawning/walking in mid-air)
+        for i = 0, 19 do
+            if read(OB_KIND + i) == 6 and read(0x69af + i) >= 1 then
+                sawS3Zombie = true
+                local zy = read(OB_YL + i) + 256 * read(OB_YH + i)
+                if not check(zy <= 144,
+                        string.format("Stage 3 Zombie spawned in mid-air (y=%d)", zy)) then return end
+            end
+        end
+        if frame == phaseFrame + 100 then
             -- Move to Stone Pillar at X=608
             write(CAMERA_X, 0); write(CAMERA_X + 1, 2)
             write(PLAYER_X, 560 & 255); write(PLAYER_X + 1, 560 >> 8)
         end
         local np, pidx = countKind(OK_PILLAR)
         if np > 0 and (read(OB_FLAGS + pidx) & 0x80) ~= 0 then sawS3Pillar = true end
-        if (sawS3Bat and sawS3Pillar) or frame > phaseFrame + 180 then
-            if not check(sawS3Bat, "Stage 3 Bat ($01 var 2) should spawn") then return end
+        if (sawS3Bat and sawS3BatSwoop and sawS3Zombie and sawS3Pillar and frame >= phaseFrame + 105) or frame > phaseFrame + 240 then
+            if not check(sawS3Bat and sawS3BatSwoop, "Stage 3 Bat ($01 var 2) should spawn and swoop") then return end
+            if not check(sawS3Zombie, "Stage 3 Zombie ($0B) should spawn grounded") then return end
             if not check(sawS3Pillar, "Stage 3 Stone Pillar ($12) should spawn shielded") then return end
             -- Advance to Stage 3 Dragon boss arena (page 12, X=3072)
             write(CAMERA_X, 0); write(CAMERA_X + 1, 12)

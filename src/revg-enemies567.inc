@@ -23,6 +23,10 @@ attract_timer_hi: .res 1        ; Remaining attract demo frames (high)
 attract_prev_pad: .res 1        ; Previous scripted pad byte for rising-edge pressed
 attract_saved_opts: .res 4      ; Saved opt_invincible/loop/weapon/no_timer during Attract Demo
 pan_y_steps: .res 1             ; Extra vertical camera pixels (0..4) for fast fall tracking
+gate_open_pending: .res 1       ; Non-zero: NMI writes 4 blank ($00) tiles at gate_open_addr
+gate_open_hi: .res 1            ; PPU nametable address high byte for gate opening row
+gate_open_lo: .res 1            ; PPU nametable address low byte for gate opening row
+s2_plat_zone: .res 1            ; Stage 2 active moving-platform camera zone ($ff = none)
 
 .segment "BANK56"
 .scope s567

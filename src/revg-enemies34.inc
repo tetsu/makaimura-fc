@@ -346,6 +346,83 @@ face_player:
     sta ob_dir,x
     rts
 
+; Probe solid/oneway floor at object X's (ob_x, ob_y). Returns C=1 if on ground.
+; Stage 3: Y_top = $03BF (959). Stage 4: Y_top = $00FF (255).
+on_ground:
+    lda ob_xl,x
+    sta ap_probe_x
+    lda ob_xh,x
+    sta ap_probe_x+1
+    lda campaign_stage
+    cmp #3
+    beq @g_s3
+    lda #$ff
+    sec
+    sbc ob_yl,x
+    sta ap_probe_y
+    lda #0
+    sbc ob_yh,x
+    sta ap_probe_y_hi
+    jmp @g_chk
+@g_s3:
+    lda #$bf
+    sec
+    sbc ob_yl,x
+    sta ap_probe_y
+    lda #$03
+    sbc ob_yh,x
+    sta ap_probe_y_hi
+@g_chk:
+    bmi @g_no
+    txa
+    pha
+    jsr ap_tile_type_at
+    sta oz_t0
+    pla
+    tax
+    lda oz_t0
+    cmp #tile_type_solid
+    beq @g_yes
+    cmp #tile_type_oneway
+    beq @g_yes
+@g_no:
+    clc
+    rts
+@g_yes:
+    sec
+    rts
+
+; Snap object X onto the top of the ground metatile just probed by on_ground.
+snap_ground:
+    lda ap_probe_y
+    and #$f0
+    sta oz_t0
+    lda campaign_stage
+    cmp #3
+    beq @sn_s3
+    lda #$fe
+    sec
+    sbc oz_t0
+    sta ob_yl,x
+    lda #0
+    sbc ap_probe_y_hi
+    sta ob_yh,x
+    jmp @sn_clr
+@sn_s3:
+    lda #$be
+    sec
+    sbc oz_t0
+    sta ob_yl,x
+    lda #$03
+    sbc ap_probe_y_hi
+    sta ob_yh,x
+@sn_clr:
+    lda #0
+    sta ob_yf,x
+    sta ob_vyf,x
+    sta ob_vyi,x
+    rts
+
 ; Check if object X is within [camera_x - 32, camera_x + 288] and Y within [camy - 32, camy + 272].
 ; Returns C=0 if on-screen, C=1 if off-screen.
 in_view:
@@ -1133,21 +1210,24 @@ u_pig:
 :
     jmp offscreen_cull
 
-; 2. Cave Bat ($01 var 2): hangs on ceiling, swoops down when player approaches, waves.
+; 2. Cave Bat ($01 var 2, docs/revision-g-enemy-behaviour.md):
+;    Hangs on ceiling until on-screen & within 128 px; swoops 43 frames toward player's height
+;    at +-1.25 px/F ($01.$40 right, $FE.$C0 left), then flies horizontally with a 42-frame sine wave.
+bat_wave_vyi: .byte $00, $00, $00, $00, $00, $00, $00, $00, $ff, $ff, $ff, $ff, $ff, $ff, $ff, $00
+bat_wave_vyf: .byte $40, $80, $b0, $c0, $b0, $80, $40, $00, $c0, $80, $50, $40, $50, $80, $c0, $00
 u_bat:
     lda ob_state,x
     beq @init
     cmp #1
     beq @hang
     cmp #2
-    beq @swoop
+    bne :+
+    jmp @swoop
+:
     jmp @wave
 @init:
     inc ob_state,x
     jsr face_player
-    lda #<rf_49B2
-    ldy #>rf_49B2
-    ldx oz_i
     lda ob_dir,x
     beq :+
     lda #<rf_49D0
@@ -1160,34 +1240,58 @@ u_bat:
     jmp set_anim
 @hang:
     jsr in_view
-    bcs @bat_ret
+    bcc :+
+    rts
+:
     jsr calc_dx_player
     lda oz_dx+1
     beq @chk_d
     cmp #$ff
     bne @bat_ret
     lda oz_dx
-    cmp #$a0                    ; within 96 px
+    cmp #$80                    ; within 128 px on left
     bcc @bat_ret
     bcs @start_swoop
 @chk_d:
     lda oz_dx
-    cmp #96
+    cmp #128                    ; within 128 px on right
     bcs @bat_ret
 @start_swoop:
     jsr face_player
     lda #2
     sta ob_state,x
-    lda #40
+    lda #43                     ; arcade 43-frame swoop
     sta ob_t0,x
-    lda #$fe
+    ; Choose smooth vertical descent toward player's Y (avoid plunging into floor).
+    jsr calc_dy_player          ; oz_dy = bat_y - player_y
+    lda oz_dy+1
+    bmi @gentle_drop            ; already at/below player
+    bne @steep_drop
+    lda oz_dy
+    cmp #56
+    bcc @mid_drop
+@steep_drop:
+    lda #$fe                    ; -1.5 px/F
     sta ob_vyi,x
     lda #$80
     sta ob_vyf,x
-    lda #1
+    bne @set_bat_vx
+@mid_drop:
+    lda #$ff                    ; -1.0 px/F
+    sta ob_vyi,x
+    lda #$00
+    sta ob_vyf,x
+    beq @set_bat_vx
+@gentle_drop:
+    lda #$ff                    ; -0.25 px/F
+    sta ob_vyi,x
+    lda #$c0
+    sta ob_vyf,x
+@set_bat_vx:
+    lda #1                      ; +1.25 px/F ($01.$40) right, -1.25 px/F ($FE.$C0) left
     ldy ob_dir,x
     beq :+
-    lda #$ff
+    lda #$fe
 :
     sta ob_vxi,x
     lda #$40
@@ -1196,6 +1300,16 @@ u_bat:
     lda #$c0
 :
     sta ob_vxf,x
+    lda ob_dir,x
+    beq :+
+    lda #<rf_49D0
+    ldy #>rf_49D0
+    bne :++
+:
+    lda #<rf_49B2
+    ldy #>rf_49B2
+:
+    jmp set_anim
 @bat_ret:
     rts
 @swoop:
@@ -1213,22 +1327,19 @@ u_bat:
     jsr move_x
     inc ob_t1,x
     lda ob_t1,x
-    and #$10
-    beq :+
-    lda #$ff
+    lsr a                       ; 16 entries x ~2.6F = ~42F period (half-period ~21F, +-16 px)
+    lsr a
+    and #$0f
+    tay
+    lda bat_wave_vyi,y
     sta ob_vyi,x
-    lda #$80
-    bne :++
-:
-    lda #0
-    sta ob_vyi,x
-    lda #$80
-:
+    lda bat_wave_vyf,y
     sta ob_vyf,x
     jsr move_y
     jmp offscreen_cull
 
-; 3. Petit Devil ($02 var 1, Stage 4): rises from bottom, swoops toward Arthur.
+; 3. Petit Devil ($02 var 1, Stage 4, docs/revision-g-late-enemy-behaviour.md):
+;    Rises 31F at +1.0 px/F, then 49F at +1.40 px/F, then swoops toward player (clamped Y >= 54).
 u_devil:
     lda ob_state,x
     beq @init
@@ -1237,34 +1348,40 @@ u_devil:
     jmp @swoop
 @init:
     inc ob_state,x
-    lda #48
+    lda #80                     ; arcade 80F rise (31F slow + 49F fast)
     sta ob_t0,x
     lda #1
     sta ob_vyi,x
-    lda #$40
+    lda #$00                    ; +1.0 px/F for first 31 frames
     sta ob_vyf,x
     lda #<rf_A893
     ldy #>rf_A893
     jmp set_anim
 @rise:
+    lda ob_t0,x
+    cmp #49
+    bne :+
+    lda #$65                    ; +1.40 px/F ($01.$65) from frame 32 onward
+    sta ob_vyf,x
+:
     jsr move_y
     dec ob_t0,x
     bne @dev_cull
     lda #2
     sta ob_state,x
-    lda #64
+    lda #80
     sta ob_t0,x
     jsr face_player
-    lda #1
+    lda #2                      ; arcade var 1 fast speed (~2.25..2.5 px/F)
     ldy ob_dir,x
     beq :+
-    lda #$fe
+    lda #$fd
 :
     sta ob_vxi,x
-    lda #$a0
+    lda #$40
     ldy ob_dir,x
     beq :+
-    lda #$60
+    lda #$c0
 :
     sta ob_vxf,x
     lda #0
@@ -1289,23 +1406,36 @@ u_devil:
 :
     sta ob_vyf,x
     jsr move_y
+    ; Arcade $A7FF: never descend below Y = 54 ($36).
+    lda ob_yh,x
+    bne @dev_ok
+    lda ob_yl,x
+    cmp #54
+    bcs @dev_ok
+    lda #54
+    sta ob_yl,x
+@dev_ok:
     jmp offscreen_cull
 
-; 4. Purple Flyer ($04 var 2, Stage 3): dives down then flies/hops toward player.
+; 4. Purple Flyer ($04 var 2, Stage 3, docs/revision-g-late-enemy-behaviour.md):
+;    Dives at -1.71 px/F ($FE.$49) until grounded, then walks at 1.43 px/F ($01.$6E / $FE.$92)
+;    and leaps/flies when floor ends or timer expires.
 u_flyer:
     lda ob_state,x
     beq @init
     cmp #1
     beq @dive
+    cmp #2
+    beq @walk
     jmp @fly
 @init:
     inc ob_state,x
     jsr face_player
-    lda #32
+    lda #48
     sta ob_t0,x
-    lda #$fe
+    lda #$fe                    ; arcade -1.71 px/F ($FE.$49)
     sta ob_vyi,x
-    lda #$60
+    lda #$49
     sta ob_vyf,x
     lda #0
     sta ob_vxi,x
@@ -1323,46 +1453,76 @@ u_flyer:
 @dive:
     jsr move_x
     jsr move_y
+    jsr on_ground
+    bcs @hit_ground
     dec ob_t0,x
     bne @fl_cull
+    jmp @start_fly
+@hit_ground:
+    jsr snap_ground
     lda #2
     sta ob_state,x
+    lda #90
+    sta ob_t0,x
     jsr face_player
-    lda #1
+    jsr @set_flyer_vx
+@fl_cull:
+    jmp offscreen_cull
+@set_flyer_vx:
+    lda #1                      ; arcade 1.43 px/F ($01.$6E right, $FE.$92 left)
     ldy ob_dir,x
     beq :+
     lda #$fe
 :
     sta ob_vxi,x
-    lda #$60
+    lda #$6e
     ldy ob_dir,x
     beq :+
-    lda #$a0
+    lda #$92
 :
     sta ob_vxf,x
-    lda #0
+    rts
+@walk:
+    lda ob_xl,x
+    sta oz_t3
+    jsr move_x
+    dec ob_t0,x
+    beq @start_fly
+    lda ob_xl,x
+    eor oz_t3
+    and #$f0
+    beq @fl_cull
+    jsr on_ground
+    bcs @fl_cull
+@start_fly:
+    lda #3
+    sta ob_state,x
+    lda #64
+    sta ob_t0,x
+    jsr face_player
+    jsr @set_flyer_vx
+    lda #1
     sta ob_vyi,x
+    lda #$00
     sta ob_vyf,x
-@fl_cull:
     jmp offscreen_cull
 @fly:
     jsr move_x
-    inc ob_t1,x
-    lda ob_t1,x
-    and #$18
-    cmp #$0c
+    lda ob_t0,x
+    cmp #40                     ; rise for first 24 frames, then fly level
     bcc :+
-    lda #$ff
-    sta ob_vyi,x
-    lda #$c0
-    bne :++
-:
-    lda #0
-    sta ob_vyi,x
-    lda #$40
-:
-    sta ob_vyf,x
     jsr move_y
+:
+    dec ob_t0,x
+    bne @fl_cull
+    lda #1
+    sta ob_state,x
+    lda #48
+    sta ob_t0,x
+    lda #$fe
+    sta ob_vyi,x
+    lda #$49
+    sta ob_vyf,x
     jmp offscreen_cull
 
 ; 5. Red Arremer ($05, Stages 3 & 4): sits, wakes up, hovers, swoops, fires aimed shot.
@@ -1467,7 +1627,9 @@ u_arremer:
 :
     jmp offscreen_cull
 
-; 6. Zombie ($0B, Stage 3): rises, walks toward player, sinks.
+; 6. Zombie ($0B, Stage 3, arcade $D25A):
+;    Probes downward to solid/oneway floor (despawns if no floor below - never mid-air!),
+;    rises from ground, walks at 0.81 px/F, and sinks when floor ends or timer expires.
 u_zombie:
     lda ob_state,x
     beq @init
@@ -1475,6 +1637,35 @@ u_zombie:
     beq @rise
     jmp @walk
 @init:
+    ; If spawn point starts inside solid rock, step up 16 px once; if still solid, discard
+    ; so zombies never emerge embedded inside walls/ceilings.
+    jsr on_ground
+    bcc @z_scan
+    lda ob_yl,x
+    clc
+    adc #16
+    sta ob_yl,x
+    bcc :+
+    inc ob_yh,x
+:
+    jsr on_ground
+    bcc @z_scan
+    jmp free_slot
+    ; Scan downward in 8 px steps to find solid/oneway floor (arcade $0000.1).
+@z_scan:
+    jsr on_ground
+    bcs @z_grounded
+    lda ob_yl,x
+    sec
+    sbc #8
+    sta ob_yl,x
+    bcs @z_scan
+    dec ob_yh,x
+    lda ob_yh,x
+    bpl @z_scan
+    jmp free_slot               ; No floor below: discard (never spawn in mid-air)
+@z_grounded:
+    jsr snap_ground
     inc ob_state,x
     jsr face_player
     lda ob_dir,x
@@ -1482,7 +1673,10 @@ u_zombie:
     lda #$40
 :
     sta ob_mirror,x
-    lda #20
+    lda #snd_se_rise
+    jsr call_bank8_play_se
+    ldx oz_i
+    lda #45                     ; Rise out of ground before walking
     sta ob_t0,x
     lda #<rf_D275
     ldy #>rf_D275
@@ -1492,11 +1686,11 @@ u_zombie:
     bne @z_ret
     lda #2
     sta ob_state,x
-    lda #120
+    lda #140
     sta ob_t0,x
     lda #0
     sta ob_vxi,x
-    lda #$d0
+    lda #$d0                    ; arcade 0.81 px/F
     ldy ob_dir,x
     beq :+
     lda #$ff
@@ -1510,12 +1704,22 @@ u_zombie:
 @z_ret:
     rts
 @walk:
+    lda ob_xl,x
+    sta oz_t3
     jsr move_x
     dec ob_t0,x
-    bne :+
-    jmp free_slot
-:
+    beq @z_sink
+    ; Check ground when crossing a 16-px metatile column boundary (arcade $D37A).
+    lda ob_xl,x
+    eor oz_t3
+    and #$f0
+    beq @z_cull
+    jsr on_ground
+    bcc @z_sink
+@z_cull:
     jmp offscreen_cull
+@z_sink:
+    jmp free_slot
 
 ; 7. Grey Stone Pillar ($12, Stage 3):
 ;    Shielded (ofl_shield) while waiting; when player within Y +-48 and timer expires,

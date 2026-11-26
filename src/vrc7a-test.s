@@ -1363,14 +1363,18 @@ show_title_screen:
     sta attract_idle_lo
     sta attract_idle_hi
     sta attract_prev_pad
+    sta pan_y_steps
+    sta gate_open_pending
 .endif
     lda #1
     jsr select_bank1
     lda #title_scene
     sta scene
     jsr call_bank8_audio_init
+.ifndef REVG_STAGE1
     lda #snd_song_title
     jsr call_bank8_play_song
+.endif
     lda #2
     jsr select_bank2
     jsr draw_title_screen

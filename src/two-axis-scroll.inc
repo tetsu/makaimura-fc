@@ -193,6 +193,9 @@ draw_pan:
     bcs pan_initial_rows
     lda #$80
     sta $e000           ; Vertical mirroring: a 64-column ring (Stages 1, 4 & 7).
+    lda #pan_no_update
+    sta pan_need_row
+    sta pan_need_col
     ldx #0
     jmp call_bank50_bg
 @revg_stage_bg_mode:
@@ -205,6 +208,9 @@ pan_initial_rows:
     lda pan_need_row
     cmp pan_tile_y
     bne pan_initial_rows
+    lda #pan_no_update
+    sta pan_need_row
+    sta pan_need_col
     rts
 
 advance_pan:

@@ -20,7 +20,22 @@ local sawStartSe = false
 local sawTitleSong = false
 local blackoutFrames = 0
 local openingOamMax = 0
+local oobVramWrites = 0
+local ppuRendering = false
 local zombieSeen = false
+
+emu.addMemoryCallback(function(_, v)
+    ppuRendering = ((v & 0x18) == 0x18)
+end, emu.callbackType.write, 0x2001, 0x2001, emu.memType.nesMemory)
+
+emu.addMemoryCallback(function()
+    if ppuRendering then
+        local sl = emu.getState()["ppu.scanline"]
+        if sl >= 0 and sl < 241 then
+            oobVramWrites = oobVramWrites + 1
+        end
+    end
+end, emu.callbackType.write, 0x2007, 0x2007, emu.memType.nesMemory)
 
 local function read(addr) return emu.read(addr, emu.memType.nesMemory) end
 local function readWord(addr) return read(addr) + 256 * read(addr + 1) end
@@ -49,7 +64,7 @@ emu.addEventCallback(function()
     if phase == "boot" then
         if frame == 128 then
             if not check(scene == TITLE, "title screen after power on") then return end
-            if not check(read(SND_SONG_ID) == 1, "title BGM must play on title screen") then return end
+            if not check(read(SND_SONG_ID) == 0, "title screen must be silent like the arcade cabinet") then return end
             input = {start = true}
             nextPhase("opening")
         end
@@ -75,6 +90,13 @@ emu.addEventCallback(function()
     elseif phase == "stage" then
         if read(SND_SONG_ID) == 2 then
             local hud1up = (readNt(0x2022) == 0x1c and readNt(0x2023) == 0x14 and readNt(0x2024) == 0x10)
+            local chr00Clean = true
+            for b = 0, 15 do
+                if emu.read(b, emu.memType.nesChrRam) ~= 0 then chr00Clean = false end
+            end
+            if not check(oobVramWrites == 0 and chr00Clean,
+                    string.format("Stage 1 sky/VBlank corrupted (oob=%d chr00Clean=%s)",
+                        oobVramWrites, tostring(chr00Clean))) then return end
             if not check(readWord(PLAYER_X) == 96 and read(LIVES) == 3 and hud1up,
                     string.format("Stage 1 start: x=%d lives=%d hud1up=%s",
                         readWord(PLAYER_X), read(LIVES), tostring(hud1up))) then return end

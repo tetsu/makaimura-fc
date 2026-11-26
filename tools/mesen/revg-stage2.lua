@@ -105,6 +105,11 @@ emu.addEventCallback(function()
             if not check(read(PAN_Y_PAGE) == 1, "Stage 2 starts on lower vertical page 1") then return end
             if not check(readWord(PLAYER_X) == 80 and y == 400, "Stage 2 starts at (80, 400)") then return end
             if not check(read(S2_BOSS_REM) == 2, "Stage 2 starts with 2 Unicorn bosses") then return end
+            -- Verify Zone 0 Tower floating platforms (support $03 var 0 at X=384 and var 1 chasm at X=664)
+            local pt0, pt1 = read(0x603e), read(0x603f)
+            local px1 = read(0x6043) + 256 * read(0x6047)
+            if not check(pt0 == 2 and pt1 == 2 and px1 >= 664 and px1 <= 744,
+                    string.format("Stage 2 tower floating platforms missing (t0=%d t1=%d px1=%d)", pt0, pt1, px1)) then return end
             -- Test high-tower fall from upper page 0 (y=80) down to ground floor page 1 (y=400):
             -- vertical camera must track at up to 5 px/f and Arthur must NOT pit-die mid-tower.
             write(0x09, 0)         -- pan_y = 0
@@ -159,7 +164,26 @@ emu.addEventCallback(function()
         if n > 0 and read(OB_HP + idx) == 9 then sawBigMan = true end
         if sawBigMan or frame > phaseFrame + 120 then
             if not check(sawBigMan, "Big Man ($0A, HP 10) should spawn on page 6") then return end
-            -- Advance to boss arena (page 12, X=3328 -> 2x Unicorn)
+            -- Verify Ice Palace Zone 1 moving lifts (camera_high = 9 -> 4 vertical lifts at X=2448..2608)
+            write(CAMERA_X, 0); write(CAMERA_X + 1, 9)
+            write(PLAYER_X, 2400 & 255); write(PLAYER_X + 1, 2400 >> 8)
+            write(PLAYER_FEET, 432 & 255); write(PLAYER_Y_HI, 432 >> 8)
+            phaseFrame = frame
+            phase = "s2_ice_plats"
+        end
+    elseif phase == "s2_ice_plats" then
+        write(AP_ARMOR, 2)
+        if frame == phaseFrame + 2 then
+            local t0, t1, t2, t3 = read(0x603e), read(0x603f), read(0x6040), read(0x6041)
+            local px0 = read(0x6042) + 256 * read(0x6046)
+            if not check(t0 == 3 and t1 == 3 and t2 == 3 and t3 == 3 and px0 == 2448,
+                    string.format("Stage 2 Ice Palace Zone 1 lifts missing (t=%d,%d,%d,%d px0=%d)", t0, t1, t2, t3, px0)) then return end
+            icePlatY0 = read(0x604a) + 256 * read(0x60b6)
+        elseif frame == phaseFrame + 12 then
+            local curY0 = read(0x604a) + 256 * read(0x60b6)
+            if not check(curY0 ~= icePlatY0,
+                    string.format("Stage 2 Ice Palace lift did not move vertically (y0=%d -> %d)", icePlatY0, curY0)) then return end
+            -- Advance to boss arena (page 12, X=3328 -> Zone 4 Channel 4 lifts + 2x Unicorn)
             write(CAMERA_X, 0); write(CAMERA_X + 1, 12)
             write(PLAYER_X, 3310 & 255); write(PLAYER_X + 1, 3310 >> 8)
             write(PLAYER_FEET, 432 & 255); write(PLAYER_Y_HI, 432 >> 8)
@@ -168,6 +192,12 @@ emu.addEventCallback(function()
         end
     elseif phase == "s2_boss" then
         write(AP_ARMOR, 2)
+        if frame == phaseFrame + 2 then
+            local t1, t2 = read(0x603f), read(0x6040)
+            local px1 = read(0x6043) + 256 * read(0x6047)
+            if not check(t1 == 3 and t2 == 3 and px1 == 2992,
+                    string.format("Stage 2 Ice Palace Zone 4 Channel 4 lifts missing (t1=%d t2=%d px1=%d)", t1, t2, px1)) then return end
+        end
         local n, idx = countKind(OK_UNICORN)
         local rem = read(S2_BOSS_REM)
         if n >= 2 then sawTwoUnicorns = true end

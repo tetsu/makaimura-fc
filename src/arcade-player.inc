@@ -2563,13 +2563,13 @@ ap_check_support:
     sta ap_tmp1
     clc
     lda ap_tmp0
-    adc #12
+    adc #16
     sta ap_tmp0
     lda ap_tmp1
     adc #0
     bne @next_plat_chk
     lda ap_tmp0
-    cmp #25
+    cmp #33
     bcs @next_plat_chk
     ; 16-bit vertical crossing: prev_feet <= plat_y and player_feet >= plat_y
     lda plat_y_hi,x

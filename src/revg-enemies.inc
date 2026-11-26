@@ -1762,7 +1762,9 @@ revg_step_clear_seq:
 @walk_step1:
     jsr @step_walk_right
     dec ap_clear_timer
-    bne @clear_draw
+    beq :+
+    jmp @clear_draw
+:
     ; Arcade $735E: stop key jingle, start $3B clear cadence, hold rf_7374 for 60 frames.
     lda #2
     sta ap_clear_seq
@@ -1772,6 +1774,28 @@ revg_step_clear_seq:
     jsr call_bank8_play_song
     jmp @clear_draw
 @pose_wait:
+    ; Animate castle gate opening upward row-by-row ($26F3..$2653) during pose wait.
+    lda campaign_stage
+    cmp #1
+    bne @pose_tick
+    lda ap_clear_timer
+    sec
+    sbc #12
+    cmp #41
+    bcs @pose_tick
+    tay
+    and #7
+    bne @pose_tick
+    tya
+    asl a
+    asl a
+    adc #$53                    ; C=0 (Y <= 40 -> Y*4 <= 160); $53+(timer-12)*4 = $F3..$53
+    sta gate_open_lo
+    lda #$26
+    sta gate_open_hi
+    lda #1
+    sta gate_open_pending
+@pose_tick:
     dec ap_clear_timer
     bne @clear_draw
     ; Arcade $737E: resume walking right for 70 frames into the gate.
@@ -3529,9 +3553,12 @@ oz_arremer_power:
     rts
 
 ; --- Unicorn (type $08) -------------------------------------------------------------------
-; 0 waiting for the screen, 1 dropping in & waking (48F, or early wake after 4 hits),
-; 2 walking (0.53 px), 3 jumping, 4 charging (1.80 px to 16 px past the player),
-; 5 aiming (25 frames), then a shot at 3.0 px. Ten hits.
+; Arcade $C350-$CB60 (docs/revision-g-enemy-behaviour.md):
+; 0 waiting for screen, 1 grounded wake-up (48F, or early wake after 4 hits),
+; 2 walk/pause/spacing ($0100/$0104: 10-45F segments, 0.53 px/F, retreat/back-jump if close),
+; 3 aimed/dodge/back jump (vy=6.0 two-stage gravity, vx scaled to distance 0.5..2.0 px/F),
+; 4 charging (1.80 px/F to 16 px past player), 5 aim stop (25F) + 3.0 px/F horizontal shot,
+; 6 40-frame aiming-walk lead-in before state 5. Ten hits.
 oz_unicorn:
     lda ob_state,x
     bne @not_wait
@@ -3548,13 +3575,7 @@ oz_unicorn:
     bcs @out
     lda #1
     sta ob_state,x
-    lda #0
-    sta ob_step,x               ; 0 = dropping in from above, 1 = landed & ready
-    lda #180                    ; dramatic drop-in from top of the boss gate
-    sta ob_yl,x
-    lda #0
-    sta ob_yh,x
-    lda #48                     ; arcade measured 48-frame landing/wake-up pause
+    lda #48                     ; arcade $C470: 48-frame grounded wake-up pause
     sta ob_t0,x
     lda oz_boss_seen
     bne :+
@@ -3562,25 +3583,14 @@ oz_unicorn:
     lda #snd_song_boss
     jsr call_bank8_play_song
 :
-    lda #<rf_4FEC               ; leap/drop-in pose facing left
-    ldy #>rf_4FEC
+    lda #<rf_4FAB               ; grounded ready stance facing left
+    ldy #>rf_4FAB
     jsr ob_anim
 @out:
     rts
 @not_wait:
     cmp #1
     bne @active
-    jsr oz_fall
-    bcc @wait_check
-    lda ob_step,x
-    bne @wait_check
-    inc ob_step,x
-    lda #<rf_4FAB               ; landed: imposing ready stance
-    ldy #>rf_4FAB
-    jsr ob_anim
-    lda #snd_se_stomp
-    jsr call_bank8_play_se
-@wait_check:
     ; Arcade $C470: 4 hits during wake-up (hp 9 -> 5) immediately triggers battle!
     lda ob_hp,x
     cmp #6
@@ -3590,6 +3600,29 @@ oz_unicorn:
 @wake_now:
     jmp oz_unicorn_walk
 @active:
+    jsr @active_step
+    ; Keep Unicorn inside the Stage 1 boss arena [3344, 3552] ($0D10..$0DE0).
+    lda ob_xh,x
+    cmp #13
+    bcc @clamp_l
+    bne @clamp_r
+    lda ob_xl,x
+    cmp #$10
+    bcc @clamp_l
+    cmp #$e0
+    bcc @clamp_ok
+@clamp_r:
+    lda #$e0
+    bne @clamp_set
+@clamp_l:
+    lda #$10
+@clamp_set:
+    sta ob_xl,x
+    lda #13
+    sta ob_xh,x
+@clamp_ok:
+    rts
+@active_step:
     cmp #2
     bne :+
     jmp oz_unicorn_walking
@@ -3602,76 +3635,121 @@ oz_unicorn:
     bne :+
     jmp oz_unicorn_charge
 :
+    cmp #6
+    bne :+
+    jmp oz_unicorn_aim_walk
+:
     jmp oz_unicorn_aim
 
 oz_unicorn_walk:
     lda #2
     sta ob_state,x
+    lda #0
+    sta ob_step,x               ; 0 = approach, 1 = pause, 2 = back-walk
     jsr oz_face_player
-    jsr oz_random
-    and #63
-    clc
-    adc #51
-    sta ob_t0,x                 ; the next jump or charge
-    jsr oz_random
-    and #63
-    clc
-    adc #22
-    sta ob_t1,x                 ; the next shot
-    lda #$88                    ; 0.53 px
+    lda #51
+    jsr oz_uni_rnd64
+    sta ob_t0,x                 ; next jump or charge
+    lda #22
+    jsr oz_uni_rnd64
+    sta ob_t1,x                 ; next aiming-walk / shot
+    jsr oz_uni_seg_t
+oz_unicorn_set_walk_v:
+    lda #0
+oz_uni_walk_vx:
+    pha
+    lda #$88                    ; 0.53 px/F toward player
     ldy #0
     jsr ob_set_vx_dir
-    lda #<rf_4FAB
-    ldy #>rf_4FAB
-    sta oz_t2
-    sty oz_t3
-    lda #<rf_4F7D
-    ldy #>rf_4F7D
-    jmp oz_anim_lr
+    pla
+    tay
+    jmp oz_uni_anim
+
+oz_uni_rnd64:
+    sta oz_t0
+    jsr oz_random
+    and #63
+    clc
+    adc oz_t0
+    rts
 
 oz_unicorn_walking:
     jsr oz_fall
-    ; A shot coming within 56 px in front: jump.
+    ; A shot coming within 56 px in front: dodge jump (after landing walk window).
+    lda ob_t0,x
+    cmp #32
+    bcs :+
     jsr oz_shot_near
-    bcs oz_unicorn_leap
-    dec ob_t1,x
-    bne :+
-    lda #5
-    sta ob_state,x
-    lda #25
-    sta ob_t0,x
-    jsr ob_stop
-    jsr oz_face_player
-    lda #<rf_508E
-    ldy #>rf_508E
-    sta oz_t2
-    sty oz_t3
-    lda #<rf_5081
-    ldy #>rf_5081
-    jmp oz_anim_lr
+    bcc :+
+    jmp oz_unicorn_leap
 :
+    dec ob_t1,x
+    bne @no_aim
+    ; Arcade $0105 lead-in: 40-frame aiming-walk before 25-frame stop & fire.
+    lda #6
+    sta ob_state,x
+    lda #40
+    sta ob_t0,x
+    jsr oz_face_player
+    lda #4
+    bne oz_uni_walk_vx
+@no_aim:
     dec ob_t0,x
-    bne @walk_stomp
+    bne @seg_check
     jsr oz_random
     and #1
-    beq oz_unicorn_leap
-    ; Charge.
+    bne :+
+    jmp oz_unicorn_leap
+:
+    ; Charge (1.80 px/F to 16 px past player).
     lda #4
     sta ob_state,x
     lda #0
     sta ob_t2,x
     jsr oz_face_player
-    lda #$cd                    ; 1.80 px
+    lda #$cd
     ldy #1
     jsr ob_set_vx_dir
-    lda #<rf_502D
-    ldy #>rf_502D
-    sta oz_t2
-    sty oz_t3
-    lda #<rf_4FFF
-    ldy #>rf_4FFF
-    jmp oz_anim_lr
+    ldy #8
+    jmp oz_uni_anim
+@seg_check:
+    ; Arcade $0100/$0104: evaluate distance at each 10-45F segment boundary.
+    dec ob_aux,x
+    bne @walk_stomp
+    jsr oz_uni_seg_t
+    jsr oz_face_player
+    jsr oz_rel_player
+    jsr oz_abs_d
+    cmp #64
+    bcs @not_close
+    ; Close (< 64 px): 50% back-jump away, 50% back-walk away.
+    jsr oz_random
+    and #1
+    bne :+
+    jmp oz_unicorn_back_jump
+:
+    lda #2
+    sta ob_step,x
+    lda #$88
+    ldy #0
+    jmp oz_uni_set_back_vx
+@not_close:
+    cmp #128
+    bcs @approach_seg
+    ; Mid range (64..127 px): 25% pause in place, 75% approach.
+    jsr oz_random
+    and #3
+    bne @approach_seg
+    lda #1
+    sta ob_step,x
+    jmp ob_stop
+@approach_seg:
+    lda #0
+    sta ob_step,x
+    jmp oz_unicorn_set_walk_v
 @walk_stomp:
+    lda ob_step,x
+    bne @out                    ; paused: no stomp SFX
     lda ob_t0,x
     and #31                     ; arcade $C5E8: stomp SFX every 32 frames while walking
     bne @out
@@ -3680,28 +3758,93 @@ oz_unicorn_walking:
 @out:
     rts
 
+oz_uni_seg_t:
+    jsr oz_random
+    and #31
+    clc
+    adc #14
+    sta ob_aux,x
+    rts
+
+oz_uni_set_back_vx:
+    pha
+    lda ob_dir,x
+    eor #1
+    sta ob_dir,x
+    pla
+    jsr ob_set_vx_dir
+    lda ob_dir,x
+    eor #1
+    sta ob_dir,x
+    rts
+
 oz_unicorn_leap:
-    lda #3
-    sta ob_state,x
     jsr oz_face_player
     lda #6
+    jsr oz_uni_jmp_init
+    ; Arcade distance-scaled aimed jump: 0.50 (<64), 1.25 (64..127), 2.00 (>=128).
+    jsr oz_rel_player
+    jsr oz_abs_d
+    ldy #0
+    cmp #64
+    bcc @jmp_set_v
+    iny
+    cmp #128
+    bcc @jmp_set_v
+    iny
+@jmp_set_v:
+    lda oz_uni_jxf,y
+    jsr ob_set_vx_dir
+    jmp oz_unicorn_leap_anim
+oz_unicorn_back_jump:
+    lda #5
+    jsr oz_uni_jmp_init
+    lda #$00                    ; 1.0 px/F away from player
+    ldy #1
+    jsr oz_uni_set_back_vx
+oz_unicorn_leap_anim:
+    ldy #12
+oz_uni_anim:
+    lda oz_uni_an_tbl,y
+    sta oz_t2
+    lda oz_uni_an_tbl+1,y
+    sta oz_t3
+    lda oz_uni_an_tbl+2,y
+    pha
+    lda oz_uni_an_tbl+3,y
+    tay
+    pla
+    jmp oz_anim_lr
+oz_uni_an_tbl:
+    .word rf_4FAB, rf_4F7D      ; 0: walk
+    .word rf_508E, rf_5081      ; 4: aim
+    .word rf_502D, rf_4FFF      ; 8: charge
+    .word rf_4FEC, rf_4FDF      ; 12: leap
+    .word rf_FDB3, rf_FDAB      ; 16: boss shot
+
+oz_uni_jmp_init:
     sta ob_vyi,x
+    lda #3
+    sta ob_state,x
     lda #0
     sta ob_vyf,x
     sta ob_t2,x
-    jsr oz_random
-    and #$7f
-    clc
-    adc #$70
-    ldy #0
-    jsr ob_set_vx_dir
-    lda #<rf_4FEC
-    ldy #>rf_4FEC
-    sta oz_t2
-    sty oz_t3
-    lda #<rf_4FDF
-    ldy #>rf_4FDF
-    jmp oz_anim_lr
+    rts
+oz_uni_jxf: .byte $80, $40, $00
+
+oz_unicorn_aim_walk:
+    jsr oz_fall
+    dec ob_t0,x
+    bne @aw_out
+    ; Transition to 25-frame stationary aim before firing.
+    lda #5
+    sta ob_state,x
+    lda #25
+    sta ob_t0,x
+    jsr ob_stop
+    jmp oz_face_player
+@aw_out:
+    rts
 
 ; C set when a player shot is within 56 px in front of object X, near its height.
 oz_shot_near:
@@ -3749,25 +3892,20 @@ oz_unicorn_jump:
     cmp #17
     bcc @strong
     cmp #27
-    bcc @weak
+    bcs @strong
+    lda #$19
+    bne @grav
 @strong:
+    lda #$50
+@grav:
+    sta oz_t0
     lda ob_vyf,x
     sec
-    sbc #$50
+    sbc oz_t0
     sta ob_vyf,x
     lda ob_vyi,x
     sbc #0
     sta ob_vyi,x
-    jmp @move
-@weak:
-    lda ob_vyf,x
-    sec
-    sbc #$19
-    sta ob_vyf,x
-    lda ob_vyi,x
-    sbc #0
-    sta ob_vyi,x
-@move:
     jsr ob_move
     lda ob_vyi,x
     bpl @out
@@ -3840,18 +3978,10 @@ oz_unicorn_aim:
     sta ob_flags,x
     lda #0
     sta ob_carry,x
-    tay
-    lda #3
-    tay
-    lda #0
+    ldy #3
     jsr ob_set_vx_dir
-    lda #<rf_FDB3
-    ldy #>rf_FDB3
-    sta oz_t2
-    sty oz_t3
-    lda #<rf_FDAB
-    ldy #>rf_FDAB
-    jsr oz_anim_lr
+    ldy #16
+    jsr oz_uni_anim
 @back:
     ldx oz_obj
     jmp oz_unicorn_walk

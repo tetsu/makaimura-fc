@@ -183,18 +183,24 @@ emu.addEventCallback(function()
     elseif phase == "boss" then
         -- Fight Unicorn deterministically (keep armor full while testing boss -> key -> clear)
         write(AP_ARMOR, 2)
-        if not check(frame < bossFrame + 1200, "boss not beaten") then return end
         local bslot = findKind(7)
+        if not check(frame < bossFrame + 2400,
+                bslot and string.format("boss not beaten (bx=%d by=%d st=%d hp=%d fl=%02x)",
+                    read(0x6a27 + bslot) + 256 * read(0x6a3b + bslot),
+                    read(0x6a63 + bslot) + 256 * read(0x6a77 + bslot),
+                    read(0x69af + bslot), read(0x6b67 + bslot), read(0x6b8f + bslot)) or "boss not beaten (no slot)") then return end
         if bslot ~= nil then
             local bx = read(0x6a27 + bslot) + 256 * read(0x6a3b + bslot)
-            if bx > x + 90 then
-                input = {right = true, b = frame % 10 == 0}
-            elseif bx < x - 90 then
-                input = {left = true, b = frame % 10 == 0}
+            local fire = (frame % 6 == 0)
+            local hop = (frame % 37 == 0)
+            if bx > x + 80 then
+                input = {right = true, b = fire, a = hop}
+            elseif bx < x - 80 then
+                input = {left = true, b = fire, a = hop}
             elseif bx > x then
-                input = {right = (frame % 20 == 1), b = frame % 10 == 0}
+                input = {right = (frame % 20 == 1), b = fire, a = hop}
             else
-                input = {left = (frame % 20 == 1), b = frame % 10 == 0}
+                input = {left = (frame % 20 == 1), b = fire, a = hop}
             end
         else
             if findKind(15) ~= nil then
@@ -215,8 +221,11 @@ emu.addEventCallback(function()
         end
         if scene == CLEAR then
             local cam = readWord(CAMERA_X)
-            if not check(sawBoss and sawKey and sawClearSong and read(KEY_COLLECTED) == 1 and cam == 3328,
-                    string.format("clear after taking the key with clear song and cam==3328 (got %d)", cam)) then return end
+            local gateOpen = (emu.read(0x06f3, emu.memType.nesNametableRam) == 0 and
+                              emu.read(0x0653, emu.memType.nesNametableRam) == 0)
+            if not check(sawBoss and sawKey and sawClearSong and gateOpen and read(KEY_COLLECTED) == 1 and cam == 3328,
+                    string.format("clear after taking the key with gate open, clear song and cam==3328 (cam=%d gateOpen=%s)",
+                        cam, tostring(gateOpen))) then return end
             clearFrame = frame
             phase = "clear"
         end

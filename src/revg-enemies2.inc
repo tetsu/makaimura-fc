@@ -91,6 +91,7 @@ init:
     lda #$ff
     sta oz_reg_page
     sta s2_win_last
+    sta s2_plat_zone
     ldx #4
 :
     sta s2_sch_pat,x
@@ -798,6 +799,7 @@ tick_schedulers:
 ; --- Main frame update ----------------------------------------------------------------
 update:
     jsr rng
+    jsr sync_platforms
     jsr player_y
     jsr place_fixed
     jsr check_page_group
@@ -1972,5 +1974,109 @@ u_key:
     sta ap_clear_timer
     lda #2                      ; 200 pts on key pickup
     jmp ap_add_score
+
+; --- Dynamic Stage 2 moving platform zone loader (all 14 arcade supports $03/$04) ---
+; Zones by camera_high:
+;   0 (cam < 2048): Tower support $03 var 0 (X=392, Y=342) + chasm $03 var 1 (X=720, Y=384)
+;   1 (2048..2559): Ice Palace Channel 1 (2448, 2480, 2512) + Channel 2 left (2608)
+;   2 (2560..2815): Ice Palace Channel 2 (2608, 2640, 2672) + Channel 3 left (2800)
+;   3 (2816..3071): Ice Palace Channel 3 (2800, 2848, 2896) + Channel 4 left (2992)
+;   4 (>= 3072):    Ice Palace Channel 3 right (2896) + Channel 4 (2992, 3024)
+sync_platforms:
+    lda ap_riding_plat
+    bpl @sp_done                ; Never swap platform slots while Arthur is riding one
+    lda player_x+1
+    cmp #8
+    bcc @z0
+    cmp #10
+    bcc @z1
+    beq @z2
+    cmp #11
+    beq @z3
+    lda #4
+    bne @chk_z
+@z0:
+    lda #0
+    beq @chk_z
+@z1:
+    lda #1
+    bne @chk_z
+@z2:
+    lda #2
+    bne @chk_z
+@z3:
+    lda #3
+@chk_z:
+    cmp s2_plat_zone
+    beq @sp_done
+    sta s2_plat_zone
+    ; Index = zone * 32 (4 slots x 8 bytes: type, x_lo, x_hi, y_lo, y_hi, span, timer, phase)
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    tay
+    ldx #0
+@load_slot:
+    lda s2_plat_zones,y
+    sta plat_type,x
+    iny
+    lda s2_plat_zones,y
+    sta plat_x_lo,x
+    iny
+    lda s2_plat_zones,y
+    sta plat_x_hi,x
+    iny
+    lda s2_plat_zones,y
+    sta plat_y,x
+    iny
+    lda s2_plat_zones,y
+    sta plat_y_hi,x
+    iny
+    lda s2_plat_zones,y
+    sta plat_span,x
+    iny
+    lda s2_plat_zones,y
+    sta plat_timer,x
+    iny
+    lda s2_plat_zones,y
+    sta plat_phase,x
+    iny
+    lda #0
+    sta plat_dx,x
+    sta plat_dy,x
+    inx
+    cpx #ap_max_plats
+    bne @load_slot
+@sp_done:
+    rts
+
+s2_plat_zones:
+    ; Zone 0: Tower (X=384..464, X=664..744 across pit col 41..47)
+    .byte 2, <384,  >384,  <342, >342, 80,  0, 0
+    .byte 2, <664,  >664,  <384, >384, 80,  0, 0
+    .byte 0, 0,     0,     0,    0,    0,   0, 0
+    .byte 0, 0,     0,     0,    0,    0,   0, 0
+    ; Zone 1: Ice Palace Channel 1 (2448, 2480, 2512) + Channel 2 left (2608)
+    .byte 3, <2448, >2448, <456, >456, 96,  0, 0
+    .byte 3, <2480, >2480, <424, >424, 96, 32, 0
+    .byte 3, <2512, >2512, <392, >392, 96, 64, 0
+    .byte 3, <2608, >2608, <360, >360, 96,  0, 1
+    ; Zone 2: Ice Palace Channel 2 (2608, 2640, 2672) + Channel 3 left (2800)
+    .byte 3, <2608, >2608, <456, >456, 96,  0, 0
+    .byte 3, <2640, >2640, <424, >424, 96, 32, 0
+    .byte 3, <2672, >2672, <392, >392, 96, 64, 0
+    .byte 3, <2800, >2800, <360, >360, 96,  0, 1
+    ; Zone 3: Ice Palace Channel 3 (2800, 2848, 2896) + Channel 4 left (2992)
+    .byte 3, <2800, >2800, <456, >456, 96,  0, 0
+    .byte 3, <2848, >2848, <424, >424, 96, 32, 0
+    .byte 3, <2896, >2896, <392, >392, 96, 64, 0
+    .byte 3, <2992, >2992, <360, >360, 96,  0, 1
+    ; Zone 4: Ice Palace Channel 3 right (2896) + Channel 4 (2992, 3024)
+    .byte 3, <2896, >2896, <424, >424, 96, 32, 0
+    .byte 3, <2992, >2992, <456, >456, 96,  0, 0
+    .byte 3, <3024, >3024, <392, >392, 96, 64, 0
+    .byte 0, 0,     0,     0,    0,    0,   0, 0
 
 .endscope

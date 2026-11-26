@@ -46,20 +46,20 @@ revg2_desc:
     .byte revg2_boss_hp, 0
     .byte revg2_boss_fire_period
 
-; Stage 2 moving platforms: tower horizontal path platform + Ice Palace vertical lifts.
+; Stage 2 initial platforms (Zone 0: Tower). Ice Palace zones 1..4 are synced by BANK49 s2::sync_platforms.
 revg2_plats:
-    .byte 2                             ; plat_moving_h (tower support $03 at local X=392, Y=342)
+    .byte 2                             ; plat_moving_h (tower support $03 var 0 at local X=392, Y=342)
     .word 384, 342
     .byte 80
-    .byte 3                             ; plat_moving_v (water channel lift 1, local X=2480)
-    .word 2480, 448
-    .byte 96
-    .byte 3                             ; plat_moving_v (water channel lift 2, local X=2640)
-    .word 2640, 448
-    .byte 96
-    .byte 3                             ; plat_moving_v (water channel lift 3, local X=2864)
-    .word 2864, 448
-    .byte 96
+    .byte 2                             ; plat_moving_h (tower chasm support $03 var 1 at local X=720, Y=384)
+    .word 664, 384
+    .byte 80
+    .byte 0                             ; unused in Zone 0
+    .word 0, 0
+    .byte 0
+    .byte 0                             ; unused in Zone 0
+    .word 0, 0
+    .byte 0
 
 ; Stage 2 BG palettes: slate village stone, crimson roof/brick, ice palace cyan, warm gold.
 revg2_bg_pal:
