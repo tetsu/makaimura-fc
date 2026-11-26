@@ -680,6 +680,8 @@ show_course_clear:
     lda ap_loop
     bne @result_b7
 @show_map:
+    lda #snd_song_map           ; Play arcade $30 Makai Map / stage start jingle on the map screen
+    jsr call_bank8_play_song
     lda #2
     jsr select_bank2
     jsr fe_draw_progress_map

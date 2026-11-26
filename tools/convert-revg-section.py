@@ -28,6 +28,7 @@ TOMBSTONE = 1           # support type for tombstones and rocks
 
 # Engine metatile IDs (src/terrain-data.inc).
 MT_SKY = 0
+MT_ROCK = 3             # solid cave/building wall (right_wall / left_wall)
 MT_LADDER = 5
 MT_FLOOR = 15           # one-way floor drawn as grass
 MT_DIRT = 16            # no collision, drawn as dirt
@@ -62,6 +63,10 @@ def convert(tiles, collision, supports, rows=ROWS, x_min=0, y_min=0, row_offset=
             if collision["ladder"][code]:
                 # A ladder tile sits one row lower than the floor its top serves.
                 cells[col][fc_row - 1] = MT_LADDER
+            elif (collision["right_wall"][code] or collision["left_wall"][code]) and not height:
+                # Solid side wall (e.g. Stage 3 green cave ledges): prevents walking sideways into terrain.
+                if cells[col][fc_row - 1] == MT_SKY:
+                    cells[col][fc_row - 1] = MT_ROCK
     pits = []
     for col in range(width):
         col_floors = floors.get(col)
@@ -89,7 +94,7 @@ def convert(tiles, collision, supports, rows=ROWS, x_min=0, y_min=0, row_offset=
     return cells, pits, tombs
 
 
-NIBBLE_CODE = {MT_SKY: 0, MT_LADDER: 1, MT_FLOOR: 2, MT_DIRT: 3, MT_TOMB: 4}
+NIBBLE_CODE = {MT_SKY: 0, MT_LADDER: 1, MT_FLOOR: 2, MT_DIRT: 3, MT_TOMB: 4, MT_ROCK: 5}
 
 
 def main():

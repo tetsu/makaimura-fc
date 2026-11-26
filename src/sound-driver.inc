@@ -8,16 +8,17 @@
 
 snd_song_none     = 0
 snd_song_title    = 1   ; $36, $3C, $3D, $3A: the opening demo
-snd_song_stage    = 2   ; $30 then $2B: sections 0-1 (graveyard and forest)
+snd_song_stage    = 2   ; $2B: sections 0-1 (graveyard and forest)
 snd_song_boss     = 3   ; $2D: the section 0-1 boss pages
 snd_song_clear    = 4   ; $3B: after the key is taken
 snd_song_gameover = 5   ; $2F
-snd_song_stage3   = 6   ; $30 then $33: sections 2-3
-snd_song_stage5   = 7   ; $30 then $29: sections 4-5
+snd_song_stage3   = 6   ; $33: sections 2-3
+snd_song_stage5   = 7   ; $29: sections 4-5
 snd_song_miss     = 8   ; $31: a death with lives left
 snd_song_key      = 9   ; $3E: key appearance fanfare
 snd_song_name_entry = 10 ; $26: high-score name entry theme
-snd_song_max      = 10
+snd_song_map      = 11  ; $30: Makai progression map / stage start jingle
+snd_song_max      = 11
 
 snd_se_none       = 0
 snd_se_shot      = 1

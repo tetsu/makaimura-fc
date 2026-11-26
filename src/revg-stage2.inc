@@ -48,12 +48,12 @@ revg2_desc:
 
 ; Stage 2 initial platforms (Zone 0: Tower). Ice Palace zones 1..4 are synced by BANK49 s2::sync_platforms.
 revg2_plats:
-    .byte 2                             ; plat_moving_h (tower support $03 var 0 at local X=392, Y=342)
-    .word 384, 342
-    .byte 80
-    .byte 2                             ; plat_moving_h (tower chasm support $03 var 1 at local X=720, Y=384)
-    .word 664, 384
-    .byte 80
+    .byte 4                             ; plat_falling (tower support $03 var 0 at local X=392, Y=342)
+    .word 392, 342
+    .byte 112
+    .byte 4                             ; plat_falling (tower chasm support $03 var 1 at local X=704, Y=384)
+    .word 704, 384
+    .byte 96
     .byte 0                             ; unused in Zone 0
     .word 0, 0
     .byte 0

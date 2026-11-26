@@ -459,45 +459,60 @@ fe_draw_progress_map:
 @have_next:
     sta map_tmp                 ; save next stage index (0..6)
 
-    ; Map Bank 11 ($8000) to upload the authentic arcade Makai panorama (left: 0..3, right: 4..6).
+    ; Map Bank 11 ($8000) to upload the full 512px scrolling arcade Makai panorama ($2000 + $2400).
+    lda #$80
+    sta $e000                   ; Vertical mirroring: $2000 left half + $2400 right half
+    lda #0
+    sta fe_map_scroll_x
     lda prg_bank0
     pha
     lda #revg_map_bank_id
     jsr select_bank0
-    ; Upload panorama CHR tiles to $0400 (tile $40+).
+    ; Upload shared panorama CHR tiles to $0400 (tile $40+).
     lda #$04
     sta $2006
     lda #$00
     sta $2006
-    lda map_tmp
-    cmp #4
-    bcs @use_right
-    lda #<revg_map_left_tiles
+    lda #<revg_map_tiles
     sta chr_source
-    lda #>revg_map_left_tiles
+    lda #>revg_map_tiles
     sta chr_source+1
-    ldx #>(revg_map_left_tile_count * 16)
-    lda #<(revg_map_left_tile_count * 16)
+    ldx #>(revg_map_tile_count * 16)
+    lda #<(revg_map_tile_count * 16)
     jsr upload_chr_patterns
-    ; Palette ($3F00..$3F0F)
+    ; Shared palette ($3F00..$3F0F)
     lda #$3f
     sta $2006
     lda #$00
     sta $2006
     ldx #0
 :
-    lda revg_map_left_palette,x
+    lda revg_map_palette,x
     sta $2007
     inx
     cpx #16
     bne :-
-    ; Nametable rows 16..27 ($2200..$237F, 384 bytes)
+    ; Clear right nametable ($2400..$27FF) so upper half is clean black.
+    lda #$24
+    sta $2006
+    lda #$00
+    sta $2006
+    ldx #4
+    ldy #0
+    lda #0
+@clr_rnt:
+    sta $2007
+    iny
+    bne @clr_rnt
+    dex
+    bne @clr_rnt
+    ; Left half nametable rows 16..27 ($2200..$237F) + attributes ($23E0..$23F7)
     lda #<revg_map_left_names
     sta map_ptr
     lda #>revg_map_left_names
     sta map_ptr+1
+    lda #$22
     jsr fe_map_upload_nt
-    ; Attribute rows 16..27 ($23E0..$23F7, 24 bytes)
     lda #$23
     sta $2006
     lda #$e0
@@ -509,32 +524,14 @@ fe_draw_progress_map:
     inx
     cpx #24
     bne :-
-    jmp @map_bank_done
-@use_right:
-    lda #<revg_map_right_tiles
-    sta chr_source
-    lda #>revg_map_right_tiles
-    sta chr_source+1
-    ldx #>(revg_map_right_tile_count * 16)
-    lda #<(revg_map_right_tile_count * 16)
-    jsr upload_chr_patterns
-    lda #$3f
-    sta $2006
-    lda #$00
-    sta $2006
-    ldx #0
-:
-    lda revg_map_right_palette,x
-    sta $2007
-    inx
-    cpx #16
-    bne :-
+    ; Right half nametable rows 16..27 ($2600..$277F) + attributes ($27E0..$27F7)
     lda #<revg_map_right_names
     sta map_ptr
     lda #>revg_map_right_names
     sta map_ptr+1
+    lda #$26
     jsr fe_map_upload_nt
-    lda #$23
+    lda #$27
     sta $2006
     lda #$e0
     sta $2006
@@ -549,7 +546,7 @@ fe_draw_progress_map:
     pla
     jsr select_bank0
 
-    ; Draw text banner in the black upper half (rows 4..13).
+    ; Draw text banner in the black upper half (rows 4..13) on $2000 and $2400.
     lda #<fe_map_static_lines
     ldx #>fe_map_static_lines
     jsr fe_draw_lines
@@ -575,7 +572,7 @@ fe_draw_progress_map:
     clc
     adc #campaign_zero + 1
     sta $2007
-    ; Place Arthur's marker pin ($39) above the next stage landmark on the arcade panorama.
+    ; Place Arthur's marker pin ($39) above the next stage landmark on the 512px panorama.
     lda fe_map_mark_hi,x
     sta $2006
     lda fe_map_mark_lo,x
@@ -584,9 +581,8 @@ fe_draw_progress_map:
     sta $2007
     rts
 
-; Upload 384 nametable bytes from (map_ptr) to $2200..$237F (rows 16..27).
+; Upload 384 nametable bytes from (map_ptr) to (A:$00)..(A+1:$7F) (rows 16..27).
 fe_map_upload_nt:
-    lda #$22
     sta $2006
     lda #$00
     sta $2006
@@ -610,12 +606,15 @@ fe_map_static_lines:
     fe_line $2106, "NEXT STAGE 2"
     fe_line $2168, "PLAYER ONE READY"
     fe_line $21c7, "START TO CONTINUE"
+    fe_line $248a, "MAKAI PROGRESSION"
+    fe_line $2568, "PLAYER ONE READY"
+    fe_line $25c7, "START TO CONTINUE"
     .byte 0
 
-; Arthur marker pin coordinates on the authentic arcade Makai panorama (Stages 1..7)
-; Left panorama (Stages 1-4): Graveyard(4,23), Door1(11,22), Door2(20,22), Door3(26,22)
-; Right panorama (Stages 5-7): Door4(17,22), Door5(22,20), Throne(22,17)
-fe_map_mark_hi: .byte $22, $22, $22, $22, $22, $22, $22
+; Arthur marker pin coordinates on the 512px scrolling Makai panorama (Stages 1..7)
+; Left ($22xx): Graveyard(4,23), Door1(11,22), Door2(20,22), Door3(26,22)
+; Right ($26xx): Door4(17,22), Door5(22,20), Throne(22,17)
+fe_map_mark_hi: .byte $22, $22, $22, $22, $26, $26, $26
 fe_map_mark_lo: .byte $e4, $cb, $d4, $da, $d1, $96, $36
 
 ; Arthur helmet pin marker (tile $39)

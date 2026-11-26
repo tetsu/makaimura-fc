@@ -371,7 +371,7 @@ read_map_cell:
 
 .segment "RODATA"
 .if PRG_ROM_UNITS = 32
-nibble_mt: .byte mt_sky, mt_ladder, mt_floor, mt_dirt, mt_tomb
+nibble_mt: .byte mt_sky, mt_ladder, mt_floor, mt_dirt, mt_tomb, mt_rock
 .endif
 metatile_attr:
     .byte tile_type_air     ; mt_sky

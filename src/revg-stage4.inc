@@ -46,20 +46,21 @@ revg4_desc:
     .byte revg4_boss_hp, 0
     .byte revg4_boss_fire_period
 
-; Stage 4 floating chasm platforms (local X = 120..1032, bridging gaps between islands).
+; Stage 4 initial eyeball moving platforms (Zone 0, arcade support $05 at local X=120..200).
+; Zones 1..3 (local X=360..1032) are synced dynamically by BANK51 s34::s4_sync_platforms.
 revg4_plats:
-    .byte 2                             ; plat_moving_h (gap 1: X=128..240)
-    .word 136, 160
-    .byte 96
-    .byte 2                             ; plat_moving_h (gap 2: X=352..496)
-    .word 368, 160
-    .byte 112
-    .byte 2                             ; plat_moving_h (gap 3: X=640..784)
-    .word 656, 144
-    .byte 112
-    .byte 2                             ; plat_moving_h (gap 4: X=928..1056)
-    .word 936, 160
-    .byte 96
+    .byte 2                             ; plat_moving_h (support $05 var 3, local X=120, Y=184)
+    .word 120, 184
+    .byte 64
+    .byte 2                             ; plat_moving_h (support $05 var 0, local X=136, Y=72)
+    .word 136, 152
+    .byte 64
+    .byte 2                             ; plat_moving_h (support $05 var 2, local X=168, Y=136)
+    .word 168, 136
+    .byte 80
+    .byte 2                             ; plat_moving_h (support $05 var 1, local X=200, Y=104)
+    .word 200, 104
+    .byte 80
 
 revg4_bg_pal:
     .byte $0f, $10, $00, $17,  $0f, $07, $06, $17

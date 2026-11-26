@@ -37,15 +37,19 @@ def distance(a, b):
     return 2 * (a[0] - b[0]) ** 2 + 4 * (a[1] - b[1]) ** 2 + 3 * (a[2] - b[2]) ** 2
 
 
-def convert_half(path: Path, nes_rgb, erase_rects):
-    img = Image.open(path).convert("RGB")
-    assert img.size == (256, 224), img.size
-    px = img.load()
-    # Erase the baked-in Arthur pin sprite from the MAME capture so FC draws it dynamically.
-    for x0, y0, x1, y1 in erase_rects:
+def convert_panorama(left_path: Path, right_path: Path, nes_rgb, left_erase, right_erase):
+    img_l = Image.open(left_path).convert("RGB")
+    img_r = Image.open(right_path).convert("RGB")
+    assert img_l.size == (256, 224) and img_r.size == (256, 224)
+    px_l, px_r = img_l.load(), img_r.load()
+    for x0, y0, x1, y1 in left_erase:
         for y in range(y0, y1):
             for x in range(x0, x1):
-                px[x, y] = (0, 0, 0)
+                px_l[x, y] = (0, 0, 0)
+    for x0, y0, x1, y1 in right_erase:
+        for y in range(y0, y1):
+            for x in range(x0, x1):
+                px_r[x, y] = (0, 0, 0)
 
     colours = {k: v for k, v in nes_rgb.items() if k != 0x0F}
     nearest = {}
@@ -57,15 +61,16 @@ def convert_half(path: Path, nes_rgb, erase_rects):
             nearest[rgb] = min(colours, key=lambda k: distance(colours[k], rgb))
         return nearest[rgb]
 
-    # Crop y = 128..223 (96 px = 12 tile rows = 6 attribute rows)
+    # Stitch 512x96 panorama (64x12 tiles = $2000 left + $2400 right) for full horizontal scrolling.
     h = ROW_COUNT * 8
-    screen = [[nes(px[x, 128 + y]) for x in range(256)] for y in range(h)]
+    screen = [
+        [nes(px_l[x, 128 + y]) for x in range(256)] + [nes(px_r[x, 128 + y]) for x in range(256)]
+        for y in range(h)
+    ]
 
-    # Palette 0 is reserved for white/gold text in the upper half ($0f, $30, $28, $16),
-    # and palettes 1..3 are fitted to the 16x16 blocks of the Makai panorama!
     blocks = {}
     for by in range(h // 16):
-        for bx in range(16):
+        for bx in range(32):
             cnt = {}
             for y in range(by * 16, by * 16 + 16):
                 for x in range(bx * 16, bx * 16 + 16):
@@ -97,7 +102,6 @@ def convert_half(path: Path, nes_rgb, erase_rects):
     while len(palettes) < 4:
         palettes.append([0x30, 0x10, 0x00])
 
-    # Refine palettes 1..3
     for _ in range(20):
         assign = {b: min(range(1, 4), key=lambda i: block_err(cnt, palettes[i])) for b, cnt in blocks.items()}
         for i in range(1, 4):
@@ -114,12 +118,11 @@ def convert_half(path: Path, nes_rgb, erase_rects):
 
     assign = {b: min(range(1, 4), key=lambda i: block_err(cnt, palettes[i])) for b, cnt in blocks.items()}
 
-    # Build deduplicated 2bpp CHR tiles (tile 0 = blank, panorama tiles start at TILE_BASE)
     tile_map = {}
     chr_tiles = []
-    nametable = []
+    nt_all = []
     for ty in range(ROW_COUNT):
-        for tx in range(32):
+        for tx in range(64):
             pal_idx = assign[(tx // 2, ty // 2)]
             pal = [0x0F] + palettes[pal_idx]
             p0, p1 = [], []
@@ -138,20 +141,18 @@ def convert_half(path: Path, nes_rgb, erase_rects):
                 p0.append(b0)
                 p1.append(b1)
             if empty:
-                nametable.append(0)
+                nt_all.append(0)
             else:
                 key = bytes(p0 + p1)
                 if key not in tile_map:
                     tile_map[key] = TILE_BASE + len(chr_tiles)
                     chr_tiles.append(key)
-                nametable.append(tile_map[key])
+                nt_all.append(tile_map[key])
 
-    # If > MAX_TILES, merge least-used tiles with their closest Hamming match
     if len(chr_tiles) > MAX_TILES:
         from collections import Counter
-        freq = Counter(t for t in nametable if t >= TILE_BASE)
+        freq = Counter(t for t in nt_all if t >= TILE_BASE)
         while len(chr_tiles) > MAX_TILES:
-            # Drop rarest tile and remap to closest remaining tile
             rarest_idx = min(range(len(chr_tiles)), key=lambda i: freq[TILE_BASE + i])
             rarest_bytes = chr_tiles[rarest_idx]
             best_j = min(
@@ -161,37 +162,47 @@ def convert_half(path: Path, nes_rgb, erase_rects):
             old_id = TILE_BASE + rarest_idx
             new_id = TILE_BASE + best_j
             last_id = TILE_BASE + len(chr_tiles) - 1
-            # Swap last into rarest_idx if needed
             if rarest_idx != len(chr_tiles) - 1:
                 chr_tiles[rarest_idx] = chr_tiles[-1]
                 if new_id == last_id:
                     new_id = old_id
-                nametable = [
+                nt_all = [
                     new_id if t == old_id else (old_id if t == last_id else t)
-                    for t in nametable
+                    for t in nt_all
                 ]
                 freq[old_id] = freq[last_id]
             else:
-                nametable = [new_id if t == old_id else t for t in nametable]
+                nt_all = [new_id if t == old_id else t for t in nt_all]
             chr_tiles.pop()
             freq[new_id] += 1
             del freq[last_id]
 
-    # Build 24 attribute bytes covering rows 16..27 ($23E0..$23F7 = 3 attr rows x 8 bytes)
-    attrs = []
+    nt_left, nt_right = [], []
+    for ty in range(ROW_COUNT):
+        row = nt_all[ty * 64:(ty + 1) * 64]
+        nt_left.extend(row[:32])
+        nt_right.extend(row[32:])
+
+    attrs_left, attrs_right = [], []
     for ay in range(3):
         for ax in range(8):
             tl = assign[(ax * 2, ay * 2)]
             tr = assign[(ax * 2 + 1, ay * 2)]
             bl = assign[(ax * 2, ay * 2 + 1)]
             br = assign[(ax * 2 + 1, ay * 2 + 1)]
-            attrs.append(tl | (tr << 2) | (bl << 4) | (br << 6))
+            attrs_left.append(tl | (tr << 2) | (bl << 4) | (br << 6))
+        for ax in range(8, 16):
+            tl = assign[(ax * 2, ay * 2)]
+            tr = assign[(ax * 2 + 1, ay * 2)]
+            bl = assign[(ax * 2, ay * 2 + 1)]
+            br = assign[(ax * 2 + 1, ay * 2 + 1)]
+            attrs_right.append(tl | (tr << 2) | (bl << 4) | (br << 6))
 
     pal_bytes = []
     for pal in palettes:
         pal_bytes.extend([0x0F] + pal)
 
-    return chr_tiles, nametable, attrs, pal_bytes
+    return chr_tiles, nt_left, attrs_left, nt_right, attrs_right, pal_bytes
 
 
 def fmt_bytes(data):
@@ -209,44 +220,41 @@ def main():
     bg = load_bg()
     nes_rgb = bg.NES_RGB
 
-    # Erase baked-in Arthur pin sprites from MAME captures:
-    # revg-map-left.png: pin is at x=26..42, y=168..200
-    # revg-map-right.png: pin is at x=138..154, y=168..200
-    left = convert_half(ROOT / "fixtures" / "revg-map-left.png", nes_rgb, [(26, 168, 42, 200)])
-    right = convert_half(ROOT / "fixtures" / "revg-map-right.png", nes_rgb, [(138, 168, 154, 198)])
+    tiles, nt_l, attr_l, nt_r, attr_r, pal = convert_panorama(
+        ROOT / "fixtures" / "revg-map-left.png",
+        ROOT / "fixtures" / "revg-map-right.png",
+        nes_rgb,
+        [(26, 168, 42, 200)],
+        [(138, 168, 154, 198)],
+    )
 
     lines = [
         "; Generated by tools/convert-revg-map.py from MAME captures of makaimurg ($6400).",
-        "; Authentic arcade Makai Stage Progression Map (left: Stages 1-4, right: Stages 4-7).",
+        "; Full 512px scrolling arcade Makai Stage Progression Map ($2000 left + $2400 right).",
         "; Placed in Bank 11 (PAD_11, $8000 window) for REVG_STAGE1 builds.",
         "",
         "revg_map_bank_id = 11",
         f"revg_map_tile_base = ${TILE_BASE:02x}",
-        f"revg_map_left_tile_count = {len(left[0])}",
-        f"revg_map_right_tile_count = {len(right[0])}",
+        f"revg_map_tile_count = {len(tiles)}",
         "",
         ".macro revg_map_bank",
         "    .byte bank_tag_base + revg_map_bank_id",
-        "revg_map_left_palette:",
+        "revg_map_palette:",
     ]
-    lines += fmt_bytes(left[3])
-    lines += ["revg_map_left_attrs:"] + fmt_bytes(left[2])
-    lines += ["revg_map_left_names:"] + fmt_bytes(left[1])
-    lines += ["revg_map_left_tiles:"]
-    for t in left[0]:
+    lines += fmt_bytes(pal)
+    lines += ["revg_map_left_attrs:"] + fmt_bytes(attr_l)
+    lines += ["revg_map_left_names:"] + fmt_bytes(nt_l)
+    lines += ["revg_map_right_attrs:"] + fmt_bytes(attr_r)
+    lines += ["revg_map_right_names:"] + fmt_bytes(nt_r)
+    lines += ["revg_map_tiles:"]
+    for t in tiles:
         lines += fmt_bytes(t)
-    lines += ["revg_map_right_palette:"] + fmt_bytes(right[3])
-    lines += ["revg_map_right_attrs:"] + fmt_bytes(right[2])
-    lines += ["revg_map_right_names:"] + fmt_bytes(right[1])
-    lines += ["revg_map_right_tiles:"]
-    for t in right[0]:
-        lines += fmt_bytes(t)
-    total = 1 + 16 + 24 + 384 + len(left[0]) * 16 + 16 + 24 + 384 + len(right[0]) * 16
+    total = 1 + 16 + 24 + 384 + 24 + 384 + len(tiles) * 16
     assert total <= 8192, f"Map bank overflow: {total} > 8192"
     lines += [f"    .res $2000 - {total}, $ff", ".endmacro", ""]
 
     args.output.write_text("\n".join(lines), encoding="utf-8")
-    print(f"Wrote {args.output}: left={len(left[0])} tiles, right={len(right[0])} tiles, total={total}/8192 B")
+    print(f"Wrote {args.output}: shared={len(tiles)} tiles, total={total}/8192 B")
 
 
 if __name__ == "__main__":

@@ -86,11 +86,11 @@ ok_upd_hi:
     .byte >u_pillar, >u_fire, >u_dragon, >u_shot, >u_item, >u_boom, >u_popup
     .byte >u_disc, >u_trigger, >u_key
 
-; Scheduler simultaneous limits:
-; Stage 3: pig=2, flyer=2, arremer=1, zombie=3, dragon=1
-; Stage 4: devil=3, dragon=1
-sch_limit_s3: .byte 2, 2, 1, 3, 1
-sch_limit_s4: .byte 3, 1
+; Scheduler simultaneous limits (balanced to arcade pacing):
+; Stage 3: pig=1, flyer=1, arremer=1, zombie=2, dragon=1
+; Stage 4: devil=2, dragon=1
+sch_limit_s3: .byte 1, 1, 1, 2, 1
+sch_limit_s4: .byte 2, 1
 
 .include "revg-section2-spawns.inc"
 .include "revg-section3-spawns.inc"
@@ -119,6 +119,7 @@ init:
     lda #$ff
     sta oz_reg_page
     sta s34_drg_head_slot
+    sta s2_plat_zone
     ldx #4
 :
     sta s34_sch_pat,x
@@ -958,6 +959,11 @@ step_schedulers:
 @s3_do:
     ldy s34_sch_rec,x
     lda revg3_rec_wait,y
+    clc
+    adc #32                     ; arcade pacing: avoid overlapping enemy floods
+    bcc :+
+    lda #$ff
+:
     sta s34_sch_wait,x
     ; Spawn from Stage 3 record Y
     jsr spawn_s3_rec
@@ -1103,6 +1109,7 @@ spawn_s4_rec:
 ; --- Main Frame Update ----------------------------------------------------------------
 update:
     jsr compute_coords
+    jsr s4_sync_platforms
     jsr place_fixed
     jsr register_page
     jsr step_schedulers
@@ -1204,9 +1211,9 @@ u_pig:
     jsr move_y
     dec ob_t0,x
     bne :+
-    lda #75
+    lda #90
     sta ob_t0,x
-    jsr fire_aimed_shot
+    jsr fire_spear_shot         ; Woody Pig throws horizontal spear (rf_FD12)
 :
     jmp offscreen_cull
 
@@ -1525,7 +1532,9 @@ u_flyer:
     sta ob_vyf,x
     jmp offscreen_cull
 
-; 5. Red Arremer ($05, Stages 3 & 4): sits, wakes up, hovers, swoops, fires aimed shot.
+; 5. Red Arremer ($05, Stages 3 & 4, docs/revision-g-enemy-behaviour.md):
+;    Sits until player approaches or shoots (dodges incoming shots within 56 px!),
+;    hovers with wing-flap animation, fires Red Arremer fireball (rf_FDD7), and swoops toward Arthur.
 u_arremer:
     lda ob_state,x
     beq @init
@@ -1548,6 +1557,8 @@ u_arremer:
 @sit:
     jsr in_view
     bcs @ar_ret
+    jsr ar_shot_near            ; Arcade $B6F8: dodge-wake immediately if player shoots!
+    bcs @ar_wake
     jsr calc_dx_player
     lda oz_dx+1
     beq @ar_c
@@ -1566,13 +1577,13 @@ u_arremer:
     sta ob_state,x
     lda #40
     sta ob_t0,x
-    lda #<rf_B60B
-    ldy #>rf_B60B
+    lda #<rf_4BB2               ; Wing-flap flying animation
+    ldy #>rf_4BB2
     jsr set_anim
     ldx oz_i
     lda #1
     sta ob_vyi,x
-    lda #$00
+    lda #$40                    ; +1.25 px/F quick rise
     sta ob_vyf,x
 @ar_ret:
     rts
@@ -1583,20 +1594,30 @@ u_arremer:
     lda #$40
 :
     sta ob_mirror,x
+    ; Dodge incoming shots by rising sharply
+    jsr ar_shot_near
+    bcc @no_dodge
+    lda #1
+    sta ob_vyi,x
+    lda #$80
+    sta ob_vyf,x
+    jsr move_y
+    jmp @hov_tick
+@no_dodge:
     ; Rise gently while timer > 20, then hover
     lda ob_t0,x
     cmp #20
-    bcc :+
+    bcc @hov_tick
     jsr move_y
-:
+@hov_tick:
     dec ob_t0,x
     bne @ar_ret
-    ; Fire aimed shot and swoop!
-    jsr fire_aimed_shot
+    ; Fire Red Arremer fireball (rf_FDD7) and swoop toward Arthur's height!
+    jsr fire_arremer_shot
     ldx oz_i
     lda #3
     sta ob_state,x
-    lda #36
+    lda #43                     ; Arcade 43-frame swoop
     sta ob_t0,x
     lda #2
     ldy ob_dir,x
@@ -1606,9 +1627,17 @@ u_arremer:
     sta ob_vxi,x
     lda #0
     sta ob_vxf,x
+    jsr calc_dy_player
+    lda oz_dy+1
+    bmi @sw_lvl                 ; already below player: level rush
     lda #$ff
     sta ob_vyi,x
-    lda #$40
+    lda #$20                    ; -0.875 px/F dive toward player
+    sta ob_vyf,x
+    rts
+@sw_lvl:
+    lda #0
+    sta ob_vyi,x
     sta ob_vyf,x
     rts
 @swoop:
@@ -1618,7 +1647,7 @@ u_arremer:
     bne :+
     lda #2
     sta ob_state,x
-    lda #48
+    lda #44
     sta ob_t0,x
     lda #1
     sta ob_vyi,x
@@ -1626,6 +1655,40 @@ u_arremer:
     sta ob_vyf,x
 :
     jmp offscreen_cull
+
+; C=1 if a player shot is within 56 px horizontally of Red Arremer X.
+ar_shot_near:
+    ldy #0
+@as_lp:
+    lda ps_active,y
+    beq @as_nx
+    lda ps_x_lo,y
+    sec
+    sbc ob_xl,x
+    sta oz_t0
+    lda ps_x_hi,y
+    sbc ob_xh,x
+    sta oz_t1
+    lda oz_t0
+    clc
+    adc #56
+    lda oz_t1
+    adc #0
+    bne @as_nx
+    lda oz_t0
+    clc
+    adc #56
+    cmp #112
+    bcc @as_yes
+@as_nx:
+    iny
+    cpy #ap_max_shots
+    bne @as_lp
+    clc
+    rts
+@as_yes:
+    sec
+    rts
 
 ; 6. Zombie ($0B, Stage 3, arcade $D25A):
 ;    Probes downward to solid/oneway floor (despawns if no floor below - never mid-air!),
@@ -1777,6 +1840,22 @@ u_pillar:
 @p_ret:
     rts
 @fire_st:
+    ; Animate Stone Pillar mouth opening / glowing during unshielded firing phase
+    lda ob_t0,x
+    and #7
+    bne :+
+    lda ob_mirror,x
+    eor #$40
+    sta ob_mirror,x
+:
+    lda ob_t0,x
+    cmp #48
+    bcs :+
+    cmp #36
+    bcc :+
+    lda #1
+    sta ob_flash,x              ; visual open-mouth charge cue before firing
+:
     lda ob_t0,x
     cmp #42
     bne @no_shot
@@ -2285,6 +2364,107 @@ fire_aimed_shot:
     ldy #>rf_FD02
     jmp set_anim
 
+; Woody Pig horizontal spear (rf_FD12, 2.0 px/F).
+fire_spear_shot:
+    jsr fire_aimed_shot
+    lda #0
+    sta ob_vyi,x
+    sta ob_vyf,x
+    lda ob_dir,x
+    beq :+
+    lda #$40
+:
+    sta ob_mirror,x
+    lda #<rf_FD12
+    ldy #>rf_FD12
+    jmp set_anim
+
+; Red Arremer fireball (rf_FDD7, aimed).
+fire_arremer_shot:
+    jsr fire_aimed_shot
+    lda #<rf_FDD7
+    ldy #>rf_FDD7
+    jmp set_anim
+
+; --- Dynamic Stage 4 eyeball moving platforms (all 16 arcade support $05 entries) ---
+s4_sync_platforms:
+    lda campaign_stage
+    cmp #4
+    bne @s4p_done
+    lda ap_riding_plat
+    bpl @s4p_done               ; Never swap while Arthur is riding a platform
+    lda player_x+1
+    cmp #4
+    bcc @s4_z
+    lda #3
+@s4_z:
+    cmp s2_plat_zone
+    beq @s4p_done
+    sta s2_plat_zone
+    ; Index = zone * 32 (4 slots x 8 bytes: type, x_lo, x_hi, y_lo, y_hi, span, timer, phase)
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    tay
+    ldx #0
+@s4_load:
+    lda s4_plat_zones,y
+    sta plat_type,x
+    iny
+    lda s4_plat_zones,y
+    sta plat_x_lo,x
+    iny
+    lda s4_plat_zones,y
+    sta plat_x_hi,x
+    iny
+    lda s4_plat_zones,y
+    sta plat_y,x
+    iny
+    lda s4_plat_zones,y
+    sta plat_y_hi,x
+    iny
+    lda s4_plat_zones,y
+    sta plat_span,x
+    iny
+    lda s4_plat_zones,y
+    sta plat_timer,x
+    iny
+    lda s4_plat_zones,y
+    sta plat_phase,x
+    iny
+    lda #0
+    sta plat_dx,x
+    sta plat_dy,x
+    inx
+    cpx #ap_max_plats
+    bne @s4_load
+@s4p_done:
+    rts
+
+s4_plat_zones:
+    ; Zone 0 (X = 0..255): local X = 120, 136, 168, 200
+    .byte 2, <120, >120, <184, >184, 64,  0, 0
+    .byte 2, <136, >136, <152, >152, 64, 32, 0
+    .byte 2, <168, >168, <136, >136, 80, 16, 1
+    .byte 2, <200, >200, <104, >104, 80, 48, 1
+    ; Zone 1 (X = 256..511): local X = 360, 456, 504, 520
+    .byte 2, <360, >360, <120, >120, 80,  0, 0
+    .byte 2, <456, >456, <200, >200, 64, 32, 1
+    .byte 2, <504, >504, <120, >120, 80, 16, 0
+    .byte 2, <520, >520, <168, >168, 80, 48, 1
+    ; Zone 2 (X = 512..767): local X = 664, 680, 696, 776
+    .byte 2, <664, >664, <136, >136, 80,  0, 0
+    .byte 2, <680, >680, <168, >168, 80, 32, 1
+    .byte 2, <696, >696, <88,  >88,  80, 16, 0
+    .byte 2, <776, >776, <120, >120, 80, 48, 1
+    ; Zone 3 (X >= 768): local X = 984, 1000, 1032 (plus 776)
+    .byte 2, <776,  >776,  <120, >120, 80, 32, 0
+    .byte 2, <984,  >984,  <120, >120, 80,  0, 0
+    .byte 2, <1000, >1000, <200, >200, 80, 48, 1
+    .byte 2, <1032, >1032, <168, >168, 80, 16, 0
+
 ; A = signed Y offset from pillar
 fire_pillar_shot:
     sta oz_t2
@@ -2384,26 +2564,51 @@ u_item:
     bne :+
     jmp free_slot
 :
+    ; Fall to ground if airborne so items never float mid-air where Arthur can't avoid them.
+    lda ob_state,x
+    bne @it_landed
+    jsr on_ground
+    bcs @it_snap
+    lda ob_yl,x
+    sec
+    sbc #2
+    sta ob_yl,x
+    bcs @it_ret
+    dec ob_yh,x
+    lda ob_yh,x
+    bpl @it_ret
+    jmp free_slot
+@it_snap:
+    jsr snap_ground
+    lda ob_yl,x
+    sec
+    sbc #8                      ; sit flush on floor for clean jump clearance
+    sta ob_yl,x
+    bcs :+
+    dec ob_yh,x
+:
+    inc ob_state,x
+@it_landed:
     ; Touch player?
     jsr calc_dx_player
     lda oz_dx
     clc
-    adc #16
+    adc #14
     tay
     lda oz_dx+1
     adc #0
     bne @it_ret
-    cpy #32
+    cpy #28
     bcs @it_ret
     jsr calc_dy_player
     lda oz_dy
     clc
-    adc #24
+    adc #12
     tay
     lda oz_dy+1
     adc #0
     bne @it_ret
-    cpy #48
+    cpy #24
     bcs @it_ret
     lda #snd_se_item
     jsr call_bank8_play_se

@@ -624,6 +624,31 @@ game_screen:
     jmp audio_tick
 clear_screen_idle:
     jsr wait_terrain_frame
+.ifdef REVG_STAGE1
+    lda arcade_mode
+    beq @csi_audio
+    lda scene
+    cmp #clear_scene
+    bne @csi_audio
+    ; Scroll the 512px Makai Map smoothly across both nametables ($2000 -> $2400).
+    lda campaign_stage
+    cmp #7
+    bne @csi_scroll
+    lda ap_loop
+    bne @csi_audio
+@csi_scroll:
+    lda fe_map_scroll_x
+    cmp #255
+    beq @csi_apply
+    inc fe_map_scroll_x
+@csi_apply:
+    bit $2002
+    lda fe_map_scroll_x
+    sta $2005
+    lda #0
+    sta $2005
+@csi_audio:
+.endif
     jmp audio_tick
 .if PRG_ROM_UNITS = 32
 title_screen_tick:
@@ -1510,6 +1535,11 @@ show_frontend_scene:
     jsr blank_display
     pla
     sta scene
+    cmp #map_scene
+    bne :+
+    lda #snd_song_map
+    jsr call_bank8_play_song
+:
     lda #2
     jsr select_bank2
     jsr fe_draw_scene
@@ -1517,6 +1547,20 @@ show_frontend_scene:
 
 update_frontend_scene:
     jsr wait_terrain_frame
+    lda scene
+    cmp #map_scene
+    bne :+
+    lda fe_map_scroll_x
+    cmp #255
+    beq @fe_apply_scr
+    inc fe_map_scroll_x
+@fe_apply_scr:
+    bit $2002
+    lda fe_map_scroll_x
+    sta $2005
+    lda #0
+    sta $2005
+:
     lda #2
     jsr select_bank2
     jsr fe_tick

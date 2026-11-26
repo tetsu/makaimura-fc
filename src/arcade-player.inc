@@ -1315,6 +1315,44 @@ ap_update_platforms:
     beq @do_moving_h
     cmp #plat_moving_v
     beq @do_moving_v
+    cmp #4                      ; plat_falling (arcade support $03 var 1: drops when stood on)
+    beq @do_falling
+    jmp @next_plat
+@do_falling:
+    lda plat_phase,x
+    bne @fall_drop
+    cpx ap_riding_plat
+    bne @fall_done
+    lda #1
+    sta plat_phase,x
+@fall_drop:
+    inc plat_y,x
+    bne :+
+    inc plat_y_hi,x
+:
+    lda #1
+    sta plat_dy,x
+    inc plat_timer,x
+    lda plat_timer,x
+    cmp plat_span,x
+    bcc @fall_done
+    ; Reached bottom of drop: reset back to starting Y so player is never soft-locked.
+    lda plat_y,x
+    sec
+    sbc plat_span,x
+    sta plat_y,x
+    bcs :+
+    dec plat_y_hi,x
+:
+    lda #0
+    sta plat_timer,x
+    sta plat_phase,x
+    sta plat_dy,x
+    cpx ap_riding_plat
+    bne @fall_done
+    lda #$ff
+    sta ap_riding_plat
+@fall_done:
     jmp @next_plat
 @do_moving_h:
     lda plat_phase,x
@@ -1366,7 +1404,9 @@ ap_update_platforms:
 @next_plat:
     inx
     cpx #ap_max_plats
-    bne @plat_loop
+    beq :+
+    jmp @plat_loop
+:
     rts
 
 ap_carry_player_on_platform:

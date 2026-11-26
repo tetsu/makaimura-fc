@@ -59,15 +59,16 @@ BANK_RESERVED = {9: 1, 5: 1, 10: 0x0AC1}  # Bank 10 already holds arcade-gfx-dat
 # 322 frames (measured with tools/mame/log-revg-sound.lua; total 516 frames).
 SONGS = [
     ("title", [(0, 0x36), (125 * 4, 0x3C), (189 * 4, 0x3D), (322 * 4, 0x3A)], False),   # opening demo
-    ("stage", [(0, 0x30), (1, 0x2B)], True),      # sections 0-1, after the start jingle
+    ("stage", [(0, 0x2B)], True),                 # sections 0-1 (graveyard and forest)
     ("boss", [(0, 0x2D)], True),                  # sections 0-1 boss pages
     ("clear", [(0, 0x3B)], False),                # stage clear cadence ($7361)
     ("gameover", [(0, 0x2F)], False),
-    ("stage3", [(0, 0x30), (1, 0x33)], True),     # sections 2-3
-    ("stage5", [(0, 0x30), (1, 0x29)], True),     # sections 4-5
+    ("stage3", [(0, 0x33)], True),                # sections 2-3
+    ("stage5", [(0, 0x29)], True),                # sections 4-5
     ("miss", [(0, 0x31)], False),                 # Arthur dies with lives left
     ("key", [(0, 0x3E)], False),                  # key appearance fanfare ($7409)
     ("name_entry", [(0, 0x26)], True),            # high-score name entry theme ($26)
+    ("map", [(0, 0x30)], False),                  # Makai progression map / start jingle ($30)
 ]
 
 # The VRC7 built-in patches (the 2019 die dump, as in Mesen's MesenCore.dll).

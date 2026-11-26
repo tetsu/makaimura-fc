@@ -27,6 +27,7 @@ gate_open_pending: .res 1       ; Non-zero: NMI writes 4 blank ($00) tiles at ga
 gate_open_hi: .res 1            ; PPU nametable address high byte for gate opening row
 gate_open_lo: .res 1            ; PPU nametable address low byte for gate opening row
 s2_plat_zone: .res 1            ; Stage 2 active moving-platform camera zone ($ff = none)
+fe_map_scroll_x: .res 1         ; Makai Map horizontal scroll X (0..255 across $2000->$2400)
 
 .segment "BANK56"
 .scope s567
@@ -288,6 +289,11 @@ alloc:
     sta ob_aux,x
     sta ob_aux2,x
     sta ob_carry,x
+    sta ob_cnt,x
+    sta ob_cur_l,x
+    sta ob_cur_h,x
+    sta ob_nxt_l,x
+    sta ob_nxt_h,x
     clc
     rts
 

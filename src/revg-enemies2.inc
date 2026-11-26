@@ -164,6 +164,10 @@ alloc:
     sta ob_aux,x
     sta ob_aux2,x
     sta ob_carry,x
+    sta ob_cur_l,x
+    sta ob_cur_h,x
+    sta ob_nxt_l,x
+    sta ob_nxt_h,x
     lda #$ff
     sta ob_src,x
     clc
@@ -1604,8 +1608,16 @@ u_plant:
     sta ob_state,x
     lda #ofl_shootable | ofl_harmful
     sta ob_flags,x
-    lda #<rf_475A
-    ldy #>rf_475A
+    jsr face_player
+    lda ob_dir,x
+    beq :+
+    lda #<rf_56E5               ; Plant facing left (arcade $56E5)
+    ldy #>rf_56E5
+    bne :++
+:
+    lda #<rf_56D7               ; Plant facing right (arcade $56D7)
+    ldy #>rf_56D7
+:
     jsr set_anim
     lda #80
     sta ob_t0,x
@@ -2053,9 +2065,9 @@ sync_platforms:
     rts
 
 s2_plat_zones:
-    ; Zone 0: Tower (X=384..464, X=664..744 across pit col 41..47)
-    .byte 2, <384,  >384,  <342, >342, 80,  0, 0
-    .byte 2, <664,  >664,  <384, >384, 80,  0, 0
+    ; Zone 0: Tower falling platforms (support $03: drop when Arthur steps on them)
+    .byte 4, <392,  >392,  <342, >342, 112, 0, 0
+    .byte 4, <704,  >704,  <384, >384, 96,  0, 0
     .byte 0, 0,     0,     0,    0,    0,   0, 0
     .byte 0, 0,     0,     0,    0,    0,   0, 0
     ; Zone 1: Ice Palace Channel 1 (2448, 2480, 2512) + Channel 2 left (2608)

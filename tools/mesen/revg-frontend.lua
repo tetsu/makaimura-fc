@@ -120,12 +120,12 @@ emu.addEventCallback(function()
     elseif step == 7 then
         if scene == CLEAR and sf >= 10 then
             local mapTiles = 0
-            for a = 0x2200, 0x237f do
+            for a = 0x2600, 0x277f do
                 if readNt(a) >= 0x40 then mapTiles = mapTiles + 1 end
             end
-            if not check(readNt(0x2108) == 0x38 and readNt(0x22d1) == 0x39 and mapTiles >= 140,
-                    string.format("Authentic Makai Map (Right/Castle) missing ($2108=%02x $22d1=%02x mapTiles=%d)",
-                        readNt(0x2108), readNt(0x22d1), mapTiles)) then return end
+            if not check(read(SND_SONG_ID) == 11 and readNt(0x2108) == 0x38 and readNt(0x26d1) == 0x39 and mapTiles >= 140,
+                    string.format("Authentic scrolling Makai Map (Right/Castle) missing (song=%d $2108=%02x $26d1=%02x mapTiles=%d)",
+                        read(SND_SONG_ID), readNt(0x2108), readNt(0x26d1), mapTiles)) then return end
             input = {start = true}
             nextStep()
         elseif not check(sf < 200, "Stage 4 did not reach Right Makai Map") then return end

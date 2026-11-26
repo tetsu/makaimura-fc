@@ -1457,6 +1457,10 @@ oz_item:
     jsr oz_fall
     bcc @out
     inc ob_state,x
+    lda ob_yl,x
+    sec
+    sbc #8                      ; sit flush on floor so Arthur can jump over unwanted drops
+    sta ob_yl,x
 @out:
     rts
 @landed:
@@ -1464,7 +1468,7 @@ oz_item:
     jsr oz_abs_d
     cmp #13
     bcs @out
-    cpy #17
+    cpy #12
     bcs @out
     ; Taken.
     jsr ob_free
@@ -1774,10 +1778,10 @@ revg_step_clear_seq:
     jsr call_bank8_play_song
     jmp @clear_draw
 @pose_wait:
-    ; Animate castle gate opening upward row-by-row ($26F3..$2653) during pose wait.
+    ; Animate castle gate opening upward row-by-row ($26F3..$2653) on Stages 1..3.
     lda campaign_stage
-    cmp #1
-    bne @pose_tick
+    cmp #4
+    bcs @pose_tick
     lda ap_clear_timer
     sec
     sbc #12
@@ -3644,8 +3648,6 @@ oz_unicorn:
 oz_unicorn_walk:
     lda #2
     sta ob_state,x
-    lda #0
-    sta ob_step,x               ; 0 = approach, 1 = pause, 2 = back-walk
     jsr oz_face_player
     lda #51
     jsr oz_uni_rnd64
@@ -3656,6 +3658,7 @@ oz_unicorn_walk:
     jsr oz_uni_seg_t
 oz_unicorn_set_walk_v:
     lda #0
+    sta ob_step,x               ; 0 = moving, 1 = paused
 oz_uni_walk_vx:
     pha
     lda #$88                    ; 0.53 px/F toward player
@@ -3680,8 +3683,7 @@ oz_unicorn_walking:
     cmp #32
     bcs :+
     jsr oz_shot_near
-    bcc :+
-    jmp oz_unicorn_leap
+    bcs @do_leap
 :
     dec ob_t1,x
     bne @no_aim
@@ -3698,9 +3700,10 @@ oz_unicorn_walking:
     bne @seg_check
     jsr oz_random
     and #1
-    bne :+
+    bne @do_charge
+@do_leap:
     jmp oz_unicorn_leap
-:
+@do_charge:
     ; Charge (1.80 px/F to 16 px past player).
     lda #4
     sta ob_state,x
@@ -3744,8 +3747,6 @@ oz_unicorn_walking:
     sta ob_step,x
     jmp ob_stop
 @approach_seg:
-    lda #0
-    sta ob_step,x
     jmp oz_unicorn_set_walk_v
 @walk_stomp:
     lda ob_step,x
@@ -3962,8 +3963,7 @@ oz_unicorn_aim:
     clc
     adc #8
     sta oz_t2
-    lda ob_yh,x
-    adc #0
+    lda #0                      ; Stage 1 boss arena is always page 0 (ob_yh == 0)
     sta oz_t3
     lda ob_dir,x
     pha
