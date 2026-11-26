@@ -177,25 +177,25 @@ draw_pan:
 :
 .endif
 .ifdef REVG_STAGE1
-    ; The real Stage 1 draws the arcade art by columns (revg-background.inc).
-    ; Stage 2+ uses 2-axis horizontal-mirroring scroll (revg_bg_active = 0).
+    ; Stage 1 uses vertical mirroring ($80) + column-streamed BG (revg_bg_active = 1).
+    ; Stage 2 uses horizontal mirroring ($81) + 2-axis streamed BG (revg_bg_active = 2).
     lda #0
     sta revg_bg_active
     lda arcade_mode
     beq pan_initial_rows
     lda campaign_stage
     cmp #1
+    beq @revg_stage1_bg
+    cmp #2
     bne pan_initial_rows
+    sta revg_bg_active
+    beq pan_initial_rows
+@revg_stage1_bg:
     sta revg_bg_active
     lda #$80
     sta $e000           ; Vertical mirroring: a 64-column ring.
-    lda prg_bank1
-    pha
-    lda #3
-    jsr select_bank1
-    jsr revg_bg_draw_screen
-    pla
-    jmp select_bank1
+    ldx #0
+    jmp call_bank50_bg
 .endif
 pan_initial_rows:
     jsr prepare_pan_row
@@ -438,6 +438,14 @@ pan_address_for_row:
     rts
 
 prepare_pan_row:
+.ifdef REVG_STAGE1
+    lda revg_bg_active
+    cmp #2
+    bne :+
+    ldx #4
+    jmp call_bank50_bg
+:
+.endif
     lda pan_need_row
     jsr pan_address_for_row
     lda pan_addr_hi
@@ -543,7 +551,8 @@ prepare_pan_column:
 .ifdef REVG_STAGE1
     lda revg_bg_active
     beq :+
-    jmp revg_prepare_column     ; Only the arcade camera (Bank 3) gets here.
+    ldx #3
+    jmp call_bank50_bg
 :
 .endif
     lda pan_tile_y
@@ -821,6 +830,20 @@ upload_pan_row:
     sta $2006
     lda pan_attr_addr
     sta $2006
+.ifdef REVG_STAGE1
+    lda revg_bg_active
+    cmp #2
+    bne @legacy_row_attr
+    ldx #0
+:
+    lda revg2_row_attr,x
+    sta $2007
+    inx
+    cpx #8
+    bne :-
+    rts
+@legacy_row_attr:
+.endif
     lda pan_attr_value
     ldx #8
 :

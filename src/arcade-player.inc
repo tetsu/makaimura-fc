@@ -556,12 +556,13 @@ ap_load_stage_visuals:
     lda #<arcade_spr_chr_bytes
     jsr upload_chr_patterns
 .ifdef REVG_STAGE1
-    ; The real Stage 1 streams its own background tiles into $25-$FF.
+    ; The real Stage 1/2 stream their own background tiles into $25-$FF.
     lda revg_bg_active
     beq @placeholder_bg
     pla
     jsr select_bank0
-    jsr revg_bg_load_all
+    ldx #1
+    jsr call_bank50_bg
     jmp @check_spr_pal
 @placeholder_bg:
 .endif
@@ -1223,7 +1224,8 @@ ap_pan_camera:
 @cam_y_ready:
 .ifdef REVG_STAGE1
     jsr prepare_pan_steps
-    jsr revg_bg_stream
+    ldx #2
+    jsr call_bank50_bg
 .else
     jsr prepare_pan
 .endif

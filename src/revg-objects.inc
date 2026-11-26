@@ -162,7 +162,7 @@ call_bank6_clear_seq:
     jsr select_bank2
     jsr revg_step_clear_seq
     bcs @clear_done
-    jsr draw_sprites
+    jsr ap_follow_camera
     jmp submit_frame
 @clear_done:
     jmp show_course_clear

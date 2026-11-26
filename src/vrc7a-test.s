@@ -42,6 +42,7 @@ bank_tag_base = $80
 .include "revg-section0-bg.inc"
 .include "revg-sprite-data.inc"
 .include "revg-frontend-data.inc"
+.include "revg-section1-bg.inc"
 revg_bg_banks
 .reloc
 ; The Stage 1 sprites (revg-objects.inc) follow from bank 24.
@@ -49,8 +50,12 @@ revg_bg_banks
 revg_spr_banks
 ; The title and the opening demo (revg-opening.inc) after them.
 revg_frontend_banks
-.repeat 30 - revg_bg_bank_count - revg_spr_bank_count - revg_frontend_bank_count, index
-    .byte bank_tag_base + 19 + revg_bg_bank_count + revg_spr_bank_count + revg_frontend_bank_count + index
+; Stage 2 background art follows from bank 31.
+.assert revg2_bg_map_bank = 19 + revg_bg_bank_count + revg_spr_bank_count + revg_frontend_bank_count, error, "Stage 2 BG banks must follow frontend"
+revg2_bg_banks
+.reloc
+.repeat 30 - revg_bg_bank_count - revg_spr_bank_count - revg_frontend_bank_count - revg2_bg_bank_count, index
+    .byte bank_tag_base + 19 + revg_bg_bank_count + revg_spr_bank_count + revg_frontend_bank_count + revg2_bg_bank_count + index
     .res $1fff, $ff
 .endrepeat
 .else

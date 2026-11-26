@@ -243,7 +243,13 @@ def main():
     parser.add_argument("--section", type=int, default=0)
     parser.add_argument("--preview", type=Path)
     parser.add_argument("--swap", type=int, default=97,
-                        help="camera column (16 px) where the forest palettes replace the graveyard's")
+                        help="camera column (16 px) where the second zone palettes replace palettes 2-3")
+    parser.add_argument("--prefix", default="revg_bg",
+                        help="symbol prefix for generated ca65 labels")
+    parser.add_argument("--first-bank", type=int, default=FIRST_BANK,
+                        help="first PRG bank number for this section's BG data")
+    parser.add_argument("--restarts", type=int, default=40,
+                        help="random restarts for palette fitting")
     args = parser.parse_args()
 
     ex = load_extractor()
@@ -258,18 +264,22 @@ def main():
     section = ex.section_settings(rom)[args.section]
     ids = ex.screen_ids(rom)
     tilemap = ex.section_map(rom, ids, section)
-    c0 = section["pages"]["columns"][0]
-    r0 = section["pages"]["rows"][0]
-    numbers = {pages[r0 * ex.GRID_COLUMNS + c]["palette"] for c in range(c0, section["pages"]["columns"][1] + 1)}
-    numbers.discard(0)
-    if len(numbers) != 1:
-        raise SystemExit(f"section {args.section} changes palettes between pages: {sorted(numbers)}")
-    arcade_palette = ex.palette_sets(rom, max(numbers))[numbers.pop()]
+    c0, c1 = section["pages"]["columns"]
+    r0, r1 = section["pages"]["rows"]
+    vpages = r1 - r0 + 1
+    pal_numbers = set()
+    for pr in range(r0, r1 + 1):
+        for pc in range(c0, c1 + 1):
+            pnum = pages[pr * ex.GRID_COLUMNS + pc]["palette"]
+            if pnum != 0:
+                pal_numbers.add(pnum)
+    default_pal = max(pal_numbers)
+    pal_sets = ex.palette_sets(rom, max(pal_numbers))
 
     width = tilemap["width"]
-    rows = list(range(FIRST_ROW, LAST_ROW + 1))
+    rows = list(range(FIRST_ROW, LAST_ROW + 1)) if vpages == 1 else list(range(0, 30))
 
-    # The forest palettes replace the graveyard's when the camera reaches column swap.
+    # The second zone palettes replace palettes 2-3 when the camera reaches column swap.
     # Every column visible on either side of that step uses only the shared palettes.
     swap = args.swap
 
@@ -278,20 +288,26 @@ def main():
             return 0
         return 1 if col > swap + VIEW_COLUMNS - 1 else 2
 
-    overlays = tombstone_overlays(args.rom)
+    overlays = tombstone_overlays(args.rom) if args.section == 0 else {}
 
-    # Arcade 16 px tiles as drawn, with the tombstones drawn over them.
+    # Arcade 16 px tiles as drawn, with any tombstones drawn over them.
     sources = {}          # arcade tile code -> 16x16 colour numbers
-    drawn_tiles = {}      # (code, flips and palette, zone, tombstone part) -> Tile16
+    drawn_tiles = {}      # (code, flips and palette, pal_set, zone, tombstone part) -> Tile16
     cells = [[None] * len(rows) for _ in range(width)]
     for r_index, row in enumerate(rows):
+        pr = r0 + (row // 16)
         for col, (code, attr) in enumerate(tilemap["tiles"][row]):
+            pc = c0 + (col // 16)
+            pnum = pages[pr * ex.GRID_COLUMNS + pc]["palette"]
+            if pnum == 0:
+                pnum = default_pal
             over = overlays.get((col, row))
-            key = (code & 0x3FF, attr & 0x37, zone(col), over)
+            key = (code & 0x3FF, attr & 0x37, pnum, zone(col), over)
             if key not in drawn_tiles:
                 if key[0] not in sources:
                     sources[key[0]] = gfx(key[0])
                 src = sources[key[0]]
+                arcade_palette = pal_sets[pnum]
                 colours = arcade_palette[8 * (attr & 7):8 * (attr & 7) + 8]
                 pixels = []
                 for y in range(16):
@@ -316,17 +332,21 @@ def main():
             weights[i] *= WATER_WEIGHT
         elif len(tile.hist) >= 3 and any(r > b + 35 and r > g for (r, g, b) in tile.hist):
             weights[i] *= WOOD_WEIGHT
-        if unique[i][3]:
+        if unique[i][4]:
             weights[i] *= TOMBSTONE_WEIGHT
     rgb_lab = {rgb: lab(rgb) for t in tiles for rgb in t.hist}
     candidates = sorted(c for c in NES_RGB if c != BLACK)
     zone_palettes = ((0, 1, 2, 3), (0, 1, 4, 5), (0, 1))
-    # The ground (arcade palette 6) runs through both halves and the swap, so it always
-    # uses palette 1 and looks the same everywhere.
-    # A tombstone over the grass keeps its greys: it may take any palette of its zone.
-    allowed = [(1,) if key[1] & 7 == GROUND_PALETTE and not key[3] else zone_palettes[key[2]]
-               for key in unique]
-    palettes, choice, dist = fit_palettes(tiles, weights, allowed, candidates, rgb_lab, FIXED_COLOURS)
+    if args.section == 0:
+        # The ground (arcade palette 6) runs through both halves and the swap, so it always
+        # uses palette 1 and looks the same everywhere.
+        allowed = [(1,) if key[1] & 7 == GROUND_PALETTE and not key[4] else zone_palettes[key[3]]
+                   for key in unique]
+    else:
+        allowed = [zone_palettes[key[3]] for key in unique]
+    palettes, choice, dist = fit_palettes(
+        tiles, weights, allowed, candidates, rgb_lab, FIXED_COLOURS, restarts=args.restarts
+    )
 
     # Palette 0 starts with the HUD colour (colour 1 of the text); the others go dark to light.
     def lightness(c):
@@ -365,7 +385,7 @@ def main():
             metatiles[meta] = len(metatile_list)
             metatile_list.append(meta)
         tile_meta[i] = metatiles[meta]
-    if len(metatile_list) > 256:
+    if vpages == 1 and len(metatile_list) > 256:
         raise SystemExit(f"{len(metatile_list)} metatiles do not fit a byte")
     vmap = [[tile_meta[index_of[key]] for key in col] for col in cells]
     exact_tiles = len(patterns)
@@ -457,20 +477,51 @@ def main():
     windows = [{renumber[t] for t in w} for w in windows]
     slots_used = max(slot_of) + 1
 
+    # Deduplicate metatiles after 8x8 tile merging, and if still > 256 (multi-page sections),
+    # merge the rarest metatile into its closest match (same attribute palette).
+    if len(metatile_list) > 256:
+        mt_dedup = {}
+        mt_new = []
+        mt_remap = []
+        for meta in metatile_list:
+            key = (*meta[:4], attribute_palette[meta[4]])
+            if key not in mt_dedup:
+                mt_dedup[key] = len(mt_new)
+                mt_new.append(meta)
+            mt_remap.append(mt_dedup[key])
+        metatile_list = mt_new
+        vmap = [[mt_remap[m] for m in col] for col in vmap]
+        if len(metatile_list) > 256:
+            mt_use = [0] * len(metatile_list)
+            for col in vmap:
+                for m in col:
+                    mt_use[m] += 1
+            blank_flat = np.zeros(64, dtype=np.int8)
+            pat_flat = [np.array(p, dtype=np.int8).reshape(64) for p in patterns]
+            mt_px = np.array([
+                np.concatenate([blank_flat if t == BLANK else pat_flat[t] for t in meta[:4]])
+                for meta in metatile_list
+            ])
+            alive = list(range(len(metatile_list)))
+            mrep = list(range(len(metatile_list)))
+            while len(alive) > 256:
+                drop = min(alive, key=lambda m: mt_use[m])
+                drop_ap = attribute_palette[metatile_list[drop][4]]
+                cands = [m for m in alive if m != drop and attribute_palette[metatile_list[m][4]] == drop_ap]
+                if not cands:
+                    cands = [m for m in alive if m != drop]
+                keep = min(cands, key=lambda m: int((mt_px[m] != mt_px[drop]).sum()))
+                alive.remove(drop)
+                for i in range(len(mrep)):
+                    if mrep[i] == drop:
+                        mrep[i] = keep
+                mt_use[keep] += mt_use[drop]
+            new_id = {m: i for i, m in enumerate(alive)}
+            metatile_list = [metatile_list[m] for m in alive]
+            vmap = [[new_id[mrep[m]] for m in col] for col in vmap]
+
     right = [sorted(windows[0])] + [sorted(windows[p] - windows[p - 1]) for p in range(1, camera_columns)]
     left = [[]] + [sorted(windows[p - 1] - windows[p]) for p in range(1, camera_columns)]
-
-    # Attribute bytes: one per 32 px column pair and attribute row 1-7 (rows 2-15).
-    def palette_at(col, row):
-        if col >= width or not FIRST_ROW <= row <= LAST_ROW:
-            return 0
-        return attribute_palette[metatile_list[vmap[col][row - FIRST_ROW]][4]]
-    attributes = []
-    for pair in range(0, width, 2):
-        for attr_row in range(1, 8):
-            top, bottom = 2 * attr_row, 2 * attr_row + 1
-            attributes.append(palette_at(pair, top) | palette_at(pair + 1, top) << 2
-                              | palette_at(pair, bottom) << 4 | palette_at(pair + 1, bottom) << 6)
 
     # Lay the data out in banks of the $C000 window.
     def chr_bytes(pattern):
@@ -478,16 +529,18 @@ def main():
         high = [sum(((pattern[y][x] >> 1) << (7 - x)) for x in range(8)) for y in range(8)]
         return low + high
 
+    pfx = args.prefix
+    first_bank = args.first_bank
     lines = [
         f"; Generated by tools/convert-revg-bg.py from Revision G section {args.section}.",
         f"; {exact_tiles} 8x8 tiles, {merged} merged into similar ones, {len(patterns)} left in {slots_used} CHR slots",
         f"; (largest camera window {largest}), {len(metatile_list)} metatiles.",
-        f"revg_bg_first_slot = ${FIRST_SLOT:02X}",
-        f"revg_bg_view_rows = {len(rows)}",
-        f"revg_bg_camera_columns = {camera_columns}",
-        f"revg_bg_margin = {MARGIN}",
-        f"revg_bg_swap_column = {swap}",
-        "; Palettes (in the map bank): 0-3 up to the swap; 2 and 3 become the forest's from it.",
+        f"{pfx}_first_slot = ${FIRST_SLOT:02X}",
+        f"{pfx}_view_rows = {len(rows)}",
+        f"{pfx}_camera_columns = {camera_columns}",
+        f"{pfx}_margin = {MARGIN}",
+        f"{pfx}_swap_column = {swap}",
+        "; Palettes (in the map bank): 0-3 up to the swap; 2 and 3 become zone 2 from it.",
         "; " + " ".join("/".join(f"{c:02X}" for c in p) for p in palettes),
     ]
     banks = []
@@ -497,21 +550,88 @@ def main():
         return banks[-1][1]
 
     def table(items, label, values):
-        items.append((label, list(values)))
+        if isinstance(values, tuple) and values and values[0] in ("__lo__", "__hi__"):
+            items.append((label, values))
+        else:
+            items.append((label, list(values)))
 
-    # Bank 19: the visual map as one table per row (indexed by column), the slots of
-    # each metatile's four tiles, and the attribute bytes per row (indexed by 32 px pair).
-    items = bank("visual map, metatiles and attributes")
-    for r in range(len(rows)):
-        table(items, f"revg_bg_map_row{r}", (vmap[col][r] for col in range(width)))
-    for q, name in enumerate(("tl", "tr", "bl", "br")):
-        table(items, f"revg_bg_mt_{name}", (0 if meta[q] == BLANK else FIRST_SLOT + slot_of[meta[q]]
-                                            for meta in metatile_list))
-    for r in range(7):
-        table(items, f"revg_bg_attr_row{r}", attributes[r::7])
-    table(items, "revg_bg_palette", (c for p in palettes[:4] for c in [BLACK] + p))
-    table(items, "revg_bg_palette_forest", (c for p in palettes[4:] for c in [BLACK] + p))
-    # Bank 20: the tiles to upload when the camera enters each column, for each direction.
+    def word_table(items, label, syms):
+        items.append((label, ("words", list(syms))))
+
+    if vpages == 1:
+        # Attribute bytes: one per 32 px column pair and attribute row 1-7 (rows 2-15).
+        def palette_at(col, row):
+            if col >= width or not FIRST_ROW <= row <= LAST_ROW:
+                return 0
+            return attribute_palette[metatile_list[vmap[col][row - FIRST_ROW]][4]]
+        attributes = []
+        for pair in range(0, width, 2):
+            for attr_row in range(1, 8):
+                top, bottom = 2 * attr_row, 2 * attr_row + 1
+                attributes.append(palette_at(pair, top) | palette_at(pair + 1, top) << 2
+                                  | palette_at(pair, bottom) << 4 | palette_at(pair + 1, bottom) << 6)
+        # Bank 19: the visual map as one table per row (indexed by column), the slots of
+        # each metatile's four tiles, and the attribute bytes per row (indexed by 32 px pair).
+        items = bank("visual map, metatiles and attributes")
+        for r in range(len(rows)):
+            table(items, f"{pfx}_map_row{r}", (vmap[col][r] for col in range(width)))
+        for q, name in enumerate(("tl", "tr", "bl", "br")):
+            table(items, f"{pfx}_mt_{name}", (0 if meta[q] == BLANK else FIRST_SLOT + slot_of[meta[q]]
+                                              for meta in metatile_list))
+        for r in range(7):
+            table(items, f"{pfx}_attr_row{r}", attributes[r::7])
+        table(items, f"{pfx}_palette", (c for p in palettes[:4] for c in [BLACK] + p))
+        table(items, f"{pfx}_palette_forest", (c for p in palettes[4:] for c in [BLACK] + p))
+        list_bank_offset = 1
+    else:
+        # 2-vertical-page layout (30 rows = 15 rows per nametable):
+        # Map Bank 0 = nametable 0 (rows 0..14, attr rows 0..7)
+        # Map Bank 1 = nametable 1 (rows 15..29, attr rows 0..7)
+        # Both map banks place mt_tl/tr/bl/br, map_lo/hi, attr_lo/hi at identical offsets!
+        def pal_at_2p(col, row):
+            if col >= width or not 0 <= row < len(rows):
+                return 0
+            return attribute_palette[metatile_list[vmap[col][row]][4]]
+        mt_cols = [
+            [0 if meta[q] == BLANK else FIRST_SLOT + slot_of[meta[q]] for meta in metatile_list]
+            + [0] * (256 - len(metatile_list))
+            for q in range(4)
+        ]
+        for page in range(2):
+            row_base = page * 15
+            items = bank(f"visual map page {page} (rows {row_base}-{row_base + 14}), metatiles and attributes")
+            # Fixed-offset tables first so Bank 0 and Bank 1 share identical addresses:
+            for q, name in enumerate(("tl", "tr", "bl", "br")):
+                table(items, f"{pfx}_mt_{name}" if page == 0 else None, mt_cols[q])
+            table(items, f"{pfx}_map_lo" if page == 0 else None,
+                  ("__lo__", [f"{pfx}_map_row{row_base + r}" for r in range(15)]))
+            table(items, f"{pfx}_map_hi" if page == 0 else None,
+                  ("__hi__", [f"{pfx}_map_row{row_base + r}" for r in range(15)]))
+            table(items, f"{pfx}_attr_lo" if page == 0 else None,
+                  ("__lo__", [f"{pfx}_attr_p{page}_r{ar}" for ar in range(8)]))
+            table(items, f"{pfx}_attr_hi" if page == 0 else None,
+                  ("__hi__", [f"{pfx}_attr_p{page}_r{ar}" for ar in range(8)]))
+            table(items, f"{pfx}_palette" if page == 0 else None,
+                  (c for p in palettes[:4] for c in [BLACK] + p))
+            table(items, f"{pfx}_palette_zone2" if page == 0 else None,
+                  (c for p in palettes[4:] for c in [BLACK] + p))
+            for r in range(15):
+                table(items, f"{pfx}_map_row{row_base + r}",
+                      (vmap[col][row_base + r] for col in range(width)))
+            for ar in range(8):
+                top = row_base + 2 * ar
+                bottom = top + 1
+                row_attrs = []
+                for pair in range(0, width, 2):
+                    val = (pal_at_2p(pair, top)
+                           | (pal_at_2p(pair + 1, top) << 2)
+                           | (pal_at_2p(pair, bottom) << 4)
+                           | (pal_at_2p(pair + 1, bottom) << 6))
+                    row_attrs.append(val)
+                table(items, f"{pfx}_attr_p{page}_r{ar}", row_attrs)
+        list_bank_offset = 2
+
+    # Upload list bank: the tiles to upload when the camera enters each column, for each direction.
     items = bank("upload lists")
     for name, lists in (("right", right), ("left", left)):
         flat, starts = [], []
@@ -519,50 +639,62 @@ def main():
             starts.append(len(flat))
             flat.extend(entries)
         starts.append(len(flat))
-        table(items, f"revg_bg_{name}_start_lo", (s & 0xFF for s in starts))
-        table(items, f"revg_bg_{name}_start_hi", (s >> 8 for s in starts))
-        table(items, f"revg_bg_{name}_id_lo", (t & 0xFF for t in flat))
-        table(items, f"revg_bg_{name}_id_hi", (t >> 8 for t in flat))
-    # Banks 21 and up: 256 tiles each from $C010, then their slots from $D010.
+        table(items, f"{pfx}_{name}_start_lo", (s & 0xFF for s in starts))
+        table(items, f"{pfx}_{name}_start_hi", (s >> 8 for s in starts))
+        table(items, f"{pfx}_{name}_id_lo", (t & 0xFF for t in flat))
+        table(items, f"{pfx}_{name}_id_hi", (t >> 8 for t in flat))
+    # Pattern banks: 256 tiles each from $C010, then their slots from $D010.
     pattern_banks = (len(patterns) + 255) // 256
     for b in range(pattern_banks):
         ids = range(256 * b, min(len(patterns), 256 * b + 256))
         items = bank(f"tiles {ids[0]}-{ids[-1]}")
         table(items, None, [0xFF] * 15)
-        table(items, "revg_bg_patterns" if b == 0 else None, (v for t in ids for v in chr_bytes(patterns[t])))
+        table(items, f"{pfx}_patterns" if b == 0 else None, (v for t in ids for v in chr_bytes(patterns[t])))
         table(items, None, [0xFF] * (0x1000 - 16 * len(ids)))
-        table(items, "revg_bg_slots" if b == 0 else None, (FIRST_SLOT + slot_of[t] for t in ids))
+        table(items, f"{pfx}_slots" if b == 0 else None, (FIRST_SLOT + slot_of[t] for t in ids))
 
     out = []
     for index, (comment, items) in enumerate(banks):
-        number = FIRST_BANK + index
+        number = first_bank + index
         out += [f"; Bank {number}: {comment}.", ".org $C000", f"    .byte bank_tag_base + {number}"]
         used = 1
         for label, values in items:
+            if isinstance(values, tuple) and values[0] in ("__lo__", "__hi__"):
+                kind, syms = values
+                used += len(syms)
+                if label:
+                    out.append(f"{label}:")
+                op = "<" if kind == "__lo__" else ">"
+                out.append("    .byte " + ", ".join(f"{op}{s}" for s in syms))
+                continue
             used += len(values)
             if used > BANK_SIZE:
-                raise SystemExit(f"bank {number} ({comment}) is over 8 KiB")
+                raise SystemExit(f"bank {number} ({comment}) is over 8 KiB ({used} B)")
             if label:
                 out.append(f"{label}:")
             for start in range(0, len(values), 32):
                 out.append("    .byte " + ", ".join(f"${v:02X}" for v in values[start:start + 32]))
         out.append(f"    .res ${BANK_BASE + BANK_SIZE:04X} - *, $FF")
     lines += [
-        f"revg_bg_map_bank = {FIRST_BANK}",
-        f"revg_bg_list_bank = {FIRST_BANK + 1}",
-        f"revg_bg_pattern_bank = {FIRST_BANK + 2}",
-        f"revg_bg_bank_count = {len(banks)}",
-        "; The data banks, placed by vrc7a-test.s in the padding from bank 19.",
-        ".macro revg_bg_banks",
+        f"{pfx}_map_bank = {first_bank}",
+        f"{pfx}_list_bank = {first_bank + list_bank_offset}",
+        f"{pfx}_pattern_bank = {first_bank + list_bank_offset + 1}",
+        f"{pfx}_bank_count = {len(banks)}",
+        f"; The data banks, placed by vrc7a-test.s in the padding from bank {first_bank}.",
+        f".macro {pfx}_banks",
         *out,
         ".endmacro",
     ]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    sizes = " + ".join(str(sum(len(v) for _, v in items)) for _, items in banks[:2])
+    sizes = " + ".join(
+        str(sum(len(v[1]) if isinstance(v, tuple) else len(v) for _, v in items))
+        for _, items in banks[:list_bank_offset + 1]
+    )
     print(f"{args.output}: {len(unique)} arcade tiles, {len(metatile_list)} metatiles, {exact_tiles} 8x8 tiles, "
           f"{merged} merged to {len(patterns)}, "
-          f"{slots_used}/{SLOT_COUNT} slots (largest window {largest}), map and list banks {sizes} B, palettes "
+          f"{slots_used}/{SLOT_COUNT} slots (largest window {largest}), map and list banks {sizes} B, "
+          f"{len(banks)} total banks, palettes "
           + " ".join("/".join(f"{c:02X}" for c in p) for p in palettes))
 
     if args.preview:

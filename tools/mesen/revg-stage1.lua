@@ -15,8 +15,8 @@ local PLAT_X_LO = 0x6042
 local PLAT_X_HI = 0x6046
 local PLAT_PHASE = 0x605a
 local KEY_COLLECTED = 0x60ab
-local OB_KIND = 0x698a
-local OB_FLAGS = 0x6b7e
+local OB_KIND = 0x699b
+local OB_FLAGS = 0x6b8f
 local SND_SONG_ID = 0x7800
 
 local TITLE, PLAY, CLEAR = 7, 4, 5
@@ -186,7 +186,7 @@ emu.addEventCallback(function()
         if not check(frame < bossFrame + 1200, "boss not beaten") then return end
         local bslot = findKind(7)
         if bslot ~= nil then
-            local bx = read(0x6a16 + bslot) + 256 * read(0x6a2a + bslot)
+            local bx = read(0x6a27 + bslot) + 256 * read(0x6a3b + bslot)
             if bx > x + 90 then
                 input = {right = true, b = frame % 10 == 0}
             elseif bx < x - 90 then
@@ -209,13 +209,14 @@ emu.addEventCallback(function()
         if read(SND_SONG_ID) == 4 then sawClearSong = true end
         local kslot = findKind(15)
         if kslot ~= nil then
-            local kx = read(0x6a16 + kslot) + 256 * read(0x6a2a + kslot)
+            local kx = read(0x6a27 + kslot) + 256 * read(0x6a3b + kslot)
             if x < kx - 4 then input = {right = true}
             elseif x > kx + 4 then input = {left = true} end
         end
         if scene == CLEAR then
-            if not check(sawBoss and sawKey and sawClearSong and read(KEY_COLLECTED) == 1,
-                    "clear after taking the key with clear song") then return end
+            local cam = readWord(CAMERA_X)
+            if not check(sawBoss and sawKey and sawClearSong and read(KEY_COLLECTED) == 1 and cam == 3328,
+                    string.format("clear after taking the key with clear song and cam==3328 (got %d)", cam)) then return end
             clearFrame = frame
             phase = "clear"
         end

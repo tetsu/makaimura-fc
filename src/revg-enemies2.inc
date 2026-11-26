@@ -1945,12 +1945,31 @@ u_key:
     lda oz_t0
     cmp #49
     bcs @ret
-    ; Picked up! Start 181F clear sequence
+    ; Picked up! Clear all objects/shots and start 181F clear sequence (arcade $7341).
+    ldy #ob_max - 1
+    lda #0
+@clr_ob:
+    sta ob_kind,y
+    sta ob_flags,y
+    dey
+    bpl @clr_ob
+    ldy #ap_max_shots - 1
+@clr_sh:
+    sta ps_active,y
+    dey
+    bpl @clr_sh
+    sta player_left
+    sta ap_crouch
+    sta ap_shoot_lock
+    sta ap_clear_key_y
+    lda #ap_state_ground
+    sta ap_state
     lda #1
     sta ap_key_collected
     sta ap_clear_seq
     lda #50
     sta ap_clear_timer
-    jmp free
+    lda #2                      ; 200 pts on key pickup
+    jmp ap_add_score
 
 .endscope

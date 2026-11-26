@@ -13,11 +13,11 @@ local PLAYER_FEET = 0x4e
 local AP_ARMOR = 0x6011
 local KEY_COLLECTED = 0x60ab
 local PLAYER_Y_HI = 0x60ac
-local OB_KIND = 0x698a
-local OB_XL = 0x6a16
-local OB_XH = 0x6a2a
-local OB_HP = 0x6b56
-local S2_BOSS_REM = 0x6c55
+local OB_KIND = 0x699b
+local OB_XL = 0x6a27
+local OB_XH = 0x6a3b
+local OB_HP = 0x6b67
+local S2_BOSS_REM = 0x6c66
 local SND_SONG_ID = 0x7800
 
 local TITLE, PLAY, CLEAR = 7, 4, 5
