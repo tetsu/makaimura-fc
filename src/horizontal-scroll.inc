@@ -509,6 +509,14 @@ terrain_nmi:
 .ifdef REVG_STAGE1
     lda fe_map_active
     beq @no_irq
+    ; Delay 12 cycles (+36 PPU dots) so hud_irq's final $2006 write lands cleanly in
+    ; scanline 127 HBlank (dots ~280..295), well past dot 256 (Y++) and before dot 320.
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
 .else
     bne @no_irq
 .endif

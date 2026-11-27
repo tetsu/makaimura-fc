@@ -77,7 +77,7 @@ rp_cnt: .res 1
 rp_prev_x: .res 2
 rp_prev_feet: .res 1
 rp_prev_lock: .res 1
-rp_flip: .res 1
+rp_prev_armor: .res 1           ; Cached ap_armor so armor transitions immediately reload anim
 rp_flip_timer: .res 1
 
 ; --- Objects (enemies, enemy shots, items, effects), updated in Bank 6 -----------------
@@ -156,7 +156,7 @@ call_bank6_objects:
     jmp select_bank2
 
 call_bank6_clear_seq:
-    lda #6
+    lda #7
     jsr select_bank2
     jsr revg_step_clear_seq
     bcs @clear_done
@@ -199,6 +199,7 @@ rs_init:
     sta rs_clock
     lda #$ff
     sta rp_kind
+    sta rp_prev_armor
     lda #<rf_9596
     sta rp_cur
     sta rp_last
@@ -874,12 +875,12 @@ rp_kind_clear = 14
 rp_start_lo:
     .byte <rf_9596, <rf_9596, <rf_965A, <rf_9732, <rf_966E, <rf_96DE, <rf_970A, <rf_9213, <rf_9213
     .byte <rf_9913, <rf_9927, <rf_9947, <rf_9ABE, <rf_9779, <rf_7374
-    .byte <rf_95F2, <rf_95F2, <rf_969A, <rf_9746, <rf_96A8, <rf_96F2, <rf_96F2, <rf_91FF, <rf_91FF
+    .byte <rf_95F2, <rf_95F2, <rf_969A, <rf_9746, <rf_96A8, <rf_96F2, <rf_96F2, <rf_9221, <rf_9221
     .byte <rf_9913, <rf_9927, <rf_9947, <rf_9ABE, <rf_9779, <rf_7374
 rp_start_hi:
     .byte >rf_9596, >rf_9596, >rf_965A, >rf_9732, >rf_966E, >rf_96DE, >rf_970A, >rf_9213, >rf_9213
     .byte >rf_9913, >rf_9927, >rf_9947, >rf_9ABE, >rf_9779, >rf_7374
-    .byte >rf_95F2, >rf_95F2, >rf_969A, >rf_9746, >rf_96A8, >rf_96F2, >rf_96F2, >rf_91FF, >rf_91FF
+    .byte >rf_95F2, >rf_95F2, >rf_969A, >rf_9746, >rf_96A8, >rf_96F2, >rf_96F2, >rf_9221, >rf_9221
     .byte >rf_9913, >rf_9927, >rf_9947, >rf_9ABE, >rf_9779, >rf_7374
 ; Kinds that show their first frame only.
 rp_still:
@@ -991,6 +992,15 @@ rp_draw_player:
     bcc :+
     lda #$ff
     sta rp_kind
+    sta rp_prev_armor
+:
+    ; Reload animation whenever kind or armor state changes.
+    lda ap_armor
+    cmp rp_prev_armor
+    beq :+
+    sta rp_prev_armor
+    lda #$ff
+    sta rp_kind
 :
     lda rs_tmp+2
     cmp rp_kind
@@ -1039,17 +1049,6 @@ rp_draw_player:
     sta rp_next+1
     lda rs_a_cnt
     sta rp_cnt
-    ; The naked climb has one frame, mirrored every 6 frames (the armoured one has both).
-    lda rp_kind
-    cmp #rp_kind_ladder
-    bne @shown
-    dec rp_flip_timer
-    bpl @shown
-    lda #5
-    sta rp_flip_timer
-    lda rp_flip
-    eor #$40
-    sta rp_flip
 @shown:
     lda player_x
     sta rp_prev_x
@@ -1076,19 +1075,15 @@ rp_draw_player:
     beq :+
     lda #$40
 :
-    sta rs_mirror
-    ; The naked climb takes its mirror from rp_flip.
-    lda rp_kind
-    cmp #rp_kind_ladder
+    ; Ladder animations ($9213/$9219 armored, $9221/$9227 naked) already alternate both sides.
+    ldx rp_kind
+    cpx #rp_kind_ladder
     bcc :+
-    cmp #rp_kind_ladder_still + 1
+    cpx #rp_kind_ladder_still + 1
     bcs :+
-    lda ap_armor
-    cmp #ap_armor_full
-    beq :+
-    lda rp_flip
-    sta rs_mirror
+    lda #0
 :
+    sta rs_mirror
     lda #$ff
     sta rs_pal
     lda player_x

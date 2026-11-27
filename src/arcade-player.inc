@@ -1511,7 +1511,8 @@ ap_step_ground_revg:
     bcc @stick_done
     lda ap_state
     cmp #ap_state_ladder
-    beq @done
+    bne @stick_done
+    rts
 @stick_done:
     lda ap_state
     cmp #ap_state_ladder
@@ -1537,11 +1538,34 @@ ap_step_ground_revg:
     bcs @release
     lda ap_state
     cmp #ap_state_ladder
-    bne @crouch_on
+    bne @crouch_diag_turn
     lda #0                      ; $9023
     sta ap_shot_phase
     sta ap_crouch
     jmp ap_ladder_move
+@crouch_diag_turn:
+    ; While crouching (including crouch-shooting) and holding diagonal Down+Left/Right,
+    ; allow immediately turning to face the opposite direction while staying crouched.
+    lda ap_crouch
+    beq @crouch_on
+    lda ap_pad
+    and #$02                    ; Left
+    bne @crouch_diag_l
+    lda ap_pad
+    and #$01                    ; Right
+    beq @crouch_on
+    lda #0
+    beq @crouch_diag_set
+@crouch_diag_l:
+    lda #1
+@crouch_diag_set:
+    cmp player_left
+    beq @crouch_on
+    sta player_left
+    lda #0
+    sta ap_shoot_lock
+    sta ap_shot_phase
+    beq @crouch_on
 @release:
     jsr ap_crouch_release       ; $902A
 @crouch_on:
@@ -1592,6 +1616,7 @@ ap_revg_stick:
     lda #ap_state_ladder
     sta ap_state
     lda #0
+    sta ap_crouch
     sta ap_shoot_lock
     sta ap_move_dir
     sec
@@ -1644,6 +1669,7 @@ ap_revg_stick:
     lda #ap_state_ladder
     sta ap_state
     lda #0
+    sta ap_crouch
     sta ap_move_dir
     beq @climb_down_anim
 @on_ladder:
@@ -1778,6 +1804,9 @@ ap_crouch_release:
     cmp player_left
     beq @facing
     sta player_left
+    lda #0
+    sta ap_shoot_lock
+    sta ap_shot_phase
     rts
 @facing:
     lda ap_shoot_lock
@@ -3745,6 +3774,8 @@ ap_hit_toward:
     lda #$ff
     sta ap_riding_plat
     lda #0
+    sta ap_crouch
+    sta ap_ladder_anim
     sta ap_shot_phase
     sta ap_kb_dying
     tax

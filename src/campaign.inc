@@ -112,53 +112,43 @@ upload_campaign_hud:
     lda arcade_mode
     bne @upload_arcade_hud
 .endif
-    lda #$20
-    sta $2006
     lda #$27
-    sta $2006
+    jsr @ppu20
     lda campaign_stage
     clc
     adc #campaign_zero
     sta $2007
-    lda #$20
-    sta $2006
     lda #$2e
-    sta $2006
+    jsr @ppu20
     lda campaign_lives
     clc
     adc #campaign_zero
     sta $2007
-    lda #$20
-    sta $2006
     lda #$35
-    sta $2006
+    jsr @ppu20
     lda campaign_clock
     sta $2007
     lda campaign_clock+1
     sta $2007
     lda campaign_clock+2
     sta $2007
-    lda #$20
-    sta $2006
     lda #$3c
-    sta $2006
+    jsr @ppu20
     ldx checkpoint_reached
     lda campaign_checkpoint_glyphs,x
     sta $2007
 .ifdef REVG_STAGE1
     jmp @hud_done
 @upload_arcade_hud:
-    ; Row 2: 1UP score ($2042), TOP SCORE ($204A), TIME M:SS ($2055), L# + weapon ($205B)
+    ; Row 2: PLAYER 1 score ($2042), TOP SCORE ($204E), TIME M:SS ($2056), L# + weapon ($205B)
     lda #$42
     ldx #0
     jsr @write_score6
-    lda #$4a
+    lda #$4e
     ldx #(ap_top_score - ap_score)
     jsr @write_score6
-    lda #$20
-    sta $2006
-    lda #$55
-    sta $2006
+    lda #$56
+    jsr @ppu20
     lda campaign_clock
     sta $2007
     lda #$17                    ; ':' colon tile uploaded in ap_load_stage_visuals
@@ -167,10 +157,8 @@ upload_campaign_hud:
     sta $2007
     lda campaign_clock+2
     sta $2007
-    lda #$20
-    sta $2006
     lda #$5b
-    sta $2006
+    jsr @ppu20
     lda #$0c                    ; L
     sta $2007
     lda campaign_lives
@@ -194,36 +182,49 @@ upload_campaign_hud:
     sta campaign_hud_dirty
     rts
 @write_score6:
-    ldy #$20
-    sty $2006
-    sta $2006
+    ; Right-aligned arcade score with leading-zero suppression (matches title screen "     0" / " 10000").
+    jsr @ppu20
+    ldy #0
+    sty revg_nmi_cnt            ; bit 7 = 0 while suppressing leading zeros
     ldy #4
-:
+@ws_loop:
     lda ap_score,x
+    bne @ws_dig
+    bit revg_nmi_cnt
+    bpl @ws_put                 ; A=0 -> blank space tile $00
+@ws_dig:
+    dec revg_nmi_cnt            ; $00 -> $FF (bit 7 stays 1 for <=127 digits)
     clc
     adc #campaign_zero
+@ws_put:
     sta $2007
     inx
     dey
-    bne :-
+    bne @ws_loop
+    lda #0
+    bit revg_nmi_cnt
+    bpl :+
+    lda #campaign_zero
+:
+    sta $2007
     lda #campaign_zero
     sta $2007
-    sta $2007
+    rts
+@ppu20:
+    ldy #$20
+    sty $2006
+    sta $2006
     rts
 .else
     lda arcade_mode
     beq @hud_done
-    lda #$20
-    sta $2006
     lda #$3e
-    sta $2006
+    jsr @ppu20
     ldx ap_weapon
     lda campaign_weapon_glyphs,x
     sta $2007
-    lda #$20
-    sta $2006
     lda #$49
-    sta $2006
+    jsr @ppu20
     ldx #0
 :
     lda ap_score,x
@@ -236,10 +237,8 @@ upload_campaign_hud:
     lda #campaign_zero
     sta $2007
     sta $2007
-    lda #$20
-    sta $2006
     lda #$56
-    sta $2006
+    jsr @ppu20
     lda ap_loop
     clc
     adc #campaign_zero + 1
@@ -247,6 +246,11 @@ upload_campaign_hud:
 @hud_done:
     lda #0
     sta campaign_hud_dirty
+    rts
+@ppu20:
+    ldy #$20
+    sty $2006
+    sta $2006
     rts
 .endif
 

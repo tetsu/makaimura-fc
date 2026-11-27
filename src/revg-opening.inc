@@ -89,8 +89,9 @@ op_start_b7:
     bne :-
     rts
 op_colon_tile:
-    .byte $00, $00, $18, $18, $00, $18, $18, $00
-    .res 8, 0
+    ; Authentic Revision G gg1.bin ':' ($3A): plane 0 = bright stroke, plane 1 = drop shadow.
+    .byte $00, $08, $00, $00, $08, $00, $00, $00
+    .byte $00, $10, $18, $00, $10, $18, $00, $00
 op_tick_b7:
     lda op_blackout
     beq @not_blackout

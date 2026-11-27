@@ -100,7 +100,7 @@ def to_nes_noise_index(ssg_noise: int) -> int:
     return max(0, min(15, int(round(ssg_noise * 15.0 / 31.0))))
 
 
-def encode_pulse_stream(frames, duty_bits: int = 0x80, vol_boost: int = 1):
+def encode_pulse_stream(frames, duty_bits: int = 0x80, vol_boost: int = 3):
     out = []
     last_per = 0x100
     peak_vol = 0
@@ -118,7 +118,7 @@ def encode_pulse_stream(frames, duty_bits: int = 0x80, vol_boost: int = 1):
     return out, peak_vol
 
 
-def encode_noise_stream(frames, vol_boost: int = 1, synth_from_tone: bool = False):
+def encode_noise_stream(frames, vol_boost: int = 3, synth_from_tone: bool = False):
     out = []
     last_idx = 4
     peak_vol = 0
@@ -132,7 +132,7 @@ def encode_noise_stream(frames, vol_boost: int = 1, synth_from_tone: bool = Fals
             out.extend([0x30 | vol, idx])
         elif synth_from_tone and tone is not None:
             # Impact noise envelope mirroring the tone-only Z80 damage SE (keeps APU Noise active).
-            vol = min(15, max(1, tone[0] - (i // 3)))
+            vol = min(15, max(1, tone[0] + 2 - (i // 3)))
             peak_vol = max(peak_vol, vol)
             idx = min(15, 4 + (i // 2))
             last_idx = idx

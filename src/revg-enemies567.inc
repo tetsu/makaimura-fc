@@ -90,8 +90,8 @@ ok_sx:     .byte  0, 12, 12, 12, 10, 16, 14, 12, 14, 12, 14,  0,  0,  0,  0,  0,
 ok_sylo:   .byte  0,$F0,$F0,$F6,$F3,$F0,$F0,$F4,$F2,$F6,$F7,  0,  0,  0,  0,  0,  0,  0
 ok_syhi:   .byte  0, 12,  8, 10, 13, 16, 16, 12, 14, 10,  9,  0,  0,  0,  0,  0,  0,  0
 ok_px:     .byte  0, 10, 10,  9, 16, 23, 16, 18, 14, 17, 30,  6,  0,  0,  0,  0,  0,  0
-ok_pylo:   .byte  0,$F4,$F8,$F6,$ED,$E5,$EE,$EF,$EF,$F5,$DA, $FA,  0,  0,  0,  0,  0,  0
-ok_pyhi:   .byte  0, 12,  8, 10, 19, 27, 18, 17, 17, 11, 38,  6,  0,  0,  0,  0,  0,  0
+ok_pylo:   .byte  0,$F4,$F8,$F6,$ED,$E5,$EE,$EF,$EF,$F5,$DA, $F0,  0,  0,  0,  0,  0,  0
+ok_pyhi:   .byte  0, 12,  8, 10, 19, 27, 18, 17, 17, 11, 38, 16,  0,  0,  0,  0,  0,  0
 
 ok_upd_lo:
     .byte <ret_rts, <u_pig, <u_bat, <u_devil, <u_arremer, <u_satan, <u_unicorn
@@ -2464,11 +2464,15 @@ astaroth_fire_tick:
 fire_aimed_shot:
     lda oz_kind_cnt+ok_shot
     cmp #4
-    bcs @fa_no
+    bcc :+
+    rts
+:
     jsr dir_to_player
     sta oz_t2
     jsr alloc
-    bcs @fa_no
+    bcc :+
+    rts
+:
     lda #ok_shot
     sta ob_kind,x
     inc oz_kind_cnt+ok_shot
@@ -2492,8 +2496,54 @@ fire_aimed_shot:
     sta ob_vyf,x
     lda #ofl_alive | ofl_touch
     sta ob_flags,x
+    ; Select authentic arcade projectile frame by shooter kind & direction:
+    ;   Pig=$FD12/$FD19, Devil=$FCE7, Arremer=$FDD7, Unicorn=$FDAB/$FDB3.
+    ldy oz_i
+    lda ob_kind,y
+    cmp #ok_pig
+    beq @fa_pig
+    cmp #ok_devil
+    beq @fa_devil
+    cmp #ok_arremer
+    beq @fa_arremer
+    lda ob_dir,y
+    bne @fa_uni_l
     lda #<rf_FDAB
     ldy #>rf_FDAB
+    jmp @fa_set
+@fa_uni_l:
+    lda #<rf_FDB3
+    ldy #>rf_FDB3
+    jmp @fa_set
+@fa_pig:
+    lda #0                      ; Woody Pig spear travels horizontally
+    sta ob_vyi,x
+    sta ob_vyf,x
+    lda ob_dir,y
+    bne @fa_pig_l
+    lda #2
+    sta ob_vxi,x
+    lda #0
+    sta ob_vxf,x
+    lda #<rf_FD12
+    ldy #>rf_FD12
+    jmp @fa_set
+@fa_pig_l:
+    lda #$fe
+    sta ob_vxi,x
+    lda #0
+    sta ob_vxf,x
+    lda #<rf_FD19
+    ldy #>rf_FD19
+    jmp @fa_set
+@fa_devil:
+    lda #<rf_FCE7
+    ldy #>rf_FCE7
+    jmp @fa_set
+@fa_arremer:
+    lda #<rf_FDD7
+    ldy #>rf_FDD7
+@fa_set:
     jsr set_anim
     ldx oz_i
 @fa_no:
@@ -2528,8 +2578,24 @@ fire_horiz_shot:
 @fh_an:
     lda #ofl_alive | ofl_touch
     sta ob_flags,x
-    lda #<rf_FD02
-    ldy #>rf_FD02
+    ; Dragon uses rf_FD9C flame; Big Man uses rf_FCF2 (R) / rf_FCFA (L).
+    ldy oz_i
+    lda ob_kind,y
+    cmp #ok_dragon
+    beq @fh_drg
+    lda ob_dir,y
+    bne @fh_bm_l
+    lda #<rf_FCF2
+    ldy #>rf_FCF2
+    jmp @fh_set
+@fh_bm_l:
+    lda #<rf_FCFA
+    ldy #>rf_FCFA
+    jmp @fh_set
+@fh_drg:
+    lda #<rf_FD9C
+    ldy #>rf_FD9C
+@fh_set:
     jsr set_anim
     ldx oz_i
 @fh_no:
@@ -2633,8 +2699,16 @@ fire_astaroth_shot:
     sta ob_vyf,x
     lda #ofl_alive | ofl_touch
     sta ob_flags,x
-    lda #<rf_FDBF
+    ldy oz_i
+    lda ob_dir,y
+    bne @fas_l_an
+    lda #<rf_FDBF               ; arcade $FDBF: Astaroth flame Right
     ldy #>rf_FDBF
+    jmp @fas_an
+@fas_l_an:
+    lda #<rf_FDC7               ; arcade $FDC7: Astaroth flame Left
+    ldy #>rf_FDC7
+@fas_an:
     jsr set_anim
     ldx oz_i
 @fas_no:
@@ -2869,12 +2943,10 @@ start_clear_seq:
     lda #1
     sta ap_key_collected
     sta ap_clear_seq
-    lda #40
+    lda #50                     ; arcade $7345: $32 frames walk to gate (step 2 plays $3B)
     sta ap_clear_timer
     lda #5
-    jsr ap_add_score
-    lda #snd_song_clear
-    jmp call_bank8_play_song
+    jmp ap_add_score
 
 ; --- Player Shot Hit Detection --------------------------------------------------------
 ; X = player shot slot (0..2). Returns C=1 if shot hit/absorbed, C=0 otherwise.

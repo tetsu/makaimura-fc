@@ -300,6 +300,7 @@ emu.addEventCallback(function()
         end
     elseif phase == "s7_lance_test" then
         write(AP_ARMOR, 2)
+        write(0x6012, 10) -- Keep invuln during deterministic weapon-damage test
         local nas, aidx = countKind(OK_ASTAROTH)
         if nas > 0 then
             sawS7Astaroth = true
@@ -318,6 +319,7 @@ emu.addEventCallback(function()
         end
     elseif phase == "s7_cross_kill" then
         write(AP_ARMOR, 2)
+        write(0x6012, 10) -- Keep invuln during deterministic Cross-kill test (Astaroth fireballs now use arcade +/-16 Y box)
         local nas, aidx = countKind(OK_ASTAROTH)
         if nas > 0 then
             local ax = read(OB_XL + aidx) - 44

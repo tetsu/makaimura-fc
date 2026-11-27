@@ -74,8 +74,8 @@ ok_sx:     .byte  0, 12, 12, 12, 12, 10, 12, 12, 12, 12,  0,  0,  0,  0,  0,  0,
 ok_sylo:   .byte  0,$F0,$F0,$F6,$F8,$F3,$EE,$E8,$F8,$F6,  0,  0,  0,  0,  0,  0,  0
 ok_syhi:   .byte  0, 12,  8, 10,  8, 13, 10, 24,  8, 10,  0,  0,  0,  0,  0,  0,  0
 ok_px:     .byte  0, 10, 10,  9, 10, 16,  9, 18,  8, 17,  6,  0,  0,  0,  0,  0,  0
-ok_pylo:   .byte  0,$F4,$F8,$F6,$F8,$ED,$ED,$D8,$DE,$F5,$FA,  0,  0,  0,  0,  0,  0
-ok_pyhi:   .byte  0, 12,  8, 10,  8, 19, 19, 40, 34, 11,  6,  0,  0,  0,  0,  0,  0
+ok_pylo:   .byte  0,$F4,$F8,$F6,$F8,$ED,$ED,$D8,$DE,$F5,$F0,  0,  0,  0,  0,  0,  0
+ok_pyhi:   .byte  0, 12,  8, 10,  8, 19, 19, 40, 34, 11, 16,  0,  0,  0,  0,  0,  0
 
 ok_upd_lo:
     .byte <ret_rts, <u_pig, <u_bat, <u_devil, <u_flyer, <u_arremer, <u_zombie
@@ -2364,19 +2364,21 @@ fire_aimed_shot:
     ldy #>rf_FD02
     jmp set_anim
 
-; Woody Pig horizontal spear (rf_FD12, 2.0 px/F).
+; Woody Pig horizontal spear (rf_FD12 R / rf_FD19 L, 2.0 px/F).
 fire_spear_shot:
     jsr fire_aimed_shot
     lda #0
     sta ob_vyi,x
     sta ob_vyf,x
-    lda ob_dir,x
-    beq :+
-    lda #$40
-:
     sta ob_mirror,x
+    lda ob_dir,x
+    bne @sp_l
     lda #<rf_FD12
     ldy #>rf_FD12
+    jmp set_anim
+@sp_l:
+    lda #<rf_FD19
+    ldy #>rf_FD19
     jmp set_anim
 
 ; Red Arremer fireball (rf_FDD7, aimed).
@@ -2542,8 +2544,14 @@ fire_pillar_shot:
     sta ob_vxf,x
     sta ob_vyi,x
     sta ob_vyf,x
-    lda #<rf_FD32
+    lda ob_dir,x
+    bne @pil_l
+    lda #<rf_FD32               ; arcade $FD32: Stone Pillar shot Right
     ldy #>rf_FD32
+    jmp set_anim
+@pil_l:
+    lda #<rf_FD40               ; arcade $FD40: Stone Pillar shot Left
+    ldy #>rf_FD40
     jmp set_anim
 
 fire_dragon_flame:
@@ -2770,12 +2778,10 @@ u_key:
     lda #1
     sta ap_key_collected
     sta ap_clear_seq
-    lda #40
+    lda #50                     ; arcade $7345: $32 frames walk to gate (step 2 plays $3B)
     sta ap_clear_timer
     lda #2                      ; 200 pts
-    jsr ap_add_score
-    lda #snd_song_clear
-    jmp call_bank8_play_song
+    jmp ap_add_score
 @k_ret:
     rts
 

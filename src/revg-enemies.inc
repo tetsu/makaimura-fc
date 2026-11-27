@@ -79,10 +79,10 @@ ok_points: .byte 0, 2,  1,   1,   1,  1, 10, 20, 20,  0,  0,   0,   0,  0,   0, 
 ok_sx:     .byte 0, 12, 12,  12,  12, 12, 10, 16, 12,  0,  0,   0,   0,  0,   0,   0,  0
 ok_sylo:   .byte 0,$EE,$F0,$F0, $F0,$F0,$F3,$EB,$F3,  0,  0,   0,   0,  0,   0,   0,  0
 ok_syhi:   .byte 0, 10,  8,  16,  16, 16, 13, 21, 13,  0,  0,   0,   0,  0,   0,   0,  0
-; Player box, standing: X half width, Y range of object Y - player Y.
+; Player box, standing: X half width, Y range of object Y - player Y (arcade $F0CA/$F4FE).
 ok_px:     .byte 0,  9, 10,  10,  14, 10, 16, 23, 30,  6,  0,   0,   0,  0,   0,   0,  0
-ok_pylo:   .byte 0,$ED,$F8,$F2, $F2,$EC,$ED,$E2,$E2,$FA,  0,   0,   0,  0,   0,   0,  0
-ok_pyhi:   .byte 0, 19,  8,  14,  14, 20, 19, 30, 30,  6,  0,   0,   0,  0,   0,   0,  0
+ok_pylo:   .byte 0,$ED,$F8,$F2, $F2,$EC,$ED,$E2,$E2,$F6,  0,   0,   0,  0,   0,   0,  0
+ok_pyhi:   .byte 0, 19,  8,  14,  14, 20, 19, 30, 30, 10,  0,   0,   0,  0,   0,   0,  0
 ; Update routines.
 ok_update_lo:
     .byte <ob_free_rts, <oz_zombie, <oz_crow, <oz_plant, <oz_pig, <oz_knight, <oz_arremer
@@ -1752,101 +1752,6 @@ oz_key:
     lda #2                      ; 200 pts on key pickup
     jmp ap_add_score
 
-; Arcade $7350-$7399 Stage Clear animation (runs in Bank 6, total 181 frames):
-;   ap_clear_seq = 1: walk right at +1.125 px/F for 50 frames (rf_9596 / rf_95F2)
-;   ap_clear_seq = 2: play $3B (snd_song_clear), hold arcade pose rf_7374 for 60 frames
-;   ap_clear_seq = 3: walk right at +1.125 px/F for 70 frames into the castle gate
-revg_step_clear_seq:
-    lda ap_clear_seq
-    cmp #1
-    beq @walk_step1
-    cmp #2
-    beq @pose_wait
-    jmp @walk_step3
-@walk_step1:
-    jsr @step_walk_right
-    dec ap_clear_timer
-    beq :+
-    jmp @clear_draw
-:
-    ; Arcade $735E: stop key jingle, start $3B clear cadence, hold rf_7374 for 60 frames.
-    lda #2
-    sta ap_clear_seq
-    lda #60                     ; arcade $7370: $3C frames
-    sta ap_clear_timer
-    lda #snd_song_clear
-    jsr call_bank8_play_song
-    jmp @clear_draw
-@pose_wait:
-    ; Animate castle gate opening upward row-by-row ($26F3..$2653) on Stages 1..3.
-    lda campaign_stage
-    cmp #4
-    bcs @pose_tick
-    lda ap_clear_timer
-    sec
-    sbc #12
-    cmp #41
-    bcs @pose_tick
-    tay
-    and #7
-    bne @pose_tick
-    tya
-    asl a
-    asl a
-    adc #$53                    ; C=0 (Y <= 40 -> Y*4 <= 160); $53+(timer-12)*4 = $F3..$53
-    sta gate_open_lo
-    lda #$26
-    sta gate_open_hi
-    lda #1
-    sta gate_open_pending
-@pose_tick:
-    dec ap_clear_timer
-    bne @clear_draw
-    ; Arcade $737E: resume walking right for 70 frames into the gate.
-    lda #3
-    sta ap_clear_seq
-    lda #70                     ; arcade $7383: $46 frames
-    sta ap_clear_timer
-    jmp @clear_draw
-@walk_step3:
-    jsr @step_walk_right
-    dec ap_clear_timer
-    bne @clear_draw
-    ; Arcade $7552: award Stage 1 BONUS 5000 and advance to course clear.
-    lda #50
-    jsr ap_add_score
-    lda #0
-    sta ap_clear_seq
-    sec                         ; signal call_bank6_clear_seq to call show_course_clear
-    rts
-@clear_draw:
-    clc                         ; keep animating: draw_sprites + submit_frame in FIXED
-    rts
-
-; Advance player_x right by +1.125 px/F (arcade $93B6: $01.$20), clamped to revg_goal_x.
-@step_walk_right:
-    lda ap_clear_key_y
-    clc
-    adc #$20
-    sta ap_clear_key_y
-    lda player_x
-    adc #1
-    sta player_x
-    lda player_x+1
-    adc #0
-    sta player_x+1
-    lda player_x
-    cmp stage_goal_x_lo
-    lda player_x+1
-    sbc stage_goal_x_hi
-    bcc :+
-    lda stage_goal_x_lo
-    sta player_x
-    lda stage_goal_x_hi
-    sta player_x+1
-:
-    rts
-
 ; --- Enemy shots -------------------------------------------------------------------------
 ; Spawn a shot at (oz_t0..oz_t3) aimed at the player at about 2.26 px (16 directions),
 ; animation A/Y. X = the shot.
@@ -2815,17 +2720,19 @@ oz_pig:
     sta ob_vxi,x
     lda #0
     sta ob_mirror,x
-    beq @shot_h_anim
+    lda #<rf_FD12               ; arcade $FD12: Woody Pig spear Right
+    ldy #>rf_FD12
+    jmp @shot_h_anim
 @shot_left:
     lda #$bb
     sta ob_vxf,x
     lda #$fd
     sta ob_vxi,x
-    lda #$40
+    lda #0
     sta ob_mirror,x
-@shot_h_anim:
-    lda #<rf_FD19
+    lda #<rf_FD19               ; arcade $FD19: Woody Pig spear Left
     ldy #>rf_FD19
+@shot_h_anim:
     jsr ob_anim
     jmp @shot_sfx
 @shot_vert:
@@ -2840,15 +2747,17 @@ oz_pig:
     sta ob_vyf,x
     lda #$fd
     sta ob_vyi,x
-    bne @shot_v_anim
+    lda #<rf_FD27               ; arcade $FD27: Woody Pig spear Down
+    ldy #>rf_FD27
+    jmp @shot_v_anim
 @shot_up:
     lda #$45
     sta ob_vyf,x
     lda #$02
     sta ob_vyi,x
-@shot_v_anim:
-    lda #<rf_FD20
+    lda #<rf_FD20               ; arcade $FD20: Woody Pig spear Up
     ldy #>rf_FD20
+@shot_v_anim:
     jsr ob_anim
 @shot_sfx:
     lda #snd_se_efire
@@ -4102,8 +4011,8 @@ oz_magician:
     lda #$80                    ; 1.5 px/F (arcade: 3 px per 2 frames)
     ldy #1
     jsr ob_set_vx_dir
-    lda #<rf_FD6E
-    ldy #>rf_FD6E
+    lda #<rf_FD8A               ; arcade $FD8A (shape 3): Magician frog spell
+    ldy #>rf_FD8A
     jsr ob_anim
     lda #snd_se_efire
     jsr call_bank8_play_se

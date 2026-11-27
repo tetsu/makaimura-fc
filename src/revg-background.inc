@@ -1323,15 +1323,19 @@ revg_upload_attr_run:
 revg_upload_done:
     lda gate_open_pending
     beq @gate_done
+    lda pan_ctrl
+    ora #4                      ; +32 vertical increment: clear 1 full 8-tile gate column
+    sta $2000
     lda gate_open_hi
     sta $2006
     lda gate_open_lo
     sta $2006
     lda #0
+    ldx #8
+:
     sta $2007
-    sta $2007
-    sta $2007
-    sta $2007
+    dex
+    bne :-
     sta gate_open_pending
 @gate_done:
     rts

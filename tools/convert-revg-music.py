@@ -516,13 +516,16 @@ def main():
                         (patch[7] & 0xF0) | min(3, patch[7] & 15),
                     ])
                     volume = max(0, volume - 2)
-                # Headroom & BGM/SFX balance: keep gameplay FM vivid and punchy (+2 = -6 dB
-                # instead of -12 dB) so melodies stay crisp like the arcade YM2203 while APU
-                # SFX still cut through; give short jingles (map/clear/key/miss) +1 (-3 dB).
+                # Headroom & BGM/SFX balance: attenuate VRC7 FM relative to 2A03 APU SEs so
+                # weapon throws, hits, damage, and pickups cut cleanly through gameplay BGM
+                # (gameplay +5 -> leads at +4 [-12 dB], harmony +5 [-15 dB], bass +6 [-18 dB];
+                # title/name_entry +4; short fanfares/jingles +3).
                 if name in ("map", "clear", "key", "miss", "gameover"):
-                    atten = 1
+                    atten = 3
+                elif name in ("title", "name_entry"):
+                    atten = 4
                 else:
-                    atten = 2
+                    atten = 5
                 volume = min(15, volume + atten)
                 if custom is None:
                     # Ensure gameplay lead custom patches have crisp attack & rich modulation

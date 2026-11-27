@@ -50,8 +50,8 @@ ok_sx:     .byte 0,12, 12, 14, 12, 12, 12, 10, 16,  0,  0,  0,  0,  0,  0,  0
 ok_sylo:   .byte 0,$F6,$F8,$F2,$F0,$F0,$EE,$F3,$EB, 0,  0,  0,  0,  0,  0,  0
 ok_syhi:   .byte 0,10,  8, 14,  8, 16, 10, 13, 21,  0,  0,  0,  0,  0,  0,  0
 ok_px:     .byte 0, 9, 10, 14, 10, 10,  9, 16, 23,  6,  0,  0,  0,  0,  0,  0
-ok_pylo:   .byte 0,$F6,$F8,$EF,$F8,$F2,$ED,$ED,$E2,$FA, 0,  0,  0,  0,  0,  0
-ok_pyhi:   .byte 0,10,  8, 17,  8, 14, 19, 19, 30,  6,  0,  0,  0,  0,  0,  0
+ok_pylo:   .byte 0,$F6,$F8,$EF,$F8,$F2,$ED,$ED,$E2,$F6, 0,  0,  0,  0,  0,  0
+ok_pyhi:   .byte 0,10,  8, 17,  8, 14, 19, 19, 30, 10,  0,  0,  0,  0,  0,  0
 
 ok_upd_lo:
     .byte <ret_rts, <u_devil, <u_flyer, <u_bigman, <u_crow, <u_plant, <u_zombie
@@ -415,8 +415,56 @@ fire_shot:
     sta ob_yl,x
     lda ob_yh,y
     sta ob_yh,x
+    ; Select authentic arcade Revision G projectile sprite by shooter kind & direction:
+    ;   Devil=$FCE7, Plant=$FD7C, Arremer=$FDD7, Unicorn=$FDAB/$FDB3, BigMan=$FCF2/$FCFA/$FD02.
+    lda ob_kind,y
+    cmp #ok_devil
+    beq @an_devil
+    cmp #ok_plant
+    beq @an_plant
+    cmp #ok_arremer
+    beq @an_arremer
+    cmp #ok_unicorn
+    beq @an_unicorn
+    ; Big Man ($03): Down ($FD02), Right ($FCF2), Left ($FCFA)
+    lda oz_t2
+    cmp #2
+    beq @an_bm_dn
+    lda ob_dir,y
+    bne @an_bm_l
+    lda #<rf_FCF2
+    ldy #>rf_FCF2
+    jmp @an_set
+@an_bm_l:
+    lda #<rf_FCFA
+    ldy #>rf_FCFA
+    jmp @an_set
+@an_bm_dn:
     lda #<rf_FD02
     ldy #>rf_FD02
+    jmp @an_set
+@an_devil:
+    lda #<rf_FCE7
+    ldy #>rf_FCE7
+    jmp @an_set
+@an_plant:
+    lda #<rf_FD7C
+    ldy #>rf_FD7C
+    jmp @an_set
+@an_arremer:
+    lda #<rf_FDD7
+    ldy #>rf_FDD7
+    jmp @an_set
+@an_unicorn:
+    lda ob_dir,y
+    bne @an_uni_l
+    lda #<rf_FDAB
+    ldy #>rf_FDAB
+    jmp @an_set
+@an_uni_l:
+    lda #<rf_FDB3
+    ldy #>rf_FDB3
+@an_set:
     jsr set_anim
     lda oz_t2
     cmp #1
@@ -1125,6 +1173,8 @@ u_devil:
     sta ob_t0,x
     lda #3                      ; 3 swoop passes
     sta ob_aux,x
+    lda #0                      ; 0 = hasn't fired arcade $08 shot yet
+    sta ob_aux2,x
     rts
 @snext:
     lda s2_win_flip
@@ -1167,7 +1217,9 @@ u_devil:
 
 @swoop:
     cmp #2
-    bne @leave
+    beq :+
+    jmp @leave
+:
     jsr move
     ; Floor clamp Y >= 54 ($A7FF)
     lda ob_yh,x
@@ -1180,6 +1232,62 @@ u_devil:
     lda #1
     sta ob_vyi,x
 :
+    ; Arcade $AC88-$AD10: Petit Devil fires 1 shot (type $08: rf_FCE7) when horizontally
+    ; aligned (|dy|<=16, |dx|>=50) or straight down when directly above (|dx|<=5, dy>=60).
+    lda ob_aux2,x
+    bne @dv_no_fire
+    jsr rel_player
+    ; Check |oz_dy| <= 16 -> (oz_dy + 16) in [0..32]
+    lda oz_dy
+    clc
+    adc #16
+    sta oz_t0
+    lda oz_dy+1
+    adc #0
+    bne @dv_chk_dn
+    lda oz_t0
+    cmp #33
+    bcs @dv_chk_dn
+    ; Require |oz_dx| >= 50 (not within [-49..+49])
+    lda oz_dx
+    clc
+    adc #49
+    sta oz_t0
+    lda oz_dx+1
+    adc #0
+    bne @dv_fire_h
+    lda oz_t0
+    cmp #99
+    bcc @dv_chk_dn
+@dv_fire_h:
+    jsr face_player
+    lda #1                      ; horizontal shot (rf_FCE7)
+    jsr fire_shot
+    inc ob_aux2,x
+    jmp @dv_no_fire
+@dv_chk_dn:
+    ; Directly above Arthur: oz_dy >= 60 and |oz_dx| <= 5
+    lda oz_dy+1
+    bmi @dv_no_fire
+    bne @dv_chk_dx5
+    lda oz_dy
+    cmp #60
+    bcc @dv_no_fire
+@dv_chk_dx5:
+    lda oz_dx
+    clc
+    adc #5
+    sta oz_t0
+    lda oz_dx+1
+    adc #0
+    bne @dv_no_fire
+    lda oz_t0
+    cmp #11
+    bcs @dv_no_fire
+    lda #2                      ; straight down shot (rf_FCE7)
+    jsr fire_shot
+    inc ob_aux2,x
+@dv_no_fire:
     dec ob_t0,x
     bne @chk_off
     dec ob_aux,x

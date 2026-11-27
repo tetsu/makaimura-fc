@@ -741,7 +741,7 @@ draw_campaign_hud_b7:
 @draw_arcade_hud:
     lda #$20
     sta $2006
-    lda #$22
+    lda #$21
     sta $2006
     ldx #0
 :
@@ -751,10 +751,116 @@ draw_campaign_hud_b7:
     cpx #arcade_hud_length
     bne :-
     rts
-arcade_hud_labels: ; 1UP      TOP SCORE    TIME
-    .byte $1c, $14, $10, 0, 0, 0, 0, 0, $13, $0f, $10, 0, $12, $04, $0f, $11, $06, 0, 0
+arcade_hud_labels: ; PLAYER 1  TOP SCORE  TIME (matches arcade title & gameplay HUD)
+    .byte $10, $0c, $02, $18, $06, $11, 0, $1c, 0, 0
+    .byte $13, $0f, $10, 0, $12, $04, $0f, $11, $06, 0, 0
     .byte $13, $0a, $0d, $06
 arcade_hud_length = * - arcade_hud_labels
+
+; Arcade $7350-$7399 Stage Clear animation (runs in Bank 7, total 181 frames):
+;   ap_clear_seq = 1: walk right at +1.125 px/F for 50 frames (rf_9596 / rf_95F2)
+;   ap_clear_seq = 2: play $3B (snd_song_clear), hold arcade pose rf_7374 for 60 frames,
+;                     open castle double doors horizontally in 2 steps ($75B8 -> 50F -> $75C5)
+;   ap_clear_seq = 3: walk right at +1.125 px/F for 70 frames into the castle gate
+revg_step_clear_seq:
+    lda ap_clear_seq
+    cmp #1
+    beq @walk_step1
+    cmp #2
+    beq @pose_wait
+    jmp @walk_step3
+@walk_step1:
+    jsr @step_walk_right
+    dec ap_clear_timer
+    beq :+
+    jmp @clear_draw
+:
+    ; Arcade $735E: stop key jingle, start $3B clear cadence, hold rf_7374 for 60 frames.
+    lda #2
+    sta ap_clear_seq
+    lda #60                     ; arcade $7370: $3C frames
+    sta ap_clear_timer
+    lda #snd_song_clear
+    jsr call_bank8_play_song
+    jmp @clear_draw
+@pose_wait:
+    ; Arcade $749E-$75C5: double wooden doors part horizontally in 2 steps (50F apart)
+    ; on Stages 1..6 (Stage 7 throne room has no castle gate):
+    ;   Half-open ($75B8) at timer 60/59: clear center 2 columns (col+2, col+3)
+    ;   Full-open ($75C5) at timer 10/9 : clear inner side columns (col+1, col+4)
+    ldx campaign_stage
+    beq @pose_tick
+    cpx #7
+    bcs @pose_tick
+    lda ap_clear_timer
+    ldy #3
+@gate_chk:
+    cmp @gate_timers,y
+    beq @gate_hit
+    dey
+    bpl @gate_chk
+    bmi @pose_tick
+@gate_hit:
+    dex                         ; 0..5 for Stages 1..6
+    lda @gate_offs,y
+    clc
+    adc @gate_lo,x
+    sta gate_open_lo
+    lda @gate_hi,x
+    sta gate_open_hi
+    lda #1
+    sta gate_open_pending
+@pose_tick:
+    dec ap_clear_timer
+    bne @clear_draw
+    ; Arcade $737E: resume walking right for 70 frames into the gate.
+    lda #3
+    sta ap_clear_seq
+    lda #70                     ; arcade $7383: $46 frames
+    sta ap_clear_timer
+    jmp @clear_draw
+@walk_step3:
+    jsr @step_walk_right
+    dec ap_clear_timer
+    bne @clear_draw
+    ; Arcade $7552: award Stage clear BONUS 5000 and advance to course clear.
+    lda #50
+    jsr ap_add_score
+    lda #0
+    sta ap_clear_seq
+    sec                         ; signal call_bank6_clear_seq to call show_course_clear
+    rts
+@clear_draw:
+    clc                         ; keep animating: draw_sprites + submit_frame in FIXED
+    rts
+@gate_timers: .byte 60, 59, 10, 9
+@gate_offs:   .byte 2,  3,  1,  4
+; Top-left nametable address (col 18, top row of 6x8 closed gate) for Stages 1..6:
+;   S1=$2652, S2=$2A52, S3=$29D2, S4=$2612, S5=$20D2, S6=$20D2
+@gate_hi: .byte $26, $2a, $29, $26, $20, $20
+@gate_lo: .byte $52, $52, $d2, $12, $d2, $d2
+@step_walk_right:
+    lda ap_clear_key_y
+    clc
+    adc #$20
+    sta ap_clear_key_y
+    lda player_x
+    adc #1
+    sta player_x
+    lda player_x+1
+    adc #0
+    sta player_x+1
+    lda player_x
+    cmp stage_goal_x_lo
+    lda player_x+1
+    sbc stage_goal_x_hi
+    bcc :+
+    lda stage_goal_x_lo
+    sta player_x
+    lda stage_goal_x_hi
+    sta player_x+1
+:
+    rts
 .else
 @draw_score_label:
     lda campaign_score_label,x

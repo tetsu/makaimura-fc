@@ -25,6 +25,9 @@ local openingOamMax = 0
 local oobVramWrites = 0
 local ppuRendering = false
 local zombieSeen = false
+local mapIrqBad = 0
+local mapIrqCount = 0
+local mapWCount = 0
 
 emu.addMemoryCallback(function(_, v)
     ppuRendering = ((v & 0x18) == 0x18)
@@ -38,6 +41,24 @@ emu.addMemoryCallback(function()
         end
     end
 end, emu.callbackType.write, 0x2007, 0x2007, emu.memType.nesMemory)
+
+-- Verify Makai Map raster split lands strictly inside scanline 127 HBlank (dots 260..315)
+-- so the bottom panorama never jitters by +/-1 scanline across dot 256.
+emu.addMemoryCallback(function()
+    if ppuRendering and (phase == "open_map" or phase == "retry") and emu.read(SCENE, emu.memType.nesMemory) == CLEAR then
+        local st = emu.getState()
+        local sl, cyc = st["ppu.scanline"], st["ppu.cycle"]
+        if sl >= 100 and sl < 200 then
+            mapWCount = mapWCount + 1
+            if mapWCount == 4 then
+                mapIrqCount = mapIrqCount + 1
+                if sl ~= 127 or cyc < 260 or cyc > 315 then
+                    mapIrqBad = mapIrqBad + 1
+                end
+            end
+        end
+    end
+end, emu.callbackType.write, 0x2005, 0x2006, emu.memType.nesMemory)
 
 local function read(addr) return emu.read(addr, emu.memType.nesMemory) end
 local function readWord(addr) return read(addr) + 256 * read(addr + 1) end
@@ -59,6 +80,7 @@ emu.addEventCallback(function() emu.setInput(input, 0) end, emu.eventType.inputP
 emu.addEventCallback(function()
     frame = frame + 1
     phaseFrame = phaseFrame + 1
+    mapWCount = 0
     input = {}
     if not check(frame < 7500, "timed out") then return end
     local scene = read(SCENE)
@@ -92,14 +114,18 @@ emu.addEventCallback(function()
     elseif phase == "open_map" then
         if scene == CLEAR and read(SND_SONG_ID) == 11 then sawOpenMap = true end
         if phaseFrame == 30 then
-            if not check(sawOpenMap, "Makai Map $30 jingle (song 11) did not play after opening") then return end
+            if not check(sawOpenMap and mapIrqCount >= 20 and mapIrqBad == 0,
+                    string.format("Makai Map $30 jingle or HBlank split failed (song=%s irq=%d bad=%d)",
+                        tostring(sawOpenMap), mapIrqCount, mapIrqBad)) then return end
             input = {start = true}
         elseif scene == PLAY then
             nextPhase("stage")
         elseif not check(phaseFrame < 400, "Makai Map after opening did not enter Stage 1") then return end
     elseif phase == "stage" then
         if read(SND_SONG_ID) == 2 then
-            local hud1up = (readNt(0x2022) == 0x1c and readNt(0x2023) == 0x14 and readNt(0x2024) == 0x10)
+            local hudP1 = (readNt(0x2021) == 0x10 and readNt(0x2022) == 0x0c and readNt(0x2023) == 0x02
+                and readNt(0x2028) == 0x1c and readNt(0x2036) == 0x13 and readNt(0x2039) == 0x06)
+            local hudShadow = (emu.read(0x10 * 16 + 8, emu.memType.nesChrRam) ~= 0)
             local chr00Clean = true
             for b = 0, 15 do
                 if emu.read(b, emu.memType.nesChrRam) ~= 0 then chr00Clean = false end
@@ -107,9 +133,9 @@ emu.addEventCallback(function()
             if not check(oobVramWrites == 0 and chr00Clean,
                     string.format("Stage 1 sky/VBlank corrupted (oob=%d chr00Clean=%s)",
                         oobVramWrites, tostring(chr00Clean))) then return end
-            if not check(readWord(PLAYER_X) == 96 and read(LIVES) == 3 and hud1up,
-                    string.format("Stage 1 start: x=%d lives=%d hud1up=%s",
-                        readWord(PLAYER_X), read(LIVES), tostring(hud1up))) then return end
+            if not check(readWord(PLAYER_X) == 96 and read(LIVES) == 3 and hudP1 and hudShadow,
+                    string.format("Stage 1 start: x=%d lives=%d hudP1=%s hudShadow=%s",
+                        readWord(PLAYER_X), read(LIVES), tostring(hudP1), tostring(hudShadow))) then return end
             nextPhase("zombies")
         elseif not check(phaseFrame < 60, "Stage 1 music did not start") then return end
     elseif phase == "zombies" then

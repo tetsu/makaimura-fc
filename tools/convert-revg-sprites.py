@@ -77,17 +77,21 @@ STATIC_FRAMES = [(0x798E, 3), (0x971E, 3), (0x7AD5, 1), (0x7AD8, 1), (0x7ADB, 1)
                  (0x4EB6, 4)]
 # Arthur's cheer after taking the key ($7374, set by the key sequence for 60 frames).
 STATIC_FRAMES += [(0x7374, 3)]
-# The walks Arthur uses in the opening, naked and armoured, as animations.
-EXTRA_ANIMATIONS += [(0x95F2, 3), (0x9596, 3)]
-# Stage 2 (Section 1) enemies: Petit Devil ($02), Purple Flyer ($04 walk & fly),
-# Big Man ($0A walk), and Big Man's projectile (enemyshot $03).
-EXTRA_ANIMATIONS += [(0xA893, 0), (0xB10B, 0), (0xB19E, 2), (0x50E4, 3), (0xFD02, 0)]
-STATIC_FRAMES += [(0x5170, 3), (0x5184, 3), (0x51B0, 3)]
-# Stage 3 & 4 (Sections 2 & 3) enemies: Bat ($01 var 2), Stone Pillar ($12) + shot ($05),
+# The walks Arthur uses in the opening, naked and armoured, as animations,
+# plus the authentic naked Arthur ladder climb ($9221 -> $9227 -> $9221, arcade $9231).
+EXTRA_ANIMATIONS += [(0x95F2, 3), (0x9596, 3), (0x9221, 3)]
+# Stage 2 (Section 1) enemies: Petit Devil ($02) + shot ($08: $FCE7), Purple Flyer ($04 walk & fly),
+# Big Man ($0A walk) + projectiles ($03: $FCF2 R, $FCFA L, $FD02 D), Woody Pig Down spear ($04: $FD27).
+EXTRA_ANIMATIONS += [
+    (0xA893, 0), (0xFCE7, 0), (0xB10B, 0), (0xB19E, 2), (0x50E4, 3),
+    (0xFCF2, 0), (0xFCFA, 0), (0xFD02, 0),
+]
+STATIC_FRAMES += [(0x5170, 3), (0x5184, 3), (0x51B0, 3), (0xFD27, 1)]
+# Stage 3 & 4 (Sections 2 & 3) enemies: Bat ($01 var 2), Stone Pillar ($12) + shots ($05: $FD32 R, $FD40 L),
 # Dragon ($0C head/fire/body/tail) + fire ($09), Fire Pillar ($0E idle & erupt).
 EXTRA_ANIMATIONS += [
     (0x49B2, 2), (0x49D0, 2),
-    (0xFD32, 0),
+    (0xFD32, 0), (0xFD40, 0),
     (0x5344, 3), (0x5352, 3), (0x53B4, 3), (0x53C2, 3),
     (0xD5CE, 1), (0xD615, 0), (0xFD9C, 0),
 ]
@@ -96,18 +100,17 @@ STATIC_FRAMES += [
     (0x55EC, 1), (0x5602, 8), (0x5631, 10),
 ]
 # Stage 5-7 (Sections 4-6) enemies & bosses: Satan ($06) + shot ($0B),
-# Floor Skull ($09), Astaroth ($0D) + shot ($0A), Cross item ($5B40).
+# Floor Skull ($09), Astaroth ($0D) + shots ($0A: $FDBF R, $FDC7 L), Cross item ($5B40).
 EXTRA_ANIMATIONS += [
     (0x4E2B, 4), (0xFDCF, 0),
     (0xCD04, 3),
-    (0x54C8, 6),
+    (0x54C8, 6), (0xFDBF, 0), (0xFDC7, 0),
     (0x5B40, 0),
 ]
 STATIC_FRAMES += [
     (0x4EA9, 4),
     (0xCB80, 0), (0xCC10, 2),
     (0x5512, 6), (0x553A, 6),
-    (0xFDBF, 0), (0xFDC7, 0),
 ]
 # Authentic moving/falling platforms from Sections 1, 3, 4:
 #   $5878 (shape 7, 64x16): Stage 2 Tower ice elevator / falling platform (support $03)
