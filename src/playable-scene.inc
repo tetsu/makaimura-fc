@@ -207,6 +207,9 @@ next_campaign_stage:
 @advance_stage:
     inc campaign_stage
 start_campaign_stage:
+    lda #0
+    sta checkpoint_reached
+retry_campaign_stage:
     jsr blank_display
     jsr reset_campaign_clock
     lda campaign_stage
@@ -218,7 +221,7 @@ start_campaign_stage:
     adc #arcade_stage_bank
 :
     jsr select_bank0
-    jmp show_pan_game
+    jmp draw_pan_game
 .endif
 
 start_course:

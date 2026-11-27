@@ -65,7 +65,7 @@ GROUPS = [
 # the skin ($17, $37), his face and the naked Arthur take it, and the armour, whose
 # lavender greys are closest to the light blues, takes the blue one. A None entry is
 # fitted freely (that gave $17 and $10: a brown face and body).
-PINNED = [[0x0F, 0x17, 0x37], [0x0F, 0x16, 0x27], [0x0F, 0x10, 0x20], [0x09, 0x17, 0x1A]]
+PINNED = [[0x0F, 0x17, 0x37], [0x0F, 0x16, 0x27], [0x0F, 0x22, 0x20], [0x09, 0x17, 0x1A]]
 
 # (first frame, shape): the armour, lance, axe and dagger items.
 EXTRA_ANIMATIONS = [(0x5B0C, 1), (0x5B20, 2), (0x5B32, 0), (0x5B4E, 0)]

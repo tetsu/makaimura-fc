@@ -2478,7 +2478,7 @@ fe_end_palettes:
     .byte $0f, $20, $27, $30, $0f, $28, $27, $38, $0f, $00, $10, $20, $0f, $11, $21, $31
     ; Sprites: 0=Arthur face/skin, 1=Heart red/gold, 2=Arthur silver-white armor,
     ;          3=Princess Prin Prin (arcade Pal 2: $24 lavender hair, $37 skin, $30 white gown)
-    .byte $0f, $0f, $17, $37, $0f, $0f, $16, $27, $0f, $0f, $10, $20, $0f, $24, $37, $30
+    .byte $0f, $0f, $17, $37, $0f, $0f, $16, $27, $0f, $0f, $22, $20, $0f, $24, $37, $30
 
 fe_end_hud_lines:
     fe_line $2022, "PLAYER 1"

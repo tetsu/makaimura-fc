@@ -96,7 +96,7 @@ emu.addEventCallback(function()
     local raftX = read(PLAT_X_LO) + 256 * read(PLAT_X_HI)
     local raftLeft = read(PLAT_PHASE) == 1
     local onGround = state == STATE_GROUND
-    if phase ~= "pit" and phase ~= "retry" and phase ~= "boss" and not check(state ~= STATE_MISS, "unexpected miss") then return end
+    if phase ~= "pit" and phase ~= "retry_map" and phase ~= "retry" and phase ~= "boss" and not check(state ~= STATE_MISS, "unexpected miss") then return end
 
     if phase == "boot" then
         if frame == 128 then
@@ -163,13 +163,26 @@ emu.addEventCallback(function()
         input = {right = true}
         if state == STATE_MISS then
             if not check(read(LIVES) == 2 and x >= PITS[1] and x < PITS[1] + 32, "miss in the first pit") then return end
+            -- Verify Sprite Palette 2 ($0F/$22/$20) so Arthur armor is silver-white and zombie upper body is blue (not black)
+            local p2_1 = emu.read(0x19, emu.memType.nesPaletteRam)
+            local p2_2 = emu.read(0x1a, emu.memType.nesPaletteRam)
+            local p2_3 = emu.read(0x1b, emu.memType.nesPaletteRam)
+            if not check(p2_1 == 0x0f and p2_2 == 0x22 and p2_3 == 0x20,
+                    string.format("Sprite Palette 2 must be $0F/$22/$20, got $%02X/$%02X/$%02X", p2_1, p2_2, p2_3)) then return end
+            -- Wait for real arcade death timer -> Makai Map (CLEAR scene) instead of frame-1 START shortcut!
+            phase = "retry_map"
+        end
+    elseif phase == "retry_map" then
+        if scene == CLEAR then
             input = {start = true}
             phase = "retry"
         end
     elseif phase == "retry" then
         if scene == PLAY and read(0x8000) == 0x8c and onGround and state ~= STATE_MISS then
-            if not check(x == CHECKPOINT_X and feet == FLOOR and camera == 1792 and read(LIVES) == 2,
-                    "checkpoint restart position, camera or lives") then return end
+            local panY = read(0x09)
+            if not check(x == CHECKPOINT_X and feet == FLOOR and camera == 1792 and panY == 0 and read(CHECKPOINT) == 1 and read(LIVES) == 2,
+                    string.format("checkpoint respawn mismatch (x=%d feet=%d cam=%d panY=%d cp=%d lives=%d)",
+                        x, feet, camera, panY, read(CHECKPOINT), read(LIVES))) then return end
             phase = "forest"
         end
     elseif phase == "forest" then

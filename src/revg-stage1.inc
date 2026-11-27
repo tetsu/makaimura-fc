@@ -24,7 +24,7 @@ revg_boss_hp = 10
 revg_boss_fire_period = 48
 
 revg_header:
-    stage_header revg_width, revg_height, revg_width / 16 - 1, 0, revg_start_x, revg_cp_x, revg_floor, revg_cp_page, 16, revg_goal_x, revg_floor, revg_map, revg_palettes
+    stage_header revg_width, revg_height, revg_width / 16 - 1, 0, revg_start_x, revg_cp_x, revg_floor, revg_cp_page, 0, revg_goal_x, revg_floor, revg_map, revg_palettes
 .assert revg_header = stage_header_base, lderror, "Real stage header offset mismatch"
 .res $7f - (* - revg_header), $ff
 

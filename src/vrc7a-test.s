@@ -536,7 +536,7 @@ advance_campaign:
     beq @adv_next_stage
     lda #0
     sta fe_map_mode
-    jsr start_campaign_stage
+    jsr retry_campaign_stage
     jmp audio_tick
 @adv_next_stage:
 .endif

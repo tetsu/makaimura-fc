@@ -3,10 +3,14 @@
 -- -> walk into first tombstone until real Stage 1 zombies use up all 3 lives -> GAME OVER -> title.
 local SCENE = 0x07
 local LIVES = 0x15
+local CAMERA_X = 0x25
 local PLAYER_X = 0x4c
 local DEMO_ACTIVE = 0x0381
 local AP_STATE = 0x6010
-local OB_KIND = 0x698a
+local OB_KIND = 0x699b
+local OB_STATE = 0x69af
+local OB_XL = 0x6a27
+local OB_XH = 0x6a3b
 local SND_SONG_ID = 0x7800
 local SND_SE_ID = 0x7803
 
@@ -25,6 +29,7 @@ local openingOamMax = 0
 local oobVramWrites = 0
 local ppuRendering = false
 local zombieSeen = false
+local zombiePal2Ok = false
 local mapIrqBad = 0
 local mapIrqCount = 0
 local mapWCount = 0
@@ -131,12 +136,37 @@ emu.addEventCallback(function()
     elseif phase == "zombies" then
         -- Walk into the first tombstone and wait for real Stage 1 zombies to land hits.
         input = {right = true}
+        local camX = readWord(CAMERA_X)
         for slot = 0, 19 do
-            if read(OB_KIND + slot) == 1 then zombieSeen = true end
+            if read(OB_KIND + slot) == 1 then
+                zombieSeen = true
+                if read(OB_STATE + slot) == 2 then
+                    local zx = read(OB_XL + slot) + 256 * read(OB_XH + slot) - camX
+                    if zx >= 32 and zx <= 224 then
+                        local zPal2, zPal1 = 0, 0
+                        for s = 0, 63 do
+                            local sy = read(0x200 + s * 4)
+                            local sa = read(0x200 + s * 4 + 2) & 3
+                            local sx = read(0x200 + s * 4 + 3)
+                            if sy < 239 and sy >= 140 and math.abs(sx - zx) <= 16 then
+                                if sa == 2 then zPal2 = zPal2 + 1
+                                elseif sa == 1 then zPal1 = zPal1 + 1 end
+                            end
+                        end
+                        if zPal2 >= 4 then
+                            if not check(zPal1 == 0, string.format(
+                                "Walking zombie upper body fell back to Pal 1 (black-out)! pal2=%d pal1=%d", zPal2, zPal1)) then return end
+                            zombiePal2Ok = true
+                        end
+                    end
+                end
+            end
         end
         if read(AP_STATE) == STATE_MISS then
             deaths = deaths + 1
-            if not check(zombieSeen, "miss without a zombie") then return end
+            if not check(zombieSeen and zombiePal2Ok, string.format(
+                "miss without verified Pal-2 walking zombie (seen=%s pal2=%s)",
+                tostring(zombieSeen), tostring(zombiePal2Ok))) then return end
             nextPhase(deaths < 3 and "retry" or "game_over")
         end
     elseif phase == "retry" then
