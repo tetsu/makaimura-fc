@@ -1937,6 +1937,15 @@ oz_zombie:
 @walk_in:
     jmp oz_zombie_walk_start
 @rise:
+    ; rise1/rise2 are 16px-tall shapes (bottom at origin+7 vs +15 for 32px rise3/walk):
+    ; lower arcade Y by 8 px so the dirt mound & emerging zombie sit flush on the ground.
+    lda ob_yl,x
+    sec
+    sbc #8
+    sta ob_yl,x
+    bcs :+
+    dec ob_yh,x
+:
     lda #snd_se_rise
     jsr call_bank8_play_se
     lda #1
@@ -1968,6 +1977,14 @@ oz_zombie:
     lda ob_t0,x
     cmp #32
     bne :+
+    ; Switching from 16px rise2 (+7) to 32px rise3 (+15): restore arcade Y by +8 px.
+    lda ob_yl,x
+    clc
+    adc #8
+    sta ob_yl,x
+    bcc @rise3_anim
+    inc ob_yh,x
+@rise3_anim:
     lda #<rf_5283
     ldy #>rf_5283
     sta oz_t2
@@ -1983,7 +2000,9 @@ oz_zombie:
     rts
 @not_rising:
     cmp #2
-    bne @sinking
+    beq :+
+    jmp @sinking
+:
     ; Walk at 0.81 px; after passing the player walk on for 40-110 frames, then sink.
     ; Only probe the floor metatile when X crosses a 16-px metatile column boundary.
     lda ob_xl,x
@@ -2035,6 +2054,14 @@ oz_zombie:
     bcc @sink
     rts
 @sink:
+    ; Switching from 32px walk (+15) to 16px sink1/sink2 (+7): lower arcade Y by 8 px.
+    lda ob_yl,x
+    sec
+    sbc #8
+    sta ob_yl,x
+    bcs :+
+    dec ob_yh,x
+:
     lda #3
     sta ob_state,x
     lda #36

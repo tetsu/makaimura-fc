@@ -447,9 +447,7 @@ same_scene:
     lda #0
     sta demo_finish
     sta demo_active
-    sta op_fade
-    sta op_stage_song
-    jsr show_map_ready
+    jsr op_finish_to_play
     jmp audio_tick
 :
     ; After a death with lives left, show the arcade Makai Progression Map ("PLAYER ONE READY")

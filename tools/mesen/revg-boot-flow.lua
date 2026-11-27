@@ -105,22 +105,12 @@ emu.addEventCallback(function()
         if phaseFrame > 515 and demo == 1 and pal1 == 0x0f then
             blackoutFrames = blackoutFrames + 1
         end
-        if phaseFrame > 500 and demo == 0 and scene == CLEAR then
+        if phaseFrame > 500 and demo == 0 and scene == PLAY then
             if not check(sawTitleSong and sawStartSe and blackoutFrames >= 35 and openingOamMax >= 8,
-                    string.format("opening -> blackout (%dF) -> Makai Map (scene=%d song=%s se=%s oamMax=%d)",
+                    string.format("opening -> blackout (%dF) -> Stage 1 directly (scene=%d song=%s se=%s oamMax=%d)",
                         blackoutFrames, scene, tostring(sawTitleSong), tostring(sawStartSe), openingOamMax)) then return end
-            nextPhase("open_map")
-        elseif not check(phaseFrame < 700, string.format("opening did not reach Makai Map (scene=%d demo=%d)", scene, demo)) then return end
-    elseif phase == "open_map" then
-        if scene == CLEAR and read(SND_SONG_ID) == 11 then sawOpenMap = true end
-        if phaseFrame == 30 then
-            if not check(sawOpenMap and mapIrqCount >= 20 and mapIrqBad == 0,
-                    string.format("Makai Map $30 jingle or HBlank split failed (song=%s irq=%d bad=%d)",
-                        tostring(sawOpenMap), mapIrqCount, mapIrqBad)) then return end
-            input = {start = true}
-        elseif scene == PLAY then
             nextPhase("stage")
-        elseif not check(phaseFrame < 400, "Makai Map after opening did not enter Stage 1") then return end
+        elseif not check(phaseFrame < 700, string.format("opening did not enter Stage 1 directly (scene=%d demo=%d)", scene, demo)) then return end
     elseif phase == "stage" then
         if read(SND_SONG_ID) == 2 then
             local hudP1 = (readNt(0x2021) == 0x10 and readNt(0x2022) == 0x0c and readNt(0x2023) == 0x02
@@ -154,8 +144,9 @@ emu.addEventCallback(function()
         if scene == CLEAR and phaseFrame >= 70 and (phaseFrame % 30) == 10 then
             input = {start = true}
         elseif read(AP_STATE) ~= STATE_MISS and read(SCENE) == PLAY and readWord(PLAYER_X) == 96 then
-            if not check(sawRetryMap and read(LIVES) == 3 - deaths,
-                    string.format("retry after miss (sawRetryMap=%s lives=%d)", tostring(sawRetryMap), read(LIVES))) then return end
+            if not check(sawRetryMap and mapIrqCount >= 20 and mapIrqBad == 0 and read(LIVES) == 3 - deaths,
+                    string.format("retry after miss (sawRetryMap=%s irq=%d bad=%d lives=%d)",
+                        tostring(sawRetryMap), mapIrqCount, mapIrqBad, read(LIVES))) then return end
             nextPhase("zombies")
         end
     elseif phase == "game_over" then
