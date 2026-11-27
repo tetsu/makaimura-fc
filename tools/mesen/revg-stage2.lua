@@ -29,6 +29,7 @@ local input = {}
 local phaseFrame = 0
 local sawDevil, sawFlyer, sawBigMan, sawTwoUnicorns, sawOneRem, sawZeroRem, sawKey, sawClearSong =
     false, false, false, false, false, false, false, false
+local initAttrCol0 = {}
 
 local function read(addr) return emu.read(addr, emu.memType.nesMemory) end
 local function readWord(addr) return read(addr) + 256 * read(addr + 1) end
@@ -142,6 +143,39 @@ emu.addEventCallback(function()
         if countKind(OK_DEVIL) > 0 then sawDevil = true end
         if sawDevil or frame > phaseFrame + 180 then
             if not check(sawDevil, "Petit Devil ($02) should spawn on page 0") then return end
+            -- Snapshot attribute column 0 of $2800 (rows 1..7) at pan_x=0, then scroll right
+            -- across pan_x=1..24 and verify the left-edge $CC bits (cols 2..3) stay intact.
+            for r = 1, 7 do
+                initAttrCol0[r] = emu.read(0x7c0 + r * 8, emu.memType.nesNametableRam)
+            end
+            phaseFrame = frame
+            phase = "s2_scroll_attr"
+        end
+    elseif phase == "s2_scroll_attr" then
+        write(AP_ARMOR, 2); write(0x6012, 30)
+        local dt = frame - phaseFrame
+        local px = 128 + dt
+        write(PLAYER_X, px & 255); write(PLAYER_X + 1, px >> 8)
+        write(PLAYER_FEET, 400 & 255); write(PLAYER_Y_HI, 400 >> 8)
+        local cx = readWord(CAMERA_X)
+        if not check(read(CAMPAIGN_STAGE) == 2 and dt < 60,
+            string.format("Stage 2 scroll attr check stalled (stg=%d cx=%d)", read(CAMPAIGN_STAGE), cx)) then return end
+        if cx >= 1 and cx <= 8 then
+            for r = 1, 7 do
+                local cur = emu.read(0x7c0 + r * 8, emu.memType.nesNametableRam)
+                if not check(cur == initAttrCol0[r], string.format(
+                    "Stage 2 left-edge attr clobbered at cx=%d row=%d (got $%02X want $%02X)",
+                    cx, r, cur, initAttrCol0[r])) then return end
+            end
+        elseif cx >= 9 and cx <= 24 then
+            for r = 1, 7 do
+                local cur = emu.read(0x7c0 + r * 8, emu.memType.nesNametableRam)
+                if not check((cur & 0xcc) == (initAttrCol0[r] & 0xcc), string.format(
+                    "Stage 2 left-edge $CC attr clobbered at cx=%d row=%d (got $%02X want $%02X)",
+                    cx, r, cur & 0xcc, initAttrCol0[r] & 0xcc)) then return end
+            end
+        end
+        if cx >= 18 then
             -- Advance camera & player to page 4 (X=1152, building windows for Purple Flyer $04)
             write(CAMERA_X, 0); write(CAMERA_X + 1, 4)
             write(PLAYER_X, 1152 & 255); write(PLAYER_X + 1, 1152 >> 8)

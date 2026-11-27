@@ -2204,16 +2204,10 @@ fe_end_build_oam:
     sta z:rs_ox
     lda ap_loop
     beq @arthur_l1_stand        ; Loop 1 illusion: Arthur stands bewildered in empty room
-    lda #2                      ; frame 2 (rf_7374 cheer)
-    ldx fe_idle_lo
-    txa
-    and #$20
-    beq @cheer_pose
+    lda #2                      ; Loop 2 true ending: hold authentic helmet-off cheer (rf_7374)
+    bne @draw_arthur
 @arthur_l1_stand:
-    lda #0                      ; standing pose (rf_9596)
-    beq @draw_arthur
-@cheer_pose:
-    lda #2
+    lda #0                      ; standing pose with helmet (rf_9596)
 @draw_arthur:
     ldx #0                      ; mirror = 0 (facing right)
     ldy #168                    ; standing on row 23 balcony (Y=184 -> center Y=168)
@@ -2482,9 +2476,9 @@ fe_end_row_lo_tbl:
 fe_end_palettes:
     ; BG: 0=white text, 1=gold text, 2=castle balcony stone, 3=night stars
     .byte $0f, $20, $27, $30, $0f, $28, $27, $38, $0f, $00, $10, $20, $0f, $11, $21, $31
-    ; Sprites: 0=Arthur face/skin, 1=Heart red/gold, 2=Arthur silver-blue armor,
+    ; Sprites: 0=Arthur face/skin, 1=Heart red/gold, 2=Arthur silver-white armor,
     ;          3=Princess Prin Prin (arcade Pal 2: $24 lavender hair, $37 skin, $30 white gown)
-    .byte $0f, $0f, $17, $37, $0f, $0f, $16, $27, $0f, $0f, $22, $31, $0f, $24, $37, $30
+    .byte $0f, $0f, $17, $37, $0f, $0f, $16, $27, $0f, $0f, $10, $20, $0f, $24, $37, $30
 
 fe_end_hud_lines:
     fe_line $2022, "PLAYER 1"

@@ -201,35 +201,6 @@ revg_bg_draw_screen:
 @done:
     lda #0
     sta $2000                   ; Back to increment by 1 for the CHR uploads that follow
-    ; Stage 7 throne room: snapshot rows 16..23 ($2200..$22FF) and attr ($23E0..$23EF)
-    ; so hybrid BG Astaroth can restore the throne cleanly when stepping or defeated.
-    lda revg_bg_active
-    cmp #3
-    bne @done_ret
-    lda #$22
-    sta $2006
-    lda #$00
-    sta $2006
-    lda $2007                   ; PPU read-buffer prime
-    ldx #0
-:
-    lda $2007
-    sta s7_bg_orig_nt,x
-    inx
-    bne :-
-    lda #$23
-    sta $2006
-    lda #$e0
-    sta $2006
-    lda $2007                   ; PPU read-buffer prime
-    ldx #0
-:
-    lda $2007
-    sta s7_bg_orig_attr,x
-    inx
-    cpx #16
-    bne :-
-@done_ret:
     rts
 
 ; X = $23 or $27.
@@ -946,19 +917,48 @@ revg2_prepare_row:
     lda revg5_bg_attr_hi,y
     sta revg_ptr+1
 @ra_ptr_ok:
-    ; First attribute pair = (start_x + 3) >> 2 (covers all 8 visible attribute columns).
+    ; Split the seam attribute column (P_lo = start_x >> 2) into left ($33) & right ($CC) 16px
+    ; halves so neither screen edge changes color during 32-column horizontal ring scrolling.
     lda revg2_tmp2
-    clc
-    adc #3
-    sta revg2_tmp2
+    and #3
+    sta revg2_tmp1              ; rem = start_x & 3 (0..3)
     lda revg2_tmp3
-    adc #0
     lsr a
     ror revg2_tmp2
     lsr a
     ror revg2_tmp2
-    ldy revg2_tmp2              ; attr pair (0..111)
-    lda #8
+    ldy revg2_tmp2              ; P_lo (0..111)
+    tya
+    and #7
+    tax
+    lda revg2_tmp1
+    cmp #2
+    bcc @ra_seam_lo
+    lda (revg_ptr),y
+    and #$cc
+    sta revg2_tmp1
+    tya
+    clc
+    adc #8
+    tay
+    cpy #112
+    bcc :+
+    lda #0
+    beq @ra_seam_or
+:
+    lda (revg_ptr),y
+    and #$33
+@ra_seam_or:
+    ora revg2_tmp1
+    sta revg2_row_attr,x
+    ldy revg2_tmp2
+    jmp @ra_rest
+@ra_seam_lo:
+    lda (revg_ptr),y
+    sta revg2_row_attr,x
+@ra_rest:
+    iny                         ; P_lo + 1 .. P_lo + 7 (7 interior attribute columns)
+    lda #7
     sta revg_count
 @attr_loop:
     tya
@@ -1118,6 +1118,8 @@ revg2_prepare_column:
 :
 
     ; Compute 8 column attribute bytes spanning the visible vertical window.
+    ; Merge left-half ($33 = P_hi) and right-half ($CC = P_lo) on the 32-column ring seam:
+    ;   c = pan_data_x & 3: 0 -> pure P_lo, 1/2 -> (P_hi & $33)|(P_lo & $CC), 3 -> pure P_hi.
     lda pan_col_addr+1
     and #$28
     ora #$03
@@ -1125,8 +1127,30 @@ revg2_prepare_column:
     eor #$08
     sta revg2_attr_hi2          ; other nametable's attribute page
     lda revg_mcol
-    lsr a
-    sta revg2_tmp2              ; attr pair (0..111)
+    lsr a                       ; pan_data_x >> 2 (P_hi if moving right, P_lo if moving left)
+    sta revg2_tmp2
+    lda pan_data_x
+    sec
+    sbc pan_tile_x
+    cmp #2                      ; C=1 -> moving right (diff=32); C=0 -> moving left (diff=1)
+    bcc @ca_pair_ok
+    lda revg2_tmp2
+    sec
+    sbc #8                      ; P_lo = P_hi - 8
+    sta revg2_tmp2
+@ca_pair_ok:
+    lda pan_data_x
+    and #3                      ; c (0..3)
+    beq @ca_mode_set            ; c == 0 -> mode 0 (pure P_lo)
+    cmp #3
+    bne @ca_mode_blend
+    lda #2                      ; c == 3 -> mode 2 (pure P_hi)
+    bne @ca_mode_set
+@ca_mode_blend:
+    lda #1                      ; c == 1 or 2 -> mode 1 (blend)
+@ca_mode_set:
+    sta revg2_tmp3
+    lda revg2_tmp2              ; P_lo (low 3 bits == attr_col)
     and #7
     sta revg2_tmp0              ; attr_col (0..7)
     ora #$c0
@@ -1240,6 +1264,42 @@ revg2_prepare_column:
     lda revg5_bg_attr_hi,y
     sta revg_ptr+1
 @cattr_fetch:
+    lda revg2_tmp3
+    beq @cattr_lo               ; mode 0: pure P_lo
+    cmp #2
+    beq @cattr_hi               ; mode 2: pure P_hi
+    ; mode 1: (attr[P_hi] & $33) | (attr[P_lo] & $CC)
+    ldy revg2_tmp2
+    lda (revg_ptr),y
+    and #$cc
+    sta revg2_tmp1
+    tya
+    clc
+    adc #8
+    tay
+    cpy #112
+    bcc :+
+    lda #0
+    beq @cattr_or
+:
+    lda (revg_ptr),y
+    and #$33
+@cattr_or:
+    ora revg2_tmp1
+    jmp @cattr_st
+@cattr_hi:
+    lda revg2_tmp2
+    clc
+    adc #8
+    tay
+    cpy #112
+    bcc :+
+    lda #0
+    beq @cattr_st
+:
+    lda (revg_ptr),y
+    jmp @cattr_st
+@cattr_lo:
     ldy revg2_tmp2
     lda (revg_ptr),y
 @cattr_st:

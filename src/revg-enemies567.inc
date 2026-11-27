@@ -52,27 +52,6 @@ fe_end_row_hi: .res 1
 fe_end_row_lo: .res 1
 fe_end_fslot: .res 6            ; Starting CHR-RAM sprite slot for ending frames 0..5
 fe_end_row_buf: .res 32         ; 32-byte nametable row buffer for glitch-free page swaps
-; Stage 7 Astaroth hybrid BG+sprite renderer (keeps WRAM layout before fe_map_pin_late fixed)
-s7_spr_to_bg: .res 128          ; Sprite slot (0..127) -> Stage 7 BG tile ($A0..$EA), 0 = none
-s7_bg_orig_nt: .res 256         ; Snapshot of Stage 7 throne nametable rows 16..23 ($2200..$22FF)
-s7_bg_orig_attr: .res 16        ; Snapshot of Stage 7 throne attributes ($23E0..$23EF)
-s7_bg_active: .res 1            ; 1 while Astaroth's 4-col center torso is drawn on BG
-s7_bg_dirty: .res 1             ; 0=idle, 1=upload Astaroth+restore+attr, 2=restore+attr only
-s7_bg_col: .res 1               ; Current center tile column (BG covers col-2 .. col+1)
-s7_bg_fid_lo: .res 1            ; Last BG-drawn frame ID
-s7_bg_fid_hi: .res 1
-s7_bg_buf: .res 32              ; 4 cols x 8 vertical BG tiles for Astaroth's center
-s7_bg_rest_buf: .res 32         ; Up to 4 restored throne cols x 8 vertical tiles
-s7_bg_rest_n: .res 1            ; Number of columns to restore in VBlank (0, 1, or 4)
-s7_bg_rest_col: .res 1          ; First nametable column (0..31) to restore
-s7_bg_attr_r4: .res 8           ; Contiguous 16-byte attribute buffer for $23E0..$23EF
-s7_bg_attr_r5: .res 8
-s7_saw_ast: .res 1              ; 1 if Astaroth used BG hybrid path this frame
-rs_skip_center: .res 1          ; 1 while rs_emit skips center 4 cols (-16..+8) for BG Astaroth
-s7_next_bg: .res 1              ; Next free Stage 7 BG CHR tile ($A0..$F6) during preload
-s7_bg_mirror: .res 1            ; Last BG-drawn ob_mirror (0=left, $40=right)
-s7_bg_base_l: .res 16           ; Left-facing fallback center BG tiles (col*4 + row/2)
-s7_bg_base_r: .res 16           ; Right-facing (H-flipped) center BG tiles (col*4 + row/2)
 
 .segment "BANK56"
 .scope s567

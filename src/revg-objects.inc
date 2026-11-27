@@ -112,11 +112,10 @@ ob_carry: .res ob_max           ; non-zero: carries a pot (an item when it dies)
 ob_src: .res ob_max             ; the placed enemy it came from, or $ff
 
 .segment "CODE"
-; NMI: upload the sprite tiles that the last draw requested (up to rs_max_req) and any
-; Stage 7 hybrid BG Astaroth update. Called from revg_upload with the PPU in +1 mode.
+; NMI: upload the sprite tiles that the last draw requested (up to rs_max_req).
+; Called from revg_upload with the PPU in +1 mode.
 revg_spr_upload:
     lda rs_up_n
-    ora s7_bg_dirty
     beq @ret
     lda prg_bank2
     pha
@@ -210,37 +209,31 @@ revg_spr_palettes:
     .endrepeat
 .endmacro
 
-; Fast unrolled NMI sprite tile uploader (~278 cycles/tile, zero indexing overhead)
-; plus Stage 7 hybrid BG Astaroth nametable/attribute uploader.
+; Fast unrolled NMI sprite tile uploader (~278 cycles/tile, zero indexing overhead).
 revg_spr_upload_b7:
     lda rs_up_n
     bne :+
-    jmp @chk_s7_bg
+    rts
 :
     rs_upload_one_tile 0
     dec rs_up_n
     bne :+
-    jmp @chk_s7_bg
+    rts
 :
     rs_upload_one_tile 1
     dec rs_up_n
     bne :+
-    jmp @chk_s7_bg
+    rts
 :
     rs_upload_one_tile 2
     dec rs_up_n
     bne :+
-    jmp @chk_s7_bg
+    rts
 :
     rs_upload_one_tile 3
     lda #0
     sta rs_up_n
-@chk_s7_bg:
-    lda s7_bg_dirty
-    bne :+
     rts
-:
-    jmp s7_bg_upload_b7
 
 ; rs_fid -> its record bank at $8000 and rs_ptr.
 rs_map_fid:
@@ -561,14 +554,6 @@ rs_emit_mapped:
     bcc @next
     iny
     lda (rs_ptr),y              ; left
-    ldx rs_skip_center
-    beq @left_keep
-    clc
-    adc #16
-    cmp #32                     ; skip center 4 cols (-16, -8, 0, +8) drawn on BG
-    bcc @next
-    lda (rs_ptr),y
-@left_keep:
     bit rs_mirror
     bvc :+
     eor #$ff
@@ -749,8 +734,6 @@ revg_draw_sprites:
     sta rs_oam
     sta rs_full
     sta rs_req_n
-    sta s7_saw_ast
-    sta rs_skip_center
     ; Cap sprite CHR uploads to stay within NTSC VBlank (2273 cycles) alongside
     ; BG scroll nametable, BG CHR streaming, HUD updates, palette fades, and OAM DMA.
     ; Unrolled revg_spr_upload_b7 takes ~278 cyc/tile, fitting 4 tiles on clean frames.
@@ -809,13 +792,6 @@ revg_draw_sprites:
     jsr rs_draw_shots
     jsr rs_draw_objects
 @hide:
-    ; If Stage 7 Astaroth left BG hybrid mode (died, flipped, or rapid-fire), restore throne BG.
-    lda s7_bg_active
-    beq :+
-    lda s7_saw_ast
-    bne :+
-    jsr s7_bg_clear_b7
-:
     ; Hide the rest.
     lda rs_full
     bne @flush
@@ -1568,42 +1544,6 @@ rs_draw_objects:
     lda #1                      ; the hit flash: every other frame in the red palette
 :
     sta rs_pal
-    ; Stage 7 Astaroth hybrid BG+sprite path: center 4 cols on BG ($A0..$F7) in BOTH
-    ; left (ob_mirror=0) and right (ob_mirror=$40) directions -> always 4 sprites/scanline!
-    lda campaign_stage
-    cmp #7
-    bne @normal_draw
-    lda ob_kind,x
-    cmp #10                     ; ok_astaroth
-    bne @normal_draw
-@ast_bg_go:
-    lda #1
-    sta s7_saw_ast
-    sta rs_skip_center
-    lda ob_xl,x
-    clc
-    adc #4
-    and #$f8                    ; Snap to 8-px tile grid so BG center & sprite edges align seamlessly
-    sta rs_ox
-    lda #0
-    sta rs_ox+1
-    jsr rs_draw_or_last
-    lda #0
-    sta rs_skip_center
-    ldx rs_obj_i
-    lda rs_missing
-    bne @after_last_upd
-    lda rs_fid
-    sta ob_last_l,x
-    lda rs_fid+1
-    sta ob_last_h,x
-    lda rs_ox
-    lsr a
-    lsr a
-    lsr a                       ; A = draw_col (0..31)
-    jsr s7_bg_prepare_b7
-    jmp @after_last_upd
-@normal_draw:
     jsr rs_draw_or_last
     ldx rs_obj_i
     lda rs_missing
@@ -1647,15 +1587,9 @@ rs_draw_objects:
     rts
 
 ; ============================================================================
-; Boss Pre-loading (all stages, forced blank) & Stage 7 Hybrid BG Astaroth (BANK7)
+; Boss Pre-loading (all stages, forced blank) in BANK7
 ; ============================================================================
 rs_preload_boss_b7:
-    lda #0
-    sta s7_bg_active
-    sta s7_bg_dirty
-    sta s7_bg_rest_n
-    lda #$ff
-    sta s7_bg_col
     lda demo_active
     beq :+
     rts
@@ -1670,19 +1604,6 @@ rs_preload_boss_b7:
 :
     lda prg_bank0
     pha
-    lda campaign_stage
-    cmp #7
-    bne @pl_not_s7
-    ; Stage 7: clear s7_spr_to_bg[0..127] and set next free BG CHR tile = $A0
-    ldx #127
-    lda #0
-:
-    sta s7_spr_to_bg,x
-    dex
-    bpl :-
-    lda #$a0
-    sta s7_next_bg
-@pl_not_s7:
     ldx campaign_stage
     lda rs_pl_start_tbl,x
     sta rs_tmp+2                ; current index in rs_pl_frames (word index)
@@ -1751,10 +1672,7 @@ rs_preload_boss_b7:
     lda rs_tile_slot_3,y
 @pl_chk_done:
     beq @pl_alloc
-    sec
-    sbc #1
-    sta rs_ptile                ; existing sprite slot (0..127)
-    jmp @pl_chk_bg
+    jmp @pl_next_piece
 @pl_alloc:
     ; Allocate next sequential sprite slot from rs_clock and upload 32B to $1000+slot*32
     ldx rs_clock
@@ -1809,69 +1727,6 @@ rs_preload_boss_b7:
     asl a
     sta $2006
     jsr rs_pl_copy_32
-@pl_chk_bg:
-    ; Stage 7 only: upload unflipped left-facing center tiles for rf_54C8 (idx 7) & rf_54DA (idx 8)
-    ; into BG CHR $A0..$D7 (28 x 2 = 56 tiles), and save rf_54C8's 16 tiles in s7_bg_base_l.
-    lda campaign_stage
-    cmp #7
-    bne @pl_next_piece
-    lda rs_tmp+2
-    cmp #9                      ; Only indices 7 (rf_54C8) & 8 (rf_54DA) -> 28 tiles ($A0..$D7)
-    bcs @pl_next_piece
-    lda rs_px                   ; left
-    clc
-    adc #16
-    cmp #32
-    bcs @pl_next_piece
-    ldx rs_ptile
-    lda s7_spr_to_bg,x
-    bne @pl_have_lbg            ; already uploaded to BG CHR
-    lda s7_next_bg
-    sta s7_spr_to_bg,x
-    pha
-    lsr a
-    lsr a
-    lsr a
-    lsr a                       ; high byte of $0000 + bg_tile * 16
-    sta $2006
-    pla
-    asl a
-    asl a
-    asl a
-    asl a
-    sta $2006
-    inc s7_next_bg
-    inc s7_next_bg
-    jsr rs_pl_copy_32           ; Unflipped: rf_54C8/DA natively face LEFT!
-@pl_have_lbg:
-    ; For rf_54C8 (idx 7), also record s7_bg_base_l[col*4 + row/2] and upload right-facing copy!
-    lda rs_tmp+2
-    cmp #7
-    bne @pl_next_piece
-    jsr rs_map_fid
-    lda rs_pi
-    asl a
-    asl a
-    clc
-    adc #4                      ; piece+0 = top (-32, -16, 0, +16)
-    tay
-    lda (rs_ptr),y
-    clc
-    adc #32
-    lsr a
-    lsr a
-    lsr a
-    lsr a                       ; row_pair = 0..3
-    sta rs_tmp+0
-    lda rs_px                   ; left (-16, -8, 0, +8)
-    clc
-    adc #16
-    lsr a                       ; (left+16)/2 = 0, 4, 8, 12
-    ora rs_tmp+0                ; idx = col*4 + row_pair (0..15)
-    tay
-    ldx rs_ptile
-    lda s7_spr_to_bg,x
-    sta s7_bg_base_l,y
 @pl_next_piece:
     inc rs_pi
     lda rs_pi
@@ -1882,90 +1737,9 @@ rs_preload_boss_b7:
     inc rs_tmp+2
     jmp @pl_frame
 @pl_frames_done:
-    lda campaign_stage
-    cmp #7
-    bne @pl_done
-    ; Also upload right-facing (H-flipped) 16 center tiles of rf_54C8 into BG CHR $D8..$F7 (32 tiles).
-    lda #<rf_54C8
-    sta rs_fid
-    lda #>rf_54C8
-    sta rs_fid+1
-    lda #0
-    sta rs_pi
-@pl_rflip:
-    jsr rs_map_fid
-    lda rs_pi
-    asl a
-    asl a
-    clc
-    adc #4
-    tay
-    lda (rs_ptr),y              ; top
-    clc
-    adc #32
-    lsr a
-    lsr a
-    lsr a
-    lsr a                       ; row_pair 0..3
-    sta rs_tmp+0
-    iny
-    lda (rs_ptr),y              ; left
-    clc
-    adc #16
-    cmp #32
-    bcs @pl_rf_next
-    lsr a                       ; col*4 (0, 4, 8, 12)
-    ora rs_tmp+0                ; idx = col*4 + row_pair (0..15)
-    sta rs_tmp+1
-    iny
-    lda (rs_ptr),y              ; tid_lo
-    sta rs_tid
-    iny
-    lda (rs_ptr),y              ; attr
-    lsr a
-    lsr a
-    and #$07
-    sta rs_tid+1
-    lda s7_next_bg
-    ldy rs_tmp+1
-    sta s7_bg_base_r,y
-    pha
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    sta $2006
-    pla
-    asl a
-    asl a
-    asl a
-    asl a
-    sta $2006
-    inc s7_next_bg
-    inc s7_next_bg
-    jsr rs_pl_copy_32_hflip
-@pl_rf_next:
-    inc rs_pi
-    lda rs_pi
-    cmp #32
-    bne @pl_rflip
-    ; Set Stage 7 BG Palette 3 ($3F0C..$3F0F) to Astaroth crimson/gold/skin ($0F/$16/$27/$37).
-    lda #$3f
-    sta $2006
-    lda #$0c
-    sta $2006
-    ldx #0
-:
-    lda s7_ast_bg_pal3,x
-    sta $2007
-    inx
-    cpx #4
-    bne :-
 @pl_done:
     pla
     jmp select_bank0
-@pl_ret:
-    rts
 
 ; Copy 32 bytes of sprite tile (rs_tid) from revg_spr_tile_bank to PPU $2007.
 rs_pl_copy_32:
@@ -1996,45 +1770,6 @@ rs_pl_copy_32:
     bne :-
     rts
 
-; Copy 32 bytes of sprite tile (rs_tid) horizontally bit-reversed to PPU $2007 (for BG ob_mirror=$40).
-rs_pl_copy_32_hflip:
-    lda rs_tid+1
-    clc
-    adc #revg_spr_tile_bank
-    jsr select_bank0
-    lda rs_tid
-    pha
-    lsr a
-    lsr a
-    lsr a
-    ora #$80
-    sta rs_lptr2+1
-    pla
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    sta rs_lptr2
-    ldy #0
-@hf_byte:
-    lda (rs_lptr2),y
-    sta rs_tmp+0
-    ldx #8
-    lda #0
-@hf_bit:
-    lsr rs_tmp+0
-    rol a
-    dex
-    bne @hf_bit
-    sta $2007
-    iny
-    cpy #32
-    bne @hf_byte
-    rts
-
-s7_ast_bg_pal3:
-    .byte $0f, $16, $27, $37
 rs_pl_start_tbl:
     .byte 0, 0, 0, 2, 2, 4, 4, 7
 rs_pl_end_tbl:
@@ -2044,294 +1779,3 @@ rs_pl_frames:
     .word rf_5344, rf_53B4                                      ; 2..3: S3/S4 Dragon
     .word rf_4E2B, rf_4E36, rf_4EA9                             ; 4..6: S5/S6 Satan
     .word rf_54C8, rf_54DA, rf_54EC, rf_54FE, rf_5512, rf_553A  ; 7..12: S7 Astaroth (all 6)
-
-; Prepare Stage 7 hybrid BG update for Astaroth at tile column A (center of 4 BG cols col-2..col+1).
-s7_bg_prepare_b7:
-    ldx s7_bg_dirty
-    beq :+
-    rts                         ; Keep pending VBlank upload intact until consumed
-:
-    sta rs_tmp+0                ; draw_col
-    lda s7_bg_active
-    beq @prep_do
-    lda rs_tmp+0
-    cmp s7_bg_col
-    bne @prep_moved
-    lda rs_mirror
-    cmp s7_bg_mirror
-    bne @prep_do
-    lda rs_fid
-    cmp s7_bg_fid_lo
-    bne @prep_do
-    lda rs_fid+1
-    cmp s7_bg_fid_hi
-    bne @prep_do
-    rts                         ; Same column, facing, & frame -> zero VBlank work!
-@prep_moved:
-    ; Compute which throne column(s) were exposed by moving from s7_bg_col -> draw_col.
-    lda rs_tmp+0
-    sec
-    sbc s7_bg_col
-    cmp #1
-    beq @rest_left1
-    cmp #$ff
-    beq @rest_right1
-    ; Jumped >1 col: restore all 4 old columns
-    lda s7_bg_col
-    sec
-    sbc #2
-    sta s7_bg_rest_col
-    lda #4
-    sta s7_bg_rest_n
-    bne @fill_rest
-@rest_left1:
-    lda s7_bg_col
-    sec
-    sbc #2
-    sta s7_bg_rest_col
-    lda #1
-    sta s7_bg_rest_n
-    bne @fill_rest
-@rest_right1:
-    lda s7_bg_col
-    clc
-    adc #1
-    sta s7_bg_rest_col
-    lda #1
-    sta s7_bg_rest_n
-@fill_rest:
-    jsr s7_bg_fill_rest_buf
-@prep_do:
-    ; Fill s7_bg_buf[0..31] (4 cols x 8 rows) for BOTH left (rs_mirror=0) and right (rs_mirror=$40).
-    lda rs_mirror
-    bne @pb_right
-    ; Left-facing (native): use s7_spr_to_bg[slot], falling back to s7_bg_base_l for rf_54FE.
-    jsr rs_map_fid
-    ldx #0
-    ldy #4
-@pb_loop:
-    stx rs_pi
-    sty rs_py
-    iny
-    lda (rs_ptr),y              ; left (-16, -8, 0, +8)
-    clc
-    adc #16
-    cmp #32
-    bcs @pb_next                ; outer sprite column
-    and #$18                    ; col_idx * 8 (0, 8, 16, 24)
-    sta rs_tmp+1
-    dey
-    lda (rs_ptr),y              ; top (-32, -16, 0, +16)
-    clc
-    adc #32
-    lsr a
-    lsr a
-    lsr a                       ; row_idx (0, 2, 4, 6)
-    ora rs_tmp+1                ; buf_idx (0..30, even)
-    tay
-    lda rs_piece_slot,x
-    tax
-    lda s7_spr_to_bg,x
-    bne @pb_put
-    ; Fallback to rf_54C8 left-facing center tile at same (col, row_pair)
-    tya
-    lsr a                       ; (col*8 + row_idx) / 2 = col*4 + row_pair (0..15)
-    tax
-    lda s7_bg_base_l,x
-@pb_put:
-    sta s7_bg_buf,y
-    clc
-    adc #1
-    sta s7_bg_buf+1,y
-@pb_next:
-    ldx rs_pi
-    lda rs_py
-    clc
-    adc #4
-    tay
-    inx
-    cpx rs_count
-    bne @pb_loop
-    jmp @pb_attrs
-@pb_right:
-    ; Right-facing (ob_mirror=$40): place mirrored cols (3-col) from s7_bg_base_r ($D8..$F7).
-    ldx #0                      ; src col*4 + row_pair (0..15)
-@pbr_loop:
-    txa
-    and #$0c                    ; src col*4 (0, 4, 8, 12)
-    eor #$0c                    ; mirrored col*4 (12, 8, 4, 0)
-    asl a                       ; mirrored col*8 (24, 16, 8, 0)
-    sta rs_tmp+1
-    txa
-    and #3                      ; row_pair (0..3)
-    asl a                       ; row_idx (0, 2, 4, 6)
-    ora rs_tmp+1                ; dest buf_idx (0..30)
-    tay
-    lda s7_bg_base_r,x
-    sta s7_bg_buf,y
-    clc
-    adc #1
-    sta s7_bg_buf+1,y
-    inx
-    cpx #16
-    bne @pbr_loop
-@pb_attrs:
-
-    ; Build attribute rows 4 & 5 ($23E0..$23EF): base throne attrs + Palette 3 (%11) on Astaroth.
-    ldx #15
-:
-    lda s7_bg_orig_attr,x
-    sta s7_bg_attr_r4,x
-    dex
-    bpl :-
-    lda rs_tmp+0
-    sec
-    sbc #2                      ; first BG tile col (draw_col - 2)
-    sta rs_tmp+1
-    ldy #4
-@attr_col:
-    lda rs_tmp+1
-    lsr a                       ; metatile col (0..15)
-    tax
-    lsr a                       ; attr byte index (0..7)
-    sta rs_tmp+2
-    txa
-    and #1
-    beq @attr_left
-    lda #$cc                    ; right half of 32x32 attr cell -> pal 3 (%11)
-    bne @attr_or
-@attr_left:
-    lda #$33                    ; left half of 32x32 attr cell -> pal 3 (%11)
-@attr_or:
-    ldx rs_tmp+2
-    pha
-    ora s7_bg_attr_r4,x
-    sta s7_bg_attr_r4,x
-    pla
-    ora s7_bg_attr_r5,x
-    sta s7_bg_attr_r5,x
-    inc rs_tmp+1
-    dey
-    bne @attr_col
-
-    lda rs_tmp+0
-    sta s7_bg_col
-    lda rs_mirror
-    sta s7_bg_mirror
-    lda rs_fid
-    sta s7_bg_fid_lo
-    lda rs_fid+1
-    sta s7_bg_fid_hi
-    lda #1
-    sta s7_bg_active
-    sta s7_bg_dirty
-    rts
-
-; Restore all 4 BG columns occupied by Astaroth back to the original throne room snapshot.
-s7_bg_clear_b7:
-    lda s7_bg_col
-    sec
-    sbc #2
-    sta s7_bg_rest_col
-    lda #4
-    sta s7_bg_rest_n
-    jsr s7_bg_fill_rest_buf
-    ldx #15
-:
-    lda s7_bg_orig_attr,x
-    sta s7_bg_attr_r4,x
-    dex
-    bpl :-
-    lda #0
-    sta s7_bg_active
-    lda #2
-    sta s7_bg_dirty
-    rts
-
-; Copy s7_bg_rest_n (1 or 4) columns starting at s7_bg_rest_col from s7_bg_orig_nt into s7_bg_rest_buf.
-s7_bg_fill_rest_buf:
-    lda s7_bg_rest_col
-    sta rs_tmp+1                ; current col (0..31)
-    lda s7_bg_rest_n
-    sta rs_tmp+2                ; cols left
-    ldy #0                      ; dest offset in s7_bg_rest_buf
-@fr_col:
-    ldx rs_tmp+1                ; row 0 offset = col
-    lda #8
-    sta rs_tmp+3
-@fr_row:
-    lda s7_bg_orig_nt,x
-    sta s7_bg_rest_buf,y
-    iny
-    txa
-    clc
-    adc #32
-    tax
-    dec rs_tmp+3
-    bne @fr_row
-    inc rs_tmp+1
-    dec rs_tmp+2
-    bne @fr_col
-    rts
-
-; NMI VBlank uploader for Stage 7 hybrid BG Astaroth (~450-620 cycles total).
-s7_bg_upload_b7:
-    lda pan_ctrl
-    ora #4                      ; +32 vertical increment for 8-tile columns
-    sta $2000
-    lda s7_bg_rest_n
-    beq @up_ast
-    ldx #0                      ; index into s7_bg_rest_buf
-    ldy s7_bg_rest_col
-@up_rc:
-    lda #$22
-    sta $2006
-    sty $2006
-    .repeat 8
-        lda s7_bg_rest_buf,x
-        sta $2007
-        inx
-    .endrepeat
-    iny
-    dec s7_bg_rest_n
-    bne @up_rc
-@up_ast:
-    lda s7_bg_dirty
-    cmp #1
-    bne @up_attr
-    lda s7_bg_col
-    sec
-    sbc #2
-    tay
-    ldx #0
-    lda #4
-    sta rs_nmi_half
-@up_ac:
-    lda #$22
-    sta $2006
-    sty $2006
-    .repeat 8
-        lda s7_bg_buf,x
-        sta $2007
-        inx
-    .endrepeat
-    iny
-    dec rs_nmi_half
-    bne @up_ac
-@up_attr:
-    lda pan_ctrl                ; back to +1 horizontal increment
-    sta $2000
-    lda #$23
-    sta $2006
-    lda #$e0
-    sta $2006
-    ldx #0
-:
-    lda s7_bg_attr_r4,x
-    sta $2007
-    inx
-    cpx #16
-    bne :-
-    lda #0
-    sta s7_bg_dirty
-    rts

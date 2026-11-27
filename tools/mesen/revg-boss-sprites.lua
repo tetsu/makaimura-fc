@@ -270,7 +270,7 @@ emu.addEventCallback(function()
     elseif phase == "s6_w" then
         if frame == phaseFrame + 12 then input = {start = true}; phaseFrame = frame; phase = "s7_wait" end
 
-    -- 3. Stage 7 Astaroth (Hybrid BG center 32 tiles $A0..$EB + 16 outer OAM sprites = 4/line!)
+    -- 3. Stage 7 Astaroth (full 32-piece OAM sprite rendering, preloaded on stage load)
     elseif phase == "s7_wait" then
         if frame >= phaseFrame + 15 and scene == PLAY and read(CAMPAIGN_STAGE) == 7 then
             write(AP_ARMOR, 2); write(AP_INVULN, 0)
@@ -285,24 +285,18 @@ emu.addEventCallback(function()
         write(PLAYER_X, 40); write(PLAYER_X + 1, 0)
         local aidx = findKind(OK_S7_ASTAROTH)
         local cnt = aidx and countBossOam(aidx, 48) or 0
-        -- Count Stage 7 Astaroth BG center tiles ($A0..$EF) in nametable rows 16..23 ($200..$2FF)
-        local bgCnt = 0
-        for off = 0x200, 0x2ff do
-            local t = emu.read(off, emu.memType.nesNametableRam)
-            if t >= 0xa0 and t <= 0xef then bgCnt = bgCnt + 1 end
-        end
-        if cnt >= 16 and bgCnt >= 32 then
+        if cnt >= 32 then
             phaseFrame = frame
             phase = "s7_ast_check"
         else
             -- Pre-loaded during forced blank -> must appear within 4 frames!
             if not check(frame < phaseFrame + 6,
-                string.format("Stage 7 Astaroth failed instant preload (oam=%d, bg=%d)", cnt, bgCnt)) then return end
+                string.format("Stage 7 Astaroth failed instant preload (oam=%d)", cnt)) then return end
         end
     elseif phase == "s7_ast_check" then
         write(AP_ARMOR, 2); write(AP_INVULN, 0)
         -- Test BOTH directions: frames 0..29 Arthur on left (ob_mirror=0, facing left),
-        -- frames 30..59 Arthur on right (ob_mirror=$40, facing right) -> BOTH must be 100% BG!
+        -- frames 30..59 Arthur on right (ob_mirror=$40, facing right).
         if astFrames < 30 then
             write(PLAYER_X, 40); write(PLAYER_X + 1, 0)
         else
@@ -317,53 +311,17 @@ emu.addEventCallback(function()
             if not check(mir == 0x40, string.format("Astaroth should face RIGHT (ob_mirror=$40) when Arthur on right, got $%02X", mir)) then return end
         end
         local cnt, _, sx = countBossOam(aidx, 48)
-        local bgCnt = 0
-        for off = 0x200, 0x2ff do
-            local t = emu.read(off, emu.memType.nesNametableRam)
-            if t >= 0xa0 and t <= 0xf7 then bgCnt = bgCnt + 1 end
-        end
-        -- Check max Astaroth OAM sprites on any single scanline (must be <= 4 -> zero flicker!)
-        local lineCnt = {}
-        local bx = read(OB_XL + aidx) + 256 * read(OB_XH + aidx)
-        local camX = readWord(CAMERA_X)
-        local bsx = bx - camX
-        for s = 0, 63 do
-            local sy = read(0x200 + s * 4)
-            local ox = read(0x200 + s * 4 + 3)
-            if sy < 239 and sy >= 23 and math.abs(ox - bsx) <= 48 then
-                lineCnt[sy] = (lineCnt[sy] or 0) + 1
-                if lineCnt[sy] > astMaxPerLine then astMaxPerLine = lineCnt[sy] end
-            end
-        end
         if cnt < astMinOam then astMinOam = cnt end
-        if bgCnt < astMinBg then astMinBg = bgCnt end
         astFrames = astFrames + 1
-        if not check(cnt >= 16 and bgCnt >= 32, string.format(
-            "Stage 7 Astaroth hybrid BG+sprite incomplete (oam=%d, bg=%d, sx=%d, obsFrame=%d)", cnt, bgCnt, sx, astFrames)) then return end
+        if not check(cnt >= 32, string.format(
+            "Stage 7 Astaroth sprite incomplete (oam=%d, sx=%d, obsFrame=%d)", cnt, sx, astFrames)) then return end
         if astFrames >= 60 then
-            if not check(astMaxPerLine <= 4, string.format(
-                "Stage 7 Astaroth exceeded 4 OAM sprites/scanline (max=%d)", astMaxPerLine)) then return end
-            -- Verify s7_bg_clear_b7 restores the Stage 7 throne room when Astaroth is removed
-            write(OB_KIND + aidx, 0)
-            phaseFrame = frame
-            phase = "s7_ast_clear_check"
-        end
-    elseif phase == "s7_ast_clear_check" then
-        write(AP_ARMOR, 2); write(AP_INVULN, 0)
-        if frame >= phaseFrame + 3 then
-            local leftover = 0
-            for off = 0x200, 0x2ff do
-                local t = emu.read(off, emu.memType.nesNametableRam)
-                if t >= 0xa0 and t <= 0xf7 then leftover = leftover + 1 end
-            end
-            if not check(leftover == 0, string.format(
-                "Stage 7 throne BG not restored after Astaroth despawn (leftover=%d)", leftover)) then return end
             if not check(vblankOverruns == 0, string.format(
                 "VBlank overrun detected: %d active-render $2007 writes (first at scanline %d)",
                 vblankOverruns, worstOverrunSl)) then return end
             print(string.format(
-                "PASS revg-boss-sprites frame=%d uniMin=%d(flips=%d) satMin=%d astOam=%d(maxLine=%d) astBg=%d bgCleared=true maxVblankSl=%d overruns=0",
-                frame, uniMinOam, uniFlips, satMinOam, astMinOam, astMaxPerLine, astMinBg, maxVblankSl))
+                "PASS revg-boss-sprites frame=%d uniMin=%d(flips=%d) satMin=%d astOam=%d maxVblankSl=%d overruns=0",
+                frame, uniMinOam, uniFlips, satMinOam, astMinOam, maxVblankSl))
             emu.stop(0)
         end
     end
