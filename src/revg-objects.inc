@@ -1568,23 +1568,14 @@ rs_draw_objects:
     lda #1                      ; the hit flash: every other frame in the red palette
 :
     sta rs_pal
-    ; Stage 7 Astaroth hybrid BG+sprite path: center 4 cols on BG ($A0..$EB),
-    ; outer 4 cols as sprites (4 sprites/scanline -> zero 8-sprite flicker!).
+    ; Stage 7 Astaroth hybrid BG+sprite path: center 4 cols on BG ($A0..$F7) in BOTH
+    ; left (ob_mirror=0) and right (ob_mirror=$40) directions -> always 4 sprites/scanline!
     lda campaign_stage
     cmp #7
     bne @normal_draw
     lda ob_kind,x
     cmp #10                     ; ok_astaroth
     bne @normal_draw
-    lda ob_mirror,x
-    cmp #$40                    ; Primary left-facing battle orientation (Arthur on left)
-    bne @normal_draw
-    lda rs_fid
-    cmp #<rf_553A
-    bne @ast_bg_go
-    lda rs_fid+1
-    cmp #>rf_553A
-    beq @normal_draw
 @ast_bg_go:
     lda #1
     sta s7_saw_ast
@@ -1819,13 +1810,14 @@ rs_preload_boss_b7:
     sta $2006
     jsr rs_pl_copy_32
 @pl_chk_bg:
-    ; Stage 7 only: also upload unflipped center-4-col tiles (-16..+8) to BG CHR $A0..$EB
+    ; Stage 7 only: upload unflipped left-facing center tiles for rf_54C8 (idx 7) & rf_54DA (idx 8)
+    ; into BG CHR $A0..$D7 (28 x 2 = 56 tiles), and save rf_54C8's 16 tiles in s7_bg_base_l.
     lda campaign_stage
     cmp #7
     bne @pl_next_piece
-    lda rs_py                   ; attr
-    and #$40                    ; skip H-flipped pieces (rf_553A)
-    bne @pl_next_piece
+    lda rs_tmp+2
+    cmp #9                      ; Only indices 7 (rf_54C8) & 8 (rf_54DA) -> 28 tiles ($A0..$D7)
+    bcs @pl_next_piece
     lda rs_px                   ; left
     clc
     adc #16
@@ -1833,7 +1825,7 @@ rs_preload_boss_b7:
     bcs @pl_next_piece
     ldx rs_ptile
     lda s7_spr_to_bg,x
-    bne @pl_next_piece          ; already uploaded to BG CHR
+    bne @pl_have_lbg            ; already uploaded to BG CHR
     lda s7_next_bg
     sta s7_spr_to_bg,x
     pha
@@ -1850,7 +1842,36 @@ rs_preload_boss_b7:
     sta $2006
     inc s7_next_bg
     inc s7_next_bg
-    jsr rs_pl_copy_32_hflip     ; Upload horizontally mirrored for left-facing (ob_mirror=$40) BG
+    jsr rs_pl_copy_32           ; Unflipped: rf_54C8/DA natively face LEFT!
+@pl_have_lbg:
+    ; For rf_54C8 (idx 7), also record s7_bg_base_l[col*4 + row/2] and upload right-facing copy!
+    lda rs_tmp+2
+    cmp #7
+    bne @pl_next_piece
+    jsr rs_map_fid
+    lda rs_pi
+    asl a
+    asl a
+    clc
+    adc #4                      ; piece+0 = top (-32, -16, 0, +16)
+    tay
+    lda (rs_ptr),y
+    clc
+    adc #32
+    lsr a
+    lsr a
+    lsr a
+    lsr a                       ; row_pair = 0..3
+    sta rs_tmp+0
+    lda rs_px                   ; left (-16, -8, 0, +8)
+    clc
+    adc #16
+    lsr a                       ; (left+16)/2 = 0, 4, 8, 12
+    ora rs_tmp+0                ; idx = col*4 + row_pair (0..15)
+    tay
+    ldx rs_ptile
+    lda s7_spr_to_bg,x
+    sta s7_bg_base_l,y
 @pl_next_piece:
     inc rs_pi
     lda rs_pi
@@ -1864,6 +1885,70 @@ rs_preload_boss_b7:
     lda campaign_stage
     cmp #7
     bne @pl_done
+    ; Also upload right-facing (H-flipped) 16 center tiles of rf_54C8 into BG CHR $D8..$F7 (32 tiles).
+    lda #<rf_54C8
+    sta rs_fid
+    lda #>rf_54C8
+    sta rs_fid+1
+    lda #0
+    sta rs_pi
+@pl_rflip:
+    jsr rs_map_fid
+    lda rs_pi
+    asl a
+    asl a
+    clc
+    adc #4
+    tay
+    lda (rs_ptr),y              ; top
+    clc
+    adc #32
+    lsr a
+    lsr a
+    lsr a
+    lsr a                       ; row_pair 0..3
+    sta rs_tmp+0
+    iny
+    lda (rs_ptr),y              ; left
+    clc
+    adc #16
+    cmp #32
+    bcs @pl_rf_next
+    lsr a                       ; col*4 (0, 4, 8, 12)
+    ora rs_tmp+0                ; idx = col*4 + row_pair (0..15)
+    sta rs_tmp+1
+    iny
+    lda (rs_ptr),y              ; tid_lo
+    sta rs_tid
+    iny
+    lda (rs_ptr),y              ; attr
+    lsr a
+    lsr a
+    and #$07
+    sta rs_tid+1
+    lda s7_next_bg
+    ldy rs_tmp+1
+    sta s7_bg_base_r,y
+    pha
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta $2006
+    pla
+    asl a
+    asl a
+    asl a
+    asl a
+    sta $2006
+    inc s7_next_bg
+    inc s7_next_bg
+    jsr rs_pl_copy_32_hflip
+@pl_rf_next:
+    inc rs_pi
+    lda rs_pi
+    cmp #32
+    bne @pl_rflip
     ; Set Stage 7 BG Palette 3 ($3F0C..$3F0F) to Astaroth crimson/gold/skin ($0F/$16/$27/$37).
     lda #$3f
     sta $2006
@@ -1968,13 +2053,16 @@ s7_bg_prepare_b7:
     lda rs_tmp+0
     cmp s7_bg_col
     bne @prep_moved
+    lda rs_mirror
+    cmp s7_bg_mirror
+    bne @prep_do
     lda rs_fid
     cmp s7_bg_fid_lo
     bne @prep_do
     lda rs_fid+1
     cmp s7_bg_fid_hi
     bne @prep_do
-    rts                         ; Same column & same frame -> zero VBlank work!
+    rts                         ; Same column, facing, & frame -> zero VBlank work!
 @prep_moved:
     ; Compute which throne column(s) were exposed by moving from s7_bg_col -> draw_col.
     lda rs_tmp+0
@@ -2010,7 +2098,10 @@ s7_bg_prepare_b7:
 @fill_rest:
     jsr s7_bg_fill_rest_buf
 @prep_do:
-    ; Fill s7_bg_buf[0..31] (4 cols x 8 rows) from rs_fid's 16 center pieces.
+    ; Fill s7_bg_buf[0..31] (4 cols x 8 rows) for BOTH left (rs_mirror=0) and right (rs_mirror=$40).
+    lda rs_mirror
+    bne @pb_right
+    ; Left-facing (native): use s7_spr_to_bg[slot], falling back to s7_bg_base_l for rf_54FE.
     jsr rs_map_fid
     ldx #0
     ldy #4
@@ -2018,10 +2109,7 @@ s7_bg_prepare_b7:
     stx rs_pi
     sty rs_py
     iny
-    lda (rs_ptr),y              ; left
-    eor #$ff
-    sec
-    sbc #7                      ; mirrored left (-left - 8) for ob_mirror=$40
+    lda (rs_ptr),y              ; left (-16, -8, 0, +8)
     clc
     adc #16
     cmp #32
@@ -2040,6 +2128,13 @@ s7_bg_prepare_b7:
     lda rs_piece_slot,x
     tax
     lda s7_spr_to_bg,x
+    bne @pb_put
+    ; Fallback to rf_54C8 left-facing center tile at same (col, row_pair)
+    tya
+    lsr a                       ; (col*8 + row_idx) / 2 = col*4 + row_pair (0..15)
+    tax
+    lda s7_bg_base_l,x
+@pb_put:
     sta s7_bg_buf,y
     clc
     adc #1
@@ -2053,6 +2148,30 @@ s7_bg_prepare_b7:
     inx
     cpx rs_count
     bne @pb_loop
+    jmp @pb_attrs
+@pb_right:
+    ; Right-facing (ob_mirror=$40): place mirrored cols (3-col) from s7_bg_base_r ($D8..$F7).
+    ldx #0                      ; src col*4 + row_pair (0..15)
+@pbr_loop:
+    txa
+    and #$0c                    ; src col*4 (0, 4, 8, 12)
+    eor #$0c                    ; mirrored col*4 (12, 8, 4, 0)
+    asl a                       ; mirrored col*8 (24, 16, 8, 0)
+    sta rs_tmp+1
+    txa
+    and #3                      ; row_pair (0..3)
+    asl a                       ; row_idx (0, 2, 4, 6)
+    ora rs_tmp+1                ; dest buf_idx (0..30)
+    tay
+    lda s7_bg_base_r,x
+    sta s7_bg_buf,y
+    clc
+    adc #1
+    sta s7_bg_buf+1,y
+    inx
+    cpx #16
+    bne @pbr_loop
+@pb_attrs:
 
     ; Build attribute rows 4 & 5 ($23E0..$23EF): base throne attrs + Palette 3 (%11) on Astaroth.
     ldx #15
@@ -2093,6 +2212,8 @@ s7_bg_prepare_b7:
 
     lda rs_tmp+0
     sta s7_bg_col
+    lda rs_mirror
+    sta s7_bg_mirror
     lda rs_fid
     sta s7_bg_fid_lo
     lda rs_fid+1

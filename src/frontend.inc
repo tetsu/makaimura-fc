@@ -1741,8 +1741,8 @@ title_grave_row_bot:
 ; Loop 2 True Ending (BANK2): authentic Revision G text (mj05g.bin $6F00..$6FCF),
 ; arcade $32 ending theme, Arthur + Princess Prin Prin reunion, rising heart.
 ; ============================================================================
-fe_end_heart_slot = 30          ; OAM tiles $3D, $3F (16x16 heart at $13C0..$13FF)
-fe_end_star_slot  = 32          ; OAM tile  $41      (8x16 star   at $1400..$141F)
+fe_end_heart_slot = 34          ; OAM tiles $45, $47 (16x16 heart at $1440..$147F)
+fe_end_star_slot  = 36          ; OAM tile  $49      (8x16 star   at $1480..$149F)
 
 fe_draw_ending:
     jsr load_menu_patterns
@@ -2007,17 +2007,17 @@ fe_end_load_sprites:
 :
     inc rs_tmp+2
     lda rs_tmp+2
-    cmp #5
+    cmp #6
     beq :+
     jmp @frm_loop
 :
     pla
     jsr select_bank0
 
-    ; Upload 16x16 Heart (slots 30..31 -> $13C0) and 8x16 Star (slot 32 -> $1400).
-    lda #$13
+    ; Upload 16x16 Heart (slots 34..35 -> $1440) and 8x16 Star (slot 36 -> $1480).
+    lda #$14
     sta $2006
-    lda #$c0
+    lda #$40
     sta $2006
     ldx #0
 @copy_extra_spr:
@@ -2179,25 +2179,42 @@ fe_end_build_oam:
     ldy #168                    ; standing on row 23 balcony (Y=184 -> center Y=168)
     jsr fe_end_emit_frame
 
-    ; 2. Princess Prin Prin at X = 144, facing left ($40), rejoicing after frame 64.
+    ; 2. Princess Prin Prin: natively faces LEFT (mirror=0)!
+    ;    Steps left from X = 176 -> 144 to meet Arthur over frames 0..63, then celebrates
+    ;    joyfully alternating rf_7ADB (arms raised) and rf_7AD8 (smiling) facing Arthur!
+    lda fe_idle_hi
+    bne @prin_meet
+    lda fe_idle_lo
+    cmp #64
+    bcs @prin_meet
+    lsr a                       ; 0..31 px step left
+    sta rs_tmp
+    lda #176
+    sec
+    sbc rs_tmp                  ; X = 176 -> 144
+    sta rs_ox
+    lda #3                      ; frame 3 (rf_7AD5 standing/stepping facing left)
+    ldx fe_idle_lo
+    txa
+    and #$08
+    beq @prin_walk_a
+    lda #4                      ; frame 4 (rf_7AD8)
+    bne @draw_prin
+@prin_walk_a:
+    lda #3
+    bne @draw_prin
+@prin_meet:
     lda #144
     sta rs_ox
-    lda #3                      ; frame 3 (rf_7AD5)
-    ldx fe_idle_hi
-    bne @prin_anim
-    ldx fe_idle_lo
-    cpx #64
-    bcc @draw_prin
-@prin_anim:
     lda fe_idle_lo
     and #$10
     beq :+
-    lda #4                      ; frame 4 (rf_7AD8)
+    lda #5                      ; frame 5 (rf_7ADB joyful arms-up celebration!)
     bne @draw_prin
 :
-    lda #3
+    lda #4                      ; frame 4 (rf_7AD8 smiling facing left)
 @draw_prin:
-    ldx #$40                    ; mirror = $40 (facing left toward Arthur)
+    ldx #0                      ; mirror = 0 (rf_7AD5/7AD8/7ADB natively face LEFT toward Arthur!)
     ldy #168
     jsr fe_end_emit_frame
 
@@ -2388,7 +2405,7 @@ fe_commit_ending:
     rts
 
 fe_end_frames:
-    .word rf_9596, rf_95A2, rf_7374, rf_7AD5, rf_7AD8
+    .word rf_9596, rf_95A2, rf_7374, rf_7AD5, rf_7AD8, rf_7ADB
 fe_end_bob_tbl:
     .byte 124, 123, 124, 125
 fe_end_row_hi_tbl:

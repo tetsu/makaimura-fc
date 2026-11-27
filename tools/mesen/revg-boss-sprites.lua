@@ -25,6 +25,7 @@ local OB_YL = 0x6a63
 local OB_YH = 0x6a77
 local OB_CUR_L = 0x6adb
 local OB_CUR_H = 0x6aef
+local OB_MIRROR = 0x6b3f
 
 local TITLE, PLAY, CLEAR = 7, 4, 5
 local OK_S1_UNICORN = 7
@@ -202,9 +203,14 @@ emu.addEventCallback(function()
     elseif phase == "s4_w" then
         if frame == phaseFrame + 12 then input = {start = true}; phaseFrame = frame; phase = "s5_init" end
 
-    -- 2. Stage 5 Satan (13-18 pieces, including dur=5 fast-animating frames)
+    -- 2. Stage 5 Satan (13-18 pieces) + verify Stage 5 HUD ($2000..$205F) has ZERO castle tiles!
     elseif phase == "s5_init" then
         if frame >= phaseFrame + 15 and scene == PLAY and read(CAMPAIGN_STAGE) == 5 then
+            for off = 0, 95 do
+                local t = emu.read(off, emu.memType.nesNametableRam)
+                if not check(t < 0x25, string.format(
+                    "Stage 5 HUD corrupted with castle tile $%02X at $20%02X", t, off)) then return end
+            end
             write(PLAYER_X, 624 & 255); write(PLAYER_X + 1, 624 >> 8)
             write(CAMERA_X, 512 & 255); write(CAMERA_X + 1, 512 >> 8)
             write(PAN_X, 512 & 255); write(PAN_X + 1, 512 >> 8)
@@ -295,15 +301,26 @@ emu.addEventCallback(function()
         end
     elseif phase == "s7_ast_check" then
         write(AP_ARMOR, 2); write(AP_INVULN, 0)
-        -- Keep Arthur to the left so he does not overlap Astaroth's OAM X radius
-        write(PLAYER_X, 40); write(PLAYER_X + 1, 0)
+        -- Test BOTH directions: frames 0..29 Arthur on left (ob_mirror=0, facing left),
+        -- frames 30..59 Arthur on right (ob_mirror=$40, facing right) -> BOTH must be 100% BG!
+        if astFrames < 30 then
+            write(PLAYER_X, 40); write(PLAYER_X + 1, 0)
+        else
+            write(PLAYER_X, 236); write(PLAYER_X + 1, 0)
+        end
         local aidx = findKind(OK_S7_ASTAROTH)
         if not check(aidx ~= nil, "Stage 7 Astaroth vanished during visibility check") then return end
+        local mir = read(OB_MIRROR + aidx)
+        if astFrames >= 2 and astFrames < 30 then
+            if not check(mir == 0, string.format("Astaroth should face LEFT (ob_mirror=0) when Arthur on left, got $%02X", mir)) then return end
+        elseif astFrames >= 32 then
+            if not check(mir == 0x40, string.format("Astaroth should face RIGHT (ob_mirror=$40) when Arthur on right, got $%02X", mir)) then return end
+        end
         local cnt, _, sx = countBossOam(aidx, 48)
         local bgCnt = 0
         for off = 0x200, 0x2ff do
             local t = emu.read(off, emu.memType.nesNametableRam)
-            if t >= 0xa0 and t <= 0xef then bgCnt = bgCnt + 1 end
+            if t >= 0xa0 and t <= 0xf7 then bgCnt = bgCnt + 1 end
         end
         -- Check max Astaroth OAM sprites on any single scanline (must be <= 4 -> zero flicker!)
         local lineCnt = {}

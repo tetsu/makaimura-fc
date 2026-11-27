@@ -50,7 +50,7 @@ fe_end_active: .res 1           ; 1 while Loop 2 true ending scene is active
 fe_end_dirty: .res 1            ; Non-zero: VBlank writes 32-byte row to fe_end_row_hi:lo
 fe_end_row_hi: .res 1
 fe_end_row_lo: .res 1
-fe_end_fslot: .res 5            ; Starting CHR-RAM sprite slot for ending frames 0..4
+fe_end_fslot: .res 6            ; Starting CHR-RAM sprite slot for ending frames 0..5
 fe_end_row_buf: .res 32         ; 32-byte nametable row buffer for glitch-free page swaps
 ; Stage 7 Astaroth hybrid BG+sprite renderer (keeps WRAM layout before fe_map_pin_late fixed)
 s7_spr_to_bg: .res 128          ; Sprite slot (0..127) -> Stage 7 BG tile ($A0..$EA), 0 = none
@@ -69,7 +69,10 @@ s7_bg_attr_r4: .res 8           ; Contiguous 16-byte attribute buffer for $23E0.
 s7_bg_attr_r5: .res 8
 s7_saw_ast: .res 1              ; 1 if Astaroth used BG hybrid path this frame
 rs_skip_center: .res 1          ; 1 while rs_emit skips center 4 cols (-16..+8) for BG Astaroth
-s7_next_bg: .res 1              ; Next free Stage 7 BG CHR tile ($A0..$EA) during preload
+s7_next_bg: .res 1              ; Next free Stage 7 BG CHR tile ($A0..$F6) during preload
+s7_bg_mirror: .res 1            ; Last BG-drawn ob_mirror (0=left, $40=right)
+s7_bg_base_l: .res 16           ; Left-facing fallback center BG tiles (col*4 + row/2)
+s7_bg_base_r: .res 16           ; Right-facing (H-flipped) center BG tiles (col*4 + row/2)
 
 .segment "BANK56"
 .scope s567
@@ -3056,6 +3059,7 @@ u_astaroth:
     sta ob_state,x
     lda #1
     sta ob_aux,x                ; walk dir: 1 = left, 0 = right
+    jsr @as_face
     jsr @as_pick_spd
     lda #140
     sta ob_t0,x
@@ -3066,8 +3070,15 @@ u_astaroth:
     lda #<rf_54C8
     ldy #>rf_54C8
     jmp set_anim
-@as_walk:
+; Astaroth ROM frames (rf_54C8..rf_5512) face LEFT natively, so invert ob_mirror vs face_player.
+@as_face:
     jsr face_player
+    lda ob_mirror,x
+    eor #$40
+    sta ob_mirror,x
+    rts
+@as_walk:
+    jsr @as_face
     ; Stomp SE every 32F while walking
     lda frames
     and #31
@@ -3128,7 +3139,7 @@ u_astaroth:
     ldy #>rf_5512
     jmp set_anim
 @as_pause:
-    jsr face_player
+    jsr @as_face
     jsr @as_fire_tick
     dec ob_t2,x
     beq @as_enter_rapid
@@ -3160,11 +3171,11 @@ u_astaroth:
     sta ob_t0,x
     lda #12
     sta ob_t1,x
-    lda #<rf_553A
-    ldy #>rf_553A
+    lda #<rf_5512
+    ldy #>rf_5512
     jmp set_anim
 @as_rapid:
-    jsr face_player
+    jsr @as_face
     dec ob_t1,x
     bne @as_rt
     lda #1                      ; rapid mode (random 50/50 high/low)

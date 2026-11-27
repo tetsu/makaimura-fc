@@ -775,6 +775,20 @@ revg_prepare_column:
 revg2_prepare_row:
     lda pan_need_row
     jsr pan_address_for_row
+    ; During live gameplay (pan_ctrl != 0), never overwrite the fixed HUD rows 0..2 ($2000..$205F)
+    ; when vertical scrolling wraps through even pages 2 or 4 (Stages 3, 5, 6).
+    lda pan_ctrl
+    beq @row_hud_ok
+    lda pan_addr_hi
+    cmp #$20
+    bne @row_hud_ok
+    lda pan_addr_lo
+    cmp #$60
+    bcs @row_hud_ok
+    lda #pan_no_update
+    sta pan_need_row
+    rts
+@row_hud_ok:
     lda pan_addr_hi
     sta pan_row_addr+1
     ora #3

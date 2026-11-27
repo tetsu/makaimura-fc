@@ -371,9 +371,9 @@ emu.addEventCallback(function()
         elseif elapsed == 80 then
             local sawHeart = false
             for s = 0, 63 do
-                if read(0x200 + s * 4) < 239 and read(0x200 + s * 4 + 1) == 0x3d then sawHeart = true end
+                if read(0x200 + s * 4) < 239 and read(0x200 + s * 4 + 1) == 0x45 then sawHeart = true end
             end
-            if not check(sawHeart, "Loop 2 ending must show rising Heart sprite ($3D) after Arthur reaches Princess") then return end
+            if not check(sawHeart, "Loop 2 ending must show rising Heart sprite ($45) after Arthur reaches Princess") then return end
         elseif elapsed == 375 then
             -- Page 1: "BEING THE WISE AND COURAGEOUS" at $2121 (B=3, E=6, I=10)
             local c0 = emu.read(0x121, emu.memType.nesNametableRam)
