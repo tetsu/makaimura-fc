@@ -81,12 +81,14 @@ STATIC_FRAMES += [(0x7374, 3)]
 # plus the authentic naked Arthur ladder climb ($9221 -> $9227 -> $9221, arcade $9231).
 EXTRA_ANIMATIONS += [(0x95F2, 3), (0x9596, 3), (0x9221, 3)]
 # Stage 2 (Section 1) enemies: Petit Devil ($02) + shot ($08: $FCE7), Purple Flyer ($04 walk & fly),
-# Big Man ($0A walk + idle pause $511C/$5148) + projectiles ($03: $FCF2 R, $FCFA L, $FD02 D), Woody Pig Down spear ($04: $FD27).
+# Big Man ($0A walk $50E4, idle $511C/$5148, pre-fire $5174, downward shoot $5188, hit-stun $51B4)
+# + projectiles ($03: $FCF2 R, $FCFA L, $FD02 D), Woody Pig Down spear ($04: $FD27).
 EXTRA_ANIMATIONS += [
-    (0xA893, 0), (0xFCE7, 0), (0xB10B, 0), (0xB19E, 2), (0x50E4, 3), (0x511C, 3), (0x5148, 3),
+    (0xA893, 0), (0xFCE7, 0), (0xB10B, 0), (0xB19E, 2),
+    (0x50E4, 3), (0x511C, 3), (0x5148, 3), (0x5174, 3), (0x5188, 3), (0x51B4, 3),
     (0xFCF2, 0), (0xFCFA, 0), (0xFD02, 0),
 ]
-STATIC_FRAMES += [(0x5170, 3), (0x5184, 3), (0x51B0, 3), (0xFD27, 1)]
+STATIC_FRAMES += [(0xFD27, 1)]
 # Stage 3 & 4 (Sections 2 & 3) enemies: Bat ($01 var 2), Stone Pillar ($12) + shots ($05: $FD32 R, $FD40 L),
 # Dragon ($0C head/fire/body/tail) + fire ($09), Fire Pillar ($0E idle & erupt).
 EXTRA_ANIMATIONS += [

@@ -35,7 +35,7 @@ local OB_VAR = 0x6b7b
 local OB_DIR = 0x6ba3
 
 local TITLE, PLAY, CLEAR = 7, 4, 5
-local RF_FCF2, RF_FCFA, RF_FD02, RF_51B0 = 0x3019, 0x3031, 0x3049, 0x12BD
+local RF_FCF2, RF_FCFA, RF_FD02, RF_51B0 = 0x305D, 0x3075, 0x308D, 0x1305
 
 local frame = 0
 local phase = "boot"

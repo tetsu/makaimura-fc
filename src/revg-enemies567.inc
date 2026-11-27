@@ -4136,8 +4136,8 @@ u_bigman:
     sta ob_step,x
     lda #8
     sta ob_t0,x
-    lda #<rf_5170
-    ldy #>rf_5170
+    lda #<rf_5174
+    ldy #>rf_5174
     jmp set_anim
 @bmc_s4:
     dec ob_t0,x
@@ -4157,8 +4157,8 @@ u_bigman:
     jsr face_player
     lda #1
     sta ob_step,x
-    lda #<rf_5184
-    ldy #>rf_5184
+    lda #<rf_5188
+    ldy #>rf_5188
     jmp set_anim
 @bmd_n0:
     cmp #1
@@ -5086,7 +5086,7 @@ shot_check:
     dec ob_hp,x
     lda #5
     sta ob_flash,x
-    ; Big Man 6F hit-stun ($0103, rf_51B0)
+    ; Big Man 6F hit-stun ($0103, rf_51B4)
     lda ob_kind,x
     cmp #ok_bigman
     bne @sh_chk_uni_wake
@@ -5094,8 +5094,8 @@ shot_check:
     sta ob_state,x
     lda #6
     sta ob_t0,x
-    lda #<rf_51B0
-    ldy #>rf_51B0
+    lda #<rf_51B4
+    ldy #>rf_51B4
     jsr set_anim
     jmp @sh_clank
 @sh_chk_uni_wake:

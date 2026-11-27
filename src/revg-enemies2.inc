@@ -1422,7 +1422,7 @@ hit_enemy:
     dec ob_hp,x
     lda #6
     sta ob_flash,x
-    ; Big Man enters 6F hit-stun ($0103) with rf_51B0; Red Arremer enters 5F hit-stun ($4DFF).
+    ; Big Man enters 6F hit-stun ($0103) with rf_51B4; Red Arremer enters 5F hit-stun ($4DFF).
     lda ob_kind,x
     cmp #ok_bigman
     bne @chk_arr_hit
@@ -1430,8 +1430,8 @@ hit_enemy:
     sta ob_state,x
     lda #6
     sta ob_t0,x
-    lda #<rf_51B0
-    ldy #>rf_51B0
+    lda #<rf_51B4
+    ldy #>rf_51B4
     jsr set_anim
     jmp @hit_se
 @chk_arr_hit:
@@ -2066,10 +2066,10 @@ u_flyer:
 ;   - State 5 ($0100.2): Idle pause 100F (rf_5148) or 70F (rf_511C), then random dir -> State 1.
 ;   - State 2 ($0101): Charge & Horiz Shoot using 9-entry table ($51FC: 45,35,20,20,42,60,35,50,28 x2F).
 ;     Alternates .1 (check Y-band; only turn if player >=40px behind) & .2 (step 2.0 px/F -> 1.0 avg;
-;     at ledge stop if player past edge else turn; dec charge timer) -> .3 (10F stop + rf_5170) ->
+;     at ledge stop if player past edge else turn; dec charge timer) -> .3 (10F stop + rf_5174) ->
 ;     .4 (8F wait + fire horiz rf_FCF2/FA) -> loop back to .1!
-;   - State 3 ($0102): Downward Shoot (rf_5184, 30F firing at frame 11 + 20F recovery = 50F cycle).
-;   - State 4 ($0103): 6F hit-stun (rf_51B0), returns to State 1.
+;   - State 3 ($0102): Downward Shoot (rf_5188, 30F firing at frame 11 + 20F recovery = 50F cycle).
+;   - State 4 ($0103): 6F hit-stun (rf_51B4), returns to State 1.
 ; Fields: ob_aux lo nibble = walk table idx (0..8), hi nibble = charge table idx (0..8);
 ;         ob_aux2 = remaining charge steps (+$06); ob_by_l = edge flag/dir (+$14).
 u_bigman:
@@ -2368,8 +2368,8 @@ u_bigman:
     sta ob_step,x
     lda #8
     sta ob_t0,x
-    lda #<rf_5170
-    ldy #>rf_5170
+    lda #<rf_5174
+    ldy #>rf_5174
     jmp set_anim
 @bmc_s4:
     dec ob_t0,x
@@ -2385,14 +2385,14 @@ u_bigman:
     rts
 
 @bm_down:
-    ; State 3 ($0102): .0=face+rf_5184, .1=recheck Y-band/below, .2=30F (fire at 20), .3=20F wait
+    ; State 3 ($0102): .0=face+rf_5188, .1=recheck Y-band/below, .2=30F (fire at 20), .3=20F wait
     lda ob_step,x
     bne @bmd_not0
     jsr face_player
     lda #1
     sta ob_step,x
-    lda #<rf_5184
-    ldy #>rf_5184
+    lda #<rf_5188
+    ldy #>rf_5188
     jmp set_anim
 @bmd_not0:
     cmp #1
