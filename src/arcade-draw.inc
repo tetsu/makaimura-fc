@@ -739,13 +739,13 @@ draw_campaign_hud_b7:
     rts
 .ifdef REVG_STAGE1
 @draw_arcade_hud:
-    ; Clear HUD rows 0..2 ($2000..$205F) and HUD attribute row ($23C0..$23C7) first so
+    ; Clear HUD rows 0..3 ($2000..$207F) and HUD attribute row ($23C0..$23C7) first so
     ; 5-page stages starting on even page 4 ($2000, Stages 5 & 6) never leave castle tiles in the HUD.
     lda #$20
     sta $2006
     lda #$00
     sta $2006
-    ldx #96
+    ldx #128
     lda #0
 :
     sta $2007

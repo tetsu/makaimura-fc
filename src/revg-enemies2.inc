@@ -108,6 +108,9 @@ init:
     sta oz_drop_sel
     sta oz_key_timer
     sta oz_boss_seen
+    sta s2_boss_bgm
+    sta s2_plat_clk_lo
+    sta s2_plat_clk_hi
     ldx #4
 :
     sta s2_sch_once,x
@@ -676,17 +679,18 @@ shot_near_x:
     sec
     rts
 
-; Ground probe at (ob_x, ob_y): C set on solid/oneway tile.
+; Ground probe at (ob_x, ob_y): C set on solid/oneway tile (and ladder top for Big Man).
+; Stage 2 map uses map_col_stride=16 (2 pages = 512px), so FC feet = 512 - ob_y ($0200 - ob_y).
 on_ground:
     lda ob_xl,x
     sta ap_probe_x
     lda ob_xh,x
     sta ap_probe_x+1
-    lda #255
+    lda #0
     sec
     sbc ob_yl,x
     sta ap_probe_y
-    lda stage_cam_y_max_page
+    lda #2
     sbc ob_yh,x
     sta ap_probe_y_hi
     bmi @no
@@ -700,6 +704,11 @@ on_ground:
     cmp #tile_type_solid
     beq @yes
     cmp #tile_type_oneway
+    beq @yes
+    cmp #tile_type_ladder
+    bne @no
+    lda ob_kind,x
+    cmp #ok_bigman
     beq @yes
 @no:
     clc
@@ -3113,10 +3122,10 @@ u_unicorn:
     lda #64
 :
     sta ob_t0,x
-    lda ap_boss_lock
+    lda s2_boss_bgm
     bne @u_ret0
     lda #1
-    sta ap_boss_lock
+    sta s2_boss_bgm
     txa
     pha
     lda #snd_song_boss
@@ -3674,6 +3683,28 @@ u_key:
 ;   3 (2736 <= x < 2944):     Channel 3 all 4 bricks (2800, 2832, 2864, 2896)
 ;   4 (player_x >= 2944):     Channel 3 right (2896) + Channel 4 (2992, 3024)
 sync_platforms:
+    lda prg_bank0
+    pha
+    lda #14
+    jsr select_bank0
+    jsr sync_platforms_b14
+    pla
+    jmp select_bank0
+
+.segment "BANK14"
+sync_platforms_b14:
+    ; Advance continuous 448-frame water-channel platform clock (lo: 0..223, hi: phase 0/1)
+    ; so crossing zone boundaries never resets visible bricks to hardcoded positions.
+    inc s2_plat_clk_lo
+    lda s2_plat_clk_lo
+    cmp #224
+    bcc @clk_ok
+    lda #0
+    sta s2_plat_clk_lo
+    lda s2_plat_clk_hi
+    eor #1
+    sta s2_plat_clk_hi
+@clk_ok:
     lda ap_riding_plat
     bmi :+
     rts                         ; Never swap platform slots while Arthur is riding one
@@ -3684,13 +3715,12 @@ sync_platforms:
     cmp #>2560                  ; 10
     bcc @z1
     bne @chk_z3
-    ; High byte == 10 (2560..2815): split between Zone 2 and Zone 3 at pier midpoint X = 2736 ($0AB0).
     lda player_x
     cmp #<2736
     bcc @z2
     bcs @z3
 @chk_z3:
-    cmp #>2944                  ; 11 (2816..3071): split between Zone 3 and Zone 4 at pier midpoint X = 2944 ($0B80).
+    cmp #>2944                  ; 11
     bne @z4
     lda player_x
     cmp #<2944
@@ -3711,78 +3741,153 @@ sync_platforms:
     lda #3
 @chk_z:
     cmp s2_plat_zone
-    beq @sp_done
+    bne :+
+    rts
+:
     sta s2_plat_zone
-    ; Index = zone * 32 (4 slots x 8 bytes: type, x_lo, x_hi, y_lo, y_hi, span, timer, phase)
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    tay
+    tax
+    bne @load_water
+    ; Zone 0: Tower (2 active slots from s2_z0_plats, slots 2..3 cleared)
+    ldy #0
     ldx #0
-@load_slot:
-    lda s2_plat_zones,y
+@z0_loop:
+    lda s2_z0_plats,y
     sta plat_type,x
     iny
-    lda s2_plat_zones,y
+    lda s2_z0_plats,y
     sta plat_x_lo,x
     iny
-    lda s2_plat_zones,y
+    lda s2_z0_plats,y
     sta plat_x_hi,x
     iny
-    lda s2_plat_zones,y
+    lda s2_z0_plats,y
     sta plat_y,x
     iny
-    lda s2_plat_zones,y
+    lda s2_z0_plats,y
     sta plat_y_hi,x
     iny
-    lda s2_plat_zones,y
+    lda s2_z0_plats,y
     sta plat_span,x
     iny
-    lda s2_plat_zones,y
+    lda s2_z0_plats,y
     sta plat_timer,x
     iny
-    lda s2_plat_zones,y
+    lda s2_z0_plats,y
     sta plat_phase,x
     iny
     lda #0
     sta plat_dx,x
     sta plat_dy,x
     inx
-    cpx #ap_max_plats
-    bne @load_slot
-@sp_done:
+    cpx #2
+    bcc @z0_loop
+    lda #0
+    sta plat_type+2
+    sta plat_type+3
     rts
 
-s2_plat_zones:
-    ; Zone 0: Tower 64x16 ice platforms ($03 var 0 vertical elevator 198..438, $03 var 1 fast-drop 3 px/F)
+@load_water:
+    ; Zones 1..4: 4 slots x 2 bytes (x_div16, var) in s2_water_zones
+    sec
+    sbc #1
+    asl a
+    asl a
+    asl a                       ; (zone - 1) * 8
+    tay
+    ldx #0
+@w_loop:
+    lda #0
+    sta plat_dx,x
+    sta plat_dy,x
+    lda s2_water_zones,y
+    iny
+    bne @w_active
+    sta plat_type,x
+    iny
+    bne @w_next
+@w_active:
+    ; x_lo = (x_div16 << 4), x_hi = (x_div16 >> 4)
+    sta oz_t0
+    asl a
+    asl a
+    asl a
+    asl a
+    sta plat_x_lo,x
+    lda oz_t0
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta plat_x_hi,x
+    lda #3
+    sta plat_type,x
+    lda #224
+    sta plat_span,x
+    ; Compute (timer, phase) = (s2_plat_clk + init(var)) mod 448 in 8-bit arithmetic
+    lda s2_water_zones,y        ; var 0..3
+    iny
+    sty oz_t1
+    tay
+    lda s2_water_p0,y
+    eor s2_plat_clk_hi
+    sta oz_t0                   ; combined phase
+    lda s2_plat_clk_lo
+    clc
+    adc s2_water_t0,y
+    bcs @w_sub224
+    cmp #224
+    bcc @w_pos_ok
+@w_sub224:
+    sec
+    sbc #224
+    inc oz_t0
+@w_pos_ok:
+    sta plat_timer,x
+    lda oz_t0
+    and #1
+    sta plat_phase,x
+    bne @w_down
+    ; phase 0 (UP): y = 464 - timer
+    lda #<464
+    sec
+    sbc plat_timer,x
+    sta plat_y,x
+    lda #>464
+    sbc #0
+    sta plat_y_hi,x
+    jmp @w_pop
+@w_down:
+    ; phase 1 (DOWN): y = 240 + timer
+    lda plat_timer,x
+    clc
+    adc #240
+    sta plat_y,x
+    lda #0
+    adc #0
+    sta plat_y_hi,x
+@w_pop:
+    ldy oz_t1
+@w_next:
+    inx
+    cpx #ap_max_plats
+    bcs :+
+    jmp @w_loop
+:
+    rts
+
+s2_z0_plats:
+    ; Zone 0: Tower 64x16 ice platforms ($03 var 0 elevator 198..438, $03 var 1 fast-drop 3 px/F)
     .byte 3, <392,  >392,  <318, >318, 240, 120, 1
     .byte 4, <720,  >720,  <360, >360, 168,   0, 0
-    .byte 0, 0,     0,     0,    0,    0,     0, 0
-    .byte 0, 0,     0,     0,    0,    0,     0, 0
-    ; Zones 1..4: Village water-channel 32x16 stone bricks ($04 var 0..3, sweep FC feet 240..464, pier=432)
-    ;   var 0: y=432 phase=0 (UP)   timer=32    var 1: y=432 phase=1 (DOWN) timer=192
-    ;   var 2: y=368 phase=0 (UP)   timer=96    var 3: y=368 phase=1 (DOWN) timer=128
-    ; Zone 1: Channel 1 (2448 v0, 2480 v1, 2512 v2) + Channel 2 left (2608 v3)
-    .byte 3, <2448, >2448, <432, >432, 224,  32, 0
-    .byte 3, <2480, >2480, <432, >432, 224, 192, 1
-    .byte 3, <2512, >2512, <368, >368, 224,  96, 0
-    .byte 3, <2608, >2608, <368, >368, 224, 128, 1
-    ; Zone 2: Channel 2 (2608 v3, 2640 v0, 2672 v1) + Channel 3 left (2800 v2)
-    .byte 3, <2608, >2608, <368, >368, 224, 128, 1
-    .byte 3, <2640, >2640, <432, >432, 224,  32, 0
-    .byte 3, <2672, >2672, <432, >432, 224, 192, 1
-    .byte 3, <2800, >2800, <368, >368, 224,  96, 0
-    ; Zone 3: Channel 3 all 4 bricks (2800 v2, 2832 v3, 2864 v0, 2896 v1)
-    .byte 3, <2800, >2800, <368, >368, 224,  96, 0
-    .byte 3, <2832, >2832, <368, >368, 224, 128, 1
-    .byte 3, <2864, >2864, <432, >432, 224,  32, 0
-    .byte 3, <2896, >2896, <432, >432, 224, 192, 1
-    ; Zone 4: Channel 3 right (2896 v1) + Channel 4 (2992 v2, 3024 v3)
-    .byte 3, <2896, >2896, <432, >432, 224, 192, 1
-    .byte 3, <2992, >2992, <368, >368, 224,  96, 0
-    .byte 3, <3024, >3024, <368, >368, 224, 128, 1
-    .byte 0, 0,     0,     0,    0,    0,     0, 0
+s2_water_t0:
+    .byte 32, 192, 96, 128
+s2_water_p0:
+    .byte 0, 1, 0, 1
+s2_water_zones:
+    ; Zones 1..4: Village water-channel 32x16 stone bricks (x_div16, var 0..3; 0 = empty)
+    .byte 2448/16, 0,  2480/16, 1,  2512/16, 2,  2608/16, 3 ; Zone 1
+    .byte 2608/16, 3,  2640/16, 0,  2672/16, 1,  2800/16, 2 ; Zone 2
+    .byte 2800/16, 2,  2832/16, 3,  2864/16, 0,  2896/16, 1 ; Zone 3
+    .byte 2896/16, 1,  2992/16, 2,  3024/16, 3,  0,       0 ; Zone 4
 
 .endscope

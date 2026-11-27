@@ -35,7 +35,7 @@ local OB_VAR = 0x6b7b
 local OB_DIR = 0x6ba3
 
 local TITLE, PLAY, CLEAR = 7, 4, 5
-local RF_FCF2, RF_FCFA, RF_FD02, RF_51B0 = 0x305D, 0x3075, 0x308D, 0x1305
+local RF_FCF2, RF_FCFA, RF_FD02, RF_51B0 = 0x314D, 0x3165, 0x317D, 0x1305
 
 local frame = 0
 local phase = "boot"
@@ -43,8 +43,8 @@ local phaseFrame = 0
 local input = {}
 
 local s1UniStartX, sawS1UniChargeLeft = 0, false
-local sawBmCharge, sawBmHShot, sawBmDown, sawBmDShot, sawBmStun = false, false, false, false, false
-local bmSlot = nil
+local sawBmCharge, sawBmMoved, sawBmHShot, sawBmDown, sawBmDShot, sawBmStun = false, false, false, false, false, false
+local bmSlot, bmStartX = nil, nil
 local sawSkullLeap = false
 local sawS6UniHp10 = false
 local sawS6SatanV1Wake = false
@@ -158,12 +158,14 @@ emu.addEventCallback(function()
         if bmSlot then
             local bx = read(OB_XL + bmSlot) + 256 * read(OB_XH + bmSlot)
             local by = read(OB_YL + bmSlot) + 256 * read(OB_YH + bmSlot)
+            if not bmStartX then bmStartX = bx end
             local fcY = 510 - by
             if fcY > 432 then fcY = 432 end
-            local ax = bx - 52
+            local ax = bmStartX - 64
             write(PLAYER_X, ax & 255); write(PLAYER_X + 1, ax >> 8)
             write(PLAYER_FEET, fcY & 255); write(PLAYER_Y_HI, fcY >> 8)
             if read(OB_STATE + bmSlot) == 2 then sawBmCharge = true end
+            if math.abs(bx - bmStartX) >= 12 then sawBmMoved = true end
             for i = 0, 19 do
                 if read(OB_KIND + i) == 9 then
                     local fid = read(OB_CUR_L + i) + 256 * read(OB_CUR_H + i)
@@ -171,11 +173,12 @@ emu.addEventCallback(function()
                 end
             end
         end
-        if sawBmCharge and sawBmHShot then
+        if sawBmCharge and sawBmMoved and sawBmHShot then
             phaseFrame = frame
             phase = "s2_bm_stun"
         elseif frame > phaseFrame + 240 then
-            check(false, string.format("Big Man charge/horiz shot failed (chg=%s hshot=%s slot=%s)", tostring(sawBmCharge), tostring(sawBmHShot), tostring(bmSlot)))
+            check(false, string.format("Big Man charge/move/horiz shot failed (chg=%s moved=%s hshot=%s slot=%s)",
+                tostring(sawBmCharge), tostring(sawBmMoved), tostring(sawBmHShot), tostring(bmSlot)))
             return
         end
     elseif phase == "s2_bm_stun" then

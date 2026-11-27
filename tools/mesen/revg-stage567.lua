@@ -188,13 +188,16 @@ emu.addEventCallback(function()
             sawS5Key = true
             local kx = read(OB_XL + kidx) + 256 * read(OB_XH + kidx)
             local ky = read(OB_YL + kidx) + 256 * read(OB_YH + kidx)
-            local fcY = 1200 - ky
-            write(PLAYER_X, kx % 256); write(PLAYER_X + 1, math.floor(kx / 256))
-            write(PLAYER_FEET, fcY % 256); write(PLAYER_Y_HI, math.floor(fcY / 256))
-            phaseFrame = frame
-            phase = "s5_clear"
+            -- Wait for 30F sparkle + descent to boss floor before picking up key.
+            if ky <= 1110 then
+                local fcY = 1200 - ky
+                write(PLAYER_X, kx % 256); write(PLAYER_X + 1, math.floor(kx / 256))
+                write(PLAYER_FEET, fcY % 256); write(PLAYER_Y_HI, math.floor(fcY / 256))
+                phaseFrame = frame
+                phase = "s5_clear"
+            end
         end
-        if not check(frame < phaseFrame + 480, "Stage 5 Satan fight timed out") then return end
+        if not check(frame < phaseFrame + 640, "Stage 5 Satan fight timed out") then return end
     elseif phase == "s5_clear" then
         if scene == CLEAR then
             if not check(sawS5Satan and sawS5Key, "Stage 5 must defeat Satan and collect Key") then return end
@@ -270,13 +273,16 @@ emu.addEventCallback(function()
             sawS6Key = true
             local kx = read(OB_XL + kidx) + 256 * read(OB_XH + kidx)
             local ky = read(OB_YL + kidx) + 256 * read(OB_YH + kidx)
-            local fcY = 1200 - ky
-            write(PLAYER_X, kx % 256); write(PLAYER_X + 1, math.floor(kx / 256))
-            write(PLAYER_FEET, fcY % 256); write(PLAYER_Y_HI, math.floor(fcY / 256))
-            phaseFrame = frame
-            phase = "s6_clear"
+            -- Wait for 30F sparkle + descent to boss floor before picking up key.
+            if ky <= 1110 then
+                local fcY = 1200 - ky
+                write(PLAYER_X, kx % 256); write(PLAYER_X + 1, math.floor(kx / 256))
+                write(PLAYER_FEET, fcY % 256); write(PLAYER_Y_HI, math.floor(fcY / 256))
+                phaseFrame = frame
+                phase = "s6_clear"
+            end
         end
-        if not check(frame < phaseFrame + 700, "Stage 6 2x Satan fight timed out") then return end
+        if not check(frame < phaseFrame + 860, "Stage 6 2x Satan fight timed out") then return end
     elseif phase == "s6_clear" then
         if scene == CLEAR then
             if not check(sawS6TwoSatans and sawS6Key, "Stage 6 must defeat 2x Satan and collect Key") then return end

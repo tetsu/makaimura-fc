@@ -28,10 +28,10 @@ local TITLE, PLAY, CLEAR = 7, 4, 5
 local OK_DEVIL, OK_BIGMAN, OK_SHOT = 1, 3, 9
 
 -- Expected frame IDs from src/revg-sprite-data.inc
-local RF_FCE7 = 0x3051 -- Petit Devil shot ($08)
-local RF_FCF2 = 0x305D -- Big Man horizontal Right ($03)
-local RF_FCFA = 0x3075 -- Big Man horizontal Left ($03)
-local RF_FD02 = 0x308D -- Big Man downward ($03)
+local RF_FCE7 = 0x3141 -- Petit Devil shot ($08)
+local RF_FCF2 = 0x314D -- Big Man horizontal Right ($03)
+local RF_FCFA = 0x3165 -- Big Man horizontal Left ($03)
+local RF_FD02 = 0x317D -- Big Man downward ($03)
 
 local frame = 0
 local phase = "boot"
@@ -277,7 +277,10 @@ emu.addEventCallback(function()
             end
             if read(OB_KIND + i) == OK_SHOT then
                 local fid = read(OB_CUR_L + i) + 256 * read(OB_CUR_H + i)
-                if not check(fid ~= RF_FD02, "Big Man horizontal shot wrongly used downward rf_FD02") then return end
+                local vyi = read(0x6ac7 + i) -- ob_vyi: 0 for horizontal shots, non-zero for downward shots
+                if vyi == 0 then
+                    if not check(fid ~= RF_FD02, "Big Man horizontal shot wrongly used downward rf_FD02") then return end
+                end
                 if fid == RF_FCF2 or fid == RF_FCFA then
                     sawBigManHShot = true
                 end

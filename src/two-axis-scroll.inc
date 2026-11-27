@@ -863,22 +863,13 @@ upload_pan_row:
     lda revg_bg_active
     cmp #4
     bcc @legacy_row_attr
-    lda revg2_row_attr+0
+    ldx #0
+:
+    lda revg2_row_attr,x
     sta $2007
-    lda revg2_row_attr+1
-    sta $2007
-    lda revg2_row_attr+2
-    sta $2007
-    lda revg2_row_attr+3
-    sta $2007
-    lda revg2_row_attr+4
-    sta $2007
-    lda revg2_row_attr+5
-    sta $2007
-    lda revg2_row_attr+6
-    sta $2007
-    lda revg2_row_attr+7
-    sta $2007
+    inx
+    cpx #8
+    bne :-
     rts
 @legacy_row_attr:
 .endif
@@ -907,17 +898,31 @@ upload_pan_column:
     bne :-
     cpx pan_col_length
     beq pan_column_done
-    lda pan_col_split_hi
-    sta $2006
+    ldy pan_col_split_hi
+    sty $2006
     lda pan_col_addr
     and #31
+    cpy #$20
+    bne @col_wrap_lo
+    ldy pan_ctrl
+    beq @col_wrap_lo
+    ; Never overwrite fixed HUD rows 0..3 ($2000..$207F) when column wraps into nametable $2000.
+    ora #$80                    ; row 4 ($2080 | col)
     sta $2006
-:
+    txa
+    adc #(hud_rows - 1)         ; C=1 guaranteed by cpy #$20 falling through
+    tax
+    cpx pan_col_length
+    bcc @col_wrap_loop
+    rts
+@col_wrap_lo:
+    sta $2006
+@col_wrap_loop:
     lda pan_col_tiles,x
     sta $2007
     inx
     cpx pan_col_length
-    bne :-
+    bne @col_wrap_loop
 pan_column_done:
     rts
 

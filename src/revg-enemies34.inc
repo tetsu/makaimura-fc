@@ -803,14 +803,40 @@ place_fixed:
     adc #0
     beq @s3_fx
     cmp #1
-    bne @s3_fn
+    beq :+
+    jmp @s3_fn
+:
     lda oz_t0
     clc
     adc #48
     cmp #96
-    bcs @s3_fn
+    bcc @s3_fx
+    jmp @s3_fn
 @s3_fx:
-    ; Check bit in s34_fix_used
+    ; Also check Y visibility ([-64, +303] relative to oz_camy) so upper-ledge Arremers don't
+    ; spawn hundreds of pixels offscreen when Arthur passes underneath on a lower vertical page.
+    lda revg3_fix_y_lo,y
+    sec
+    sbc oz_camy
+    sta oz_t0
+    lda revg3_fix_y_hi,y
+    sbc oz_camy+1
+    sta oz_t1
+    lda oz_t0
+    clc
+    adc #64
+    lda oz_t1
+    adc #0
+    beq @s3_fy
+    cmp #1
+    bne @s3_fn
+    lda oz_t0
+    clc
+    adc #64
+    cmp #112
+    bcs @s3_fn
+@s3_fy:
+    ; Check bit in s34_fix_used (only set bit AFTER alloc succeeds!)
     tya
     lsr a
     lsr a
@@ -822,11 +848,24 @@ place_fixed:
     lda bit_mask,y
     and s34_fix_used,x
     bne @s3_fn
+    jsr alloc
+    bcs @s3_fn
+    txa
+    pha                         ; save allocated object slot
+    ldy oz_i
+    tya
+    lsr a
+    lsr a
+    lsr a
+    tax
+    tya
+    and #7
+    tay
     lda bit_mask,y
     ora s34_fix_used,x
     sta s34_fix_used,x
-    jsr alloc
-    bcs @s3_fn
+    pla
+    tax
     ldy oz_i
     lda revg3_fix_kind,y
     sta ob_kind,x
@@ -1055,7 +1094,15 @@ register_page:
     rts
 :
     sta oz_reg_page
+    ; Clear old page schedulers so previous zones (zombies, pigs, flyers) never bleed into new pages!
+    ldx #4
+    lda #$ff
+:
+    sta s34_sch_pat,x
+    dex
+    bpl :-
     ; Multiply page index (0..55) by 9 -> 16-bit offset into revg3_page_groups
+    lda oz_reg_page
     sta oz_t0
     lda #0
     sta oz_t1
@@ -1097,13 +1144,18 @@ register_page:
     lda oz_t0
     cmp s34_sch_pat,x
     beq @s3_next
-    ; If one-shot (flags bit 1) and already triggered, skip.
+    ; If one-shot (flags bit 1), track per-pattern bit in s34_sch_once so col 4, 8, 11 Arremers all spawn!
     lda oz_t1
     and #2
     beq @s3_load
-    lda s34_sch_once,x
+    lda oz_t0
+    and #7
+    tay
+    lda bit_mask,y
+    and s34_sch_once,x
     bne @s3_next
-    lda #1
+    lda bit_mask,y
+    ora s34_sch_once,x
     sta s34_sch_once,x
 @s3_load:
     lda oz_t0
@@ -1211,10 +1263,8 @@ step_schedulers:
 @s3_do:
     ldy s34_sch_rec,x
     lda revg3_rec_wait,y
-    clc
-    adc #32                     ; arcade pacing: avoid overlapping enemy floods
-    bcc :+
-    lda #$ff
+    bne :+
+    lda #1
 :
     sta s34_sch_wait,x
     ; Spawn from Stage 3 record Y
@@ -1224,7 +1274,12 @@ step_schedulers:
     lda s34_sch_rec,x
     cmp s34_sch_end,x
     bcc @s3_nx
-    lda s34_sch_once,x
+    ; Check if this pattern was marked one-shot in s34_sch_once bitmask
+    lda s34_sch_pat,x
+    and #7
+    tay
+    lda bit_mask,y
+    and s34_sch_once,x
     beq @s3_wrap
     lda #$ff
     sta s34_sch_pat,x
@@ -1233,6 +1288,14 @@ step_schedulers:
     ldy s34_sch_pat,x
     lda revg3_pat_start,y
     sta s34_sch_rec,x
+    ; Inter-wave cooldown (arcade bank4:$5DED: 60/100/20/80/20/60/80 for zombies)
+    jsr rng
+    and #7
+    tay
+    lda @s3_wave_cd,y
+    sta s34_sch_wait,x
+    jmp @s3_nx
+@s3_wave_cd: .byte 60, 100, 20, 80, 20, 60, 80, 60
 @s3_nx:
     ldx oz_i
     dex
@@ -1295,6 +1358,30 @@ spawn_s3_rec:
     ldy oz_t2
     lda revg3_rec_var,y
     sta ob_var,x
+    ; Arcade $EBF1: zombies spawn at camera_x + 128 + rec_x and Y = oz_py (player arcade Y).
+    lda ob_kind,x
+    cmp #ok_zombie
+    bne @s3_cam_xy
+    lda camera_low
+    clc
+    adc #128
+    sta ob_xl,x
+    lda camera_high
+    adc #0
+    sta ob_xh,x
+    lda ob_xl,x
+    clc
+    adc revg3_rec_x_lo,y
+    sta ob_xl,x
+    lda ob_xh,x
+    adc revg3_rec_x_hi,y
+    sta ob_xh,x
+    lda oz_py
+    sta ob_yl,x
+    lda oz_py+1
+    sta ob_yh,x
+    jmp @s3_xy_done
+@s3_cam_xy:
     ; Camera-relative X & Y
     lda revg3_rec_x_lo,y
     clc
@@ -1310,6 +1397,7 @@ spawn_s3_rec:
     lda revg3_rec_y_hi,y
     adc oz_camy+1
     sta ob_yh,x
+@s3_xy_done:
     lda #ofl_alive | ofl_shoot | ofl_touch
     sta ob_flags,x
     ; Every 5th normal spawn carries a pot
@@ -1633,106 +1721,86 @@ u_bat:
 @bt_init:
     inc ob_state,x
     jsr face_player
-    jmp @bt_anim
-@bt_hang:
-    jsr in_view
-    bcs @bt_ret
-    jsr calc_dx_player
-    lda #127
-    jsr abs_dx_le
-    bcc @bt_ret
-    jsr face_player
-    lda #2
-    sta ob_state,x
-    lda #43                     ; arcade 43-frame swoop
+    ; Arcade bank4:$4B8C sit timer (80, 180, 125, 160, 60, 10, 110, 165)
+    jsr rng
+    and #7
+    tay
+    lda @bt_sit_tbl,y
     sta ob_t0,x
-    lda #$40                    ; +-1.25 px/F ($01.$40 / $FE.$C0)
-    ldy #1
-    jsr set_vx_dir
-    jsr calc_dy_player          ; oz_dy = bat_y - player_y
-    lda oz_dy+1
-    bmi @bt_gdrop
-    bne @bt_sdrop
-    lda oz_dy
-    cmp #56
-    bcc @bt_mdrop
-@bt_sdrop:
-    lda #$fe
-    sta ob_vyi,x
-    lda #$80
-    sta ob_vyf,x
-    bne @bt_anim
-@bt_mdrop:
-    lda #$ff
-    sta ob_vyi,x
-    lda #$00
-    sta ob_vyf,x
-    beq @bt_anim
-@bt_gdrop:
-    lda #$ff
-    sta ob_vyi,x
-    lda #$c0
-    sta ob_vyf,x
-@bt_anim:
+    lda #0
+    sta ob_mirror,x
+    ; Left hanging = rf_49B2, Right hanging = rf_49D0 (frozen upside-down while hanging)
     lda ob_dir,x
-    beq :+
+    bne @bt_hang_l
     lda #<rf_49D0
     ldy #>rf_49D0
     jmp set_anim
-:
+@bt_hang_l:
     lda #<rf_49B2
     ldy #>rf_49B2
+    jmp set_anim
+@bt_hang:
+    lda #10                     ; Keep upside-down hanging frame frozen until takeoff!
+    sta ob_cnt,x
+    jsr in_view
+    bcs @bt_ret
+    dec ob_t0,x
+    bne @bt_ret
+    ; Takeoff! Arcade $A50B: pick drop height from $A517 (52..122 px), 3/16 flip dir,
+    ; X speed from $4B0C (-1.30 px/F left / +1.06 px/F right), 43F quarter-sine drop.
+    jsr face_player
+    jsr rng
+    and #15
+    tay
+    cmp #13
+    bcc :+
+    lda ob_dir,x
+    eor #1
+    sta ob_dir,x
+:
+    lda @bt_drop_tbl,y
+    sta ob_aux,x                ; drop amplitude (52..122 px)
+    ; Save bottom target Y = ob_y - drop_amp in ob_by_h:ob_by_l
+    lda ob_yl,x
+    sec
+    sbc ob_aux,x
+    sta ob_by_l,x
+    lda ob_yh,x
+    sbc #0
+    sta ob_by_h,x
+    lda #2
+    sta ob_state,x
+    lda #43                     ; 43-frame quarter-sine swoop
+    sta ob_t0,x
+    lda ob_dir,x
+    bne @bt_fly_l
+    ; Right: +1.06 px/F ($01.$10) + rf_49D4 flying loop
+    lda #$10
+    sta ob_vxf,x
+    lda #1
+    sta ob_vxi,x
+    lda #<rf_49D4
+    ldy #>rf_49D4
+    jmp set_anim
+@bt_fly_l:
+    ; Left: -1.30 px/F ($FE.$B3) + rf_49B6 flying loop
+    lda #$b3
+    sta ob_vxf,x
+    lda #$fe
+    sta ob_vxi,x
+    lda #<rf_49B6
+    ldy #>rf_49B6
     jmp set_anim
 @bt_ret:
     rts
 @bt_swoop:
     jsr move_x
-    jsr move_y
-    dec ob_t0,x
-    bne :+
-    lda #3
-    sta ob_state,x
-    lda #0
-    sta ob_t1,x
-    lda ob_yl,x
-    sta ob_by_l,x
-    lda ob_yh,x
-    sta ob_by_h,x
-:
-    jmp offscreen_cull
-@bt_wave:
-    jsr move_x
-    ; Authentic ~42F period, +-16 px sine wave around ob_by
-    inc ob_t1,x
-    lda ob_t1,x
-    cmp #42
-    bcc :+
-    lda #0
-    sta ob_t1,x
-:
-    ; Map 0..41 -> half-wave 0..20 (+sign) or 21..41 (-sign), quarter index 0..10 -> 0..15
-    cmp #21
-    bcs @bt_neg
-    sta oz_t0
-    lda #0
-    sta oz_t1
-    beq @bt_q
-@bt_neg:
-    sec
-    sbc #21
-    sta oz_t0
-    lda #1
-    sta oz_t1
-@bt_q:
-    lda oz_t0
-    cmp #11
-    bcc :+
-    lda #20
-    sec
-    sbc oz_t0
-:
-    ; Scale 0..10 -> 0..15 (idx + idx/2)
-    sta oz_t0
+    ; Quarter-sine descent: Y = ob_by + amp * cos(step) where ob_t0 goes 43 -> 0
+    ; Map ob_t0 (0..43) -> s34_qsine index 0..15 (ob_t0 * 3 / 8)
+    lda ob_t0,x
+    lsr a
+    lsr a
+    sta oz_t0                   ; 0..10
     lsr a
     clc
     adc oz_t0
@@ -1741,12 +1809,99 @@ u_bat:
     lda #15
 :
     tay
-    lda s34_qsine,y             ; 0..126 -> >>3 = 0..15 (+-16 px)
+    lda s34_qsine,y             ; 0..126 (~sin 0..90 deg, scaled *128)
+    sta oz_t0
+    ; Multiply (oz_t0 * ob_aux) >> 7 (approx amp * cos)
+    lda #0
+    sta oz_t1
+    lda ob_aux,x
+    sta oz_t2
+    ldy #7
+@bt_mul:
+    lsr oz_t0
+    bcc :+
+    clc
+    adc oz_t2
+    bcc :+
+    inc oz_t1
+:
+    lsr oz_t1
+    ror a
+    dey
+    bne @bt_mul
+    clc
+    adc ob_by_l,x
+    sta ob_yl,x
+    lda ob_by_h,x
+    adc #0
+    sta ob_yh,x
+    dec ob_t0,x
+    bne @bt_sw_cull
+    ; Enter State 3 wave flight with variable amplitude ($4B64) & half-period (17..34F)
+    lda #3
+    sta ob_state,x
+    lda #0
+    sta ob_t1,x
+    sta ob_step,x               ; 0 = +half, 1 = -half
+    jsr @bt_roll_wave
+@bt_sw_cull:
+    jmp offscreen_cull
+@bt_wave:
+    jsr move_x
+    inc ob_t1,x
+    lda ob_t1,x
+    cmp ob_t2,x                 ; half-period (17..34F)
+    bcc @bt_wpos
+    lda #0
+    sta ob_t1,x
+    lda ob_step,x
+    eor #1
+    sta ob_step,x
+    jsr @bt_roll_wave
+@bt_wpos:
+    ; Map 0..half_period -> triangle 0..half/2 -> s34_qsine[0..15]
+    lda ob_t2,x
+    lsr a                       ; mid = half_period / 2
+    sta oz_t0
+    lda ob_t1,x
+    cmp oz_t0
+    bcc :+
+    lda ob_t2,x
+    sec
+    sbc ob_t1,x
+:
+    ; Scale 0..17 -> 0..15
+    cmp #16
+    bcc :+
+    lda #15
+:
+    tay
+    lda s34_qsine,y             ; 0..126 -> >>3 = 0..15
     lsr a
     lsr a
     lsr a
     sta oz_t0
-    lda oz_t1
+    ; Scale by ob_aux (amplitude 2..20): (oz_t0 * ob_aux) >> 4
+    lda #0
+    ldy #4
+    sta oz_t1
+    lda ob_aux,x
+    sta oz_t2
+    lda #0
+@bt_wmul:
+    lsr oz_t0
+    bcc :+
+    clc
+    adc oz_t2
+    bcc :+
+    inc oz_t1
+:
+    lsr oz_t1
+    ror a
+    dey
+    bne @bt_wmul
+    sta oz_t0
+    lda ob_step,x
     bne @bt_sub
     lda ob_by_l,x
     clc
@@ -1765,6 +1920,22 @@ u_bat:
     sbc #0
     sta ob_yh,x
     jmp offscreen_cull
+@bt_roll_wave:
+    jsr rng
+    and #15
+    tay
+    lda @bt_amp_tbl,y           ; arcade bank4:$4B64 (2..20 px)
+    sta ob_aux,x
+    jsr rng
+    and #7
+    tay
+    lda @bt_per_tbl,y           ; arcade bank4:$4B74 half-periods (17..34F)
+    sta ob_t2,x
+    rts
+@bt_sit_tbl:  .byte 80, 180, 125, 160, 60, 10, 110, 165
+@bt_drop_tbl: .byte 96, 112, 92, 104, 122, 88, 116, 86, 122, 52, 108, 88, 82, 107, 116, 112
+@bt_amp_tbl:  .byte 16, 12, 3, 6, 10, 5, 20, 8, 12, 3, 6, 18, 4, 14, 2, 8
+@bt_per_tbl:  .byte 17, 20, 22, 24, 26, 29, 32, 34
 
 ; 3. Petit Devil ($02 var 1, Stage 4, Arcade $A7D7-$AD10):
 ;    State 1: 31F invuln rise (+1.0 px/F) -> 49..80F vuln rise (+1.40 px/F) = 80..111F emerge.
@@ -2157,7 +2328,14 @@ u_arremer:
     rts
 :
     lda ob_state,x
-    bne @ar_not0
+    beq :+
+    jmp @ar_not0
+:
+    ; Arcade $B4E6: var 0 (scheduled offscreen Arremers on col 4/8/11) wake immediately & fly in!
+    ; Only var != 0 (fixed ledge Arremers) start sleeping (rf_BA04) until Arthur approaches.
+    lda ob_var,x
+    and #3
+    beq @ar_wake_fly
     lda ob_cur_l,x
     ora ob_cur_h,x
     bne :+
@@ -2176,17 +2354,71 @@ u_arremer:
     sta ob_hp,x
     lda #0
     sta ob_aux,x
+    sta ob_mirror,x
     lda #90
     sta ob_t0,x
     lda #72
     sta ob_t1,x
     lda #1
     sta ob_state,x
-    lda #<rf_4C53
-    ldy #>rf_4C53
-    jmp set_anim
+    jsr face_player
+    jmp @ar_set_walk_anim
+@ar_wake_fly:
+    lda #2
+    sta ob_hp,x
+    lda #0
+    sta ob_aux,x
+    sta ob_mirror,x
+    lda #90
+    sta ob_t0,x
+    lda #72
+    sta ob_t1,x
+    lda #2                      ; Enter fly-over directly so offscreen Arremer swoops in!
+    sta ob_state,x
+    lda #1
+    sta ob_step,x
+    lda #45
+    sta ob_t2,x
+    jsr face_player
+    jmp @ar_set_fly_anim
 @ar_ret0:
     rts
+@ar_set_walk_anim:
+    lda #0
+    sta ob_mirror,x
+    lda ob_dir,x
+    bne :+
+    lda #<rf_4DA7               ; Right walk
+    ldy #>rf_4DA7
+    jmp set_anim
+:
+    lda #<rf_4DBB               ; Left walk
+    ldy #>rf_4DBB
+    jmp set_anim
+@ar_set_shoot_anim:
+    lda #0
+    sta ob_mirror,x
+    lda ob_dir,x
+    bne :+
+    lda #<rf_4C53               ; Right shoot
+    ldy #>rf_4C53
+    jmp set_anim
+:
+    lda #<rf_4C58               ; Left shoot
+    ldy #>rf_4C58
+    jmp set_anim
+@ar_set_fly_anim:
+    lda #0
+    sta ob_mirror,x
+    lda ob_dir,x
+    bne :+
+    lda #<rf_4DFF               ; Right fly
+    ldy #>rf_4DFF
+    jmp set_anim
+:
+    lda #<rf_4E09               ; Left fly
+    ldy #>rf_4E09
+    jmp set_anim
 @ar_not0:
     cmp #1
     beq @ar_walk
@@ -2208,12 +2440,14 @@ u_arremer:
 :
     jmp @ar_swoop
 @ar_walk:
-    jsr face_player
     lda ob_dir,x
+    pha
+    jsr face_player
+    pla
+    cmp ob_dir,x
     beq :+
-    lda #$40
+    jsr @ar_set_walk_anim
 :
-    sta ob_mirror,x
     lda #$cc                    ; 0.80 px/F
     ldy #0
     jsr set_vx_dir
@@ -2230,9 +2464,7 @@ u_arremer:
     sta ob_state,x
     lda #12
     sta ob_t2,x
-    lda #<rf_4DA7
-    ldy #>rf_4DA7
-    jmp set_anim
+    jmp @ar_set_shoot_anim
 @ar_cr:
     dec ob_t1,x
     bne @ar_cd
@@ -2247,9 +2479,7 @@ u_arremer:
     sta ob_step,x
     lda #43
     sta ob_t2,x
-    lda #<rf_4D0F
-    ldy #>rf_4D0F
-    jmp set_anim
+    jmp @ar_set_fly_anim
 @ar_cd:
     lda #64
     jsr shot_near_x
@@ -2260,27 +2490,28 @@ u_arremer:
     sta ob_step,x
     lda #21
     sta ob_t2,x
-    lda #<rf_4C9B
-    ldy #>rf_4C9B
-    jmp set_anim
+    jmp @ar_set_fly_anim
 @ar_sp:
     jsr calc_dx_player
     lda #47
     jsr abs_dx_le
-    bcs @ar_go_sp
+    bcs @ar_go_retreat
     lda #112
     jsr abs_dx_le
     bcs @ar_ycull
-    lda #2
+    ; Arcade $0103: |dx| > 112 -> approach at 2.13 px/F (spacing toward player)
+    lda #4
     sta ob_state,x
-    lda #0
-    sta ob_step,x
-    lda #21
+    jsr rng
+    and #15
+    clc
+    adc #10
     sta ob_t2,x
-    lda #<rf_4C9B
-    ldy #>rf_4C9B
-    jmp set_anim
-@ar_go_sp:
+    lda ob_dir,x
+    sta ob_step,x
+    jmp @ar_ycull
+@ar_go_retreat:
+    ; |dx| < 48 -> retreat away from player at 2.13 px/F
     lda #4
     sta ob_state,x
     jsr rng
@@ -2308,7 +2539,7 @@ u_arremer:
     lda #60
     sta ob_t2,x
     jsr face_player
-    rts
+    jmp @ar_set_fly_anim
 @arf1:
     cmp #1
     bne @arf_dn
@@ -2333,14 +2564,14 @@ u_arremer:
     bcs @arf_ld
     dec ob_t2,x
     bne @ar_ycull
+    jmp @ar_to_walk             ; Never call snap_ground when off-ground!
 @arf_ld:
     jsr snap_ground
 @ar_to_walk:
     lda #1
     sta ob_state,x
-    lda #<rf_4C53
-    ldy #>rf_4C53
-    jmp set_anim
+    jsr face_player
+    jmp @ar_set_walk_anim
 @ar_shoot:
     dec ob_t2,x
     lda ob_t2,x
@@ -2351,7 +2582,9 @@ u_arremer:
     rts
 :
     cmp #0
-    bne @ar_ycull
+    beq :+
+    jmp offscreen_y_cull
+:
     jmp @ar_to_walk
 @ar_space:
     lda ob_dir,x
@@ -2379,7 +2612,7 @@ u_arremer:
     bne @ar_yc2
     lda #1
     sta ob_step,x
-    lda #40
+    lda #32                     ; Hover briefly to let shot pass (no mid-dodge fireball)
     sta ob_t2,x
     rts
 @ard1:
@@ -2388,14 +2621,6 @@ u_arremer:
     jmp @arf_dn
 :
     dec ob_t2,x
-    lda ob_t2,x
-    cmp #20
-    bne :+
-    jsr fire_arremer_shot
-    ldx oz_i
-    rts
-:
-    cmp #0
     bne @ar_yc2
     lda #2
     sta ob_step,x
@@ -2437,7 +2662,9 @@ u_zombie:
     lda ob_state,x
     beq @z_init
     cmp #1
-    beq @z_rise
+    bne :+
+    jmp @z_rise
+:
     cmp #2
     bne :+
     jmp @z_walk
@@ -2474,20 +2701,73 @@ u_zombie:
     lda #0
     sta ob_flags,x              ; invuln while rising
     sta ob_mirror,x
+    ; Variant 1 walks straight in only when spawning off-screen; if on-screen, rise from ground.
+    lda ob_var,x
+    beq @z_do_rise
+    jsr in_view
+    bcc @z_do_rise
+    jmp @z_go_walk
+@z_do_rise:
+    ; Lower arcade Y by 8 px for 16px-tall rise1/rise2 shapes (flush with ground)
+    lda ob_yl,x
+    sec
+    sbc #8
+    sta ob_yl,x
+    bcs :+
+    dec ob_yh,x
+:
     lda #snd_se_rise
     jsr call_bank8_play_se
     ldx oz_i
-    lda ob_var,x
-    bne @z_go_walk
     lda #1
     sta ob_state,x
-    lda #87                     ; arcade 87F rise
+    lda #87                     ; arcade 87F 3-stage rise
     sta ob_t0,x
-    lda #<rf_5245
-    ldy #>rf_5245
+    lda ob_dir,x
+    bne :+
+    lda #<rf_523C
+    ldy #>rf_523C
+    jmp set_anim
+:
+    lda #<rf_5272
+    ldy #>rf_5272
     jmp set_anim
 @z_rise:
     dec ob_t0,x
+    lda ob_t0,x
+    cmp #57
+    bne @z_r_chk3
+    lda ob_dir,x
+    bne :+
+    lda #<rf_5245
+    ldy #>rf_5245
+    jmp set_anim
+:
+    lda #<rf_527B
+    ldy #>rf_527B
+    jmp set_anim
+@z_r_chk3:
+    cmp #32
+    bne @z_r_chk0
+    ; Switching to 32px-tall rise3: restore arcade Y by +8 px
+    lda ob_yl,x
+    clc
+    adc #8
+    sta ob_yl,x
+    bcc :+
+    inc ob_yh,x
+:
+    lda ob_dir,x
+    bne :+
+    lda #<rf_524D
+    ldy #>rf_524D
+    jmp set_anim
+:
+    lda #<rf_5283
+    ldy #>rf_5283
+    jmp set_anim
+@z_r_chk0:
+    cmp #0
     bne @z_ret
 @z_go_walk:
     lda #2
@@ -2506,12 +2786,12 @@ u_zombie:
     sta ob_step,x
     sta ob_mirror,x
     lda ob_dir,x
-    beq :+
-    lda #<rf_52FC
+    bne :+
+    lda #<rf_52FC               ; Right walk!
     ldy #>rf_52FC
     jmp set_anim
 :
-    lda #<rf_5316
+    lda #<rf_5316               ; Left walk!
     ldy #>rf_5316
     jmp set_anim
 @z_ret:
@@ -2558,25 +2838,55 @@ u_zombie:
 @z_cull:
     jmp offscreen_cull
 @z_go_sink:
+    ; Lower arcade Y by 8 px for 16px-tall sink1/sink2 shapes (flush with ground)
+    lda ob_yl,x
+    sec
+    sbc #8
+    sta ob_yl,x
+    bcs :+
+    dec ob_yh,x
+:
     lda #3
     sta ob_state,x
     lda #0
     sta ob_flags,x              ; invuln while sinking
-    lda #36                     ; 36F sink
+    lda #36                     ; 36F 2-stage sink
     sta ob_t0,x
-    lda #<rf_5245
-    ldy #>rf_5245
+    lda ob_dir,x
+    bne :+
+    lda #<rf_525F
+    ldy #>rf_525F
+    jmp set_anim
+:
+    lda #<rf_5295
+    ldy #>rf_5295
     jmp set_anim
 @z_sink:
     dec ob_t0,x
-    bne @z_ret
+    lda ob_t0,x
+    cmp #18
+    bne @z_sk_chk0
+    lda ob_dir,x
+    bne :+
+    lda #<rf_5267
+    ldy #>rf_5267
+    jmp set_anim
+:
+    lda #<rf_529D
+    ldy #>rf_529D
+    jmp set_anim
+@z_sk_chk0:
+    cmp #0
+    beq :+
+    rts
+:
     jmp free_slot
 
 .segment "BANK15"
-; 7. Grey Stone Pillar ($12, Stage 3, Arcade $D3CC-$D5A0):
-;    25-entry x 4F wait table ($57B5) with dual independent upper (Y+7) / lower (Y-16) timers;
-;    shielded while waiting; unshielded 72F firing window (supports single & $0104 double-shot);
-;    never flips ob_mirror!
+; 7. Grey Stone Pillar ($12, Stage 3, Arcade $DF2A-$E1F1):
+;    Authentic 25-entry wait table (bank4:$57B5) ticked every 4 frames, dual upper (Y+7) /
+;    lower (Y-16) mouths, shielded while waiting, unshielded 72F firing sequence with
+;    authentic $E0BC stone-face / mouth-opening frames (rf_F001..rf_F006) + idle shimmer!
 u_pillar:
     lda ob_state,x
     beq @pl_init
@@ -2593,29 +2903,40 @@ u_pillar:
     sta ob_mirror,x
     sta ob_aux,x                ; table index 0..24
     jsr @pl_next_t
-    sta ob_t0,x                 ; upper mouth timer (+7)
+    sta ob_t0,x                 ; upper mouth timer (in 4F ticks)
     jsr @pl_next_t
-    sta ob_t1,x                 ; lower mouth timer (-16)
+    sta ob_t1,x                 ; lower mouth timer (in 4F ticks)
 @pl_frame:
     lda #0
     sta ob_mirror,x
     lda ob_dir,x
     beq :+
-    lda #<rf_57A1
+    lda #<rf_57A1               ; Left idle shimmer ($57A1 <-> $57A6)
     ldy #>rf_57A1
     jmp set_anim
 :
-    lda #<rf_5795
+    lda #<rf_5795               ; Right idle shimmer ($5795 <-> $579A)
     ldy #>rf_5795
     jmp set_anim
 @pl_wait:
     jsr in_view
     bcs @pl_ret
+    lda ob_dir,x
+    pha
     jsr face_player
+    pla
+    cmp ob_dir,x
+    beq :+
+    jsr @pl_frame               ; Update visual facing immediately when Arthur crosses pillar!
+:
     jsr calc_dy_player
     lda #48
     jsr abs_dy_le
     bcc @pl_ret
+    ; Arcade $0101.0-.3: tick timers once every 4 frames (so 100 = 400F without 8-bit overflow)
+    lda frames
+    and #3
+    bne @pl_ret
     lda #0
     sta ob_step,x               ; bit 0 = upper due, bit 1 = lower due
     dec ob_t0,x
@@ -2631,7 +2952,7 @@ u_pillar:
 :
     lda ob_step,x
     beq @pl_ret
-    ; Drop shield for 72F firing window (single or simultaneous double-shot!)
+    ; Drop shield for 72F firing sequence (30F telegraph -> fire + 32F face anim -> 10F cooldown)
     lda #2
     sta ob_state,x
     lda #ofl_alive | ofl_shoot | ofl_touch
@@ -2643,16 +2964,9 @@ u_pillar:
     rts
 @pl_fire:
     lda ob_t2,x
-    cmp #48
-    bcs :+
-    cmp #36
-    bcc :+
-    lda #1
-    sta ob_flash,x
-:
-    lda ob_t2,x
     cmp #42
-    bne @pl_ns
+    bne @pl_chk_wide
+    ; Frame 30 (t2==42): fire mouth shot(s) & open stone face(s) half-wide!
     lda ob_step,x
     and #1
     beq @pl_chk_lo
@@ -2664,13 +2978,33 @@ u_pillar:
 @pl_chk_lo:
     lda ob_step,x
     and #2
-    beq @pl_ns
+    beq @pl_open_half
     lda #$f0                    ; lower shot (Y - 16)
     jsr fire_pillar_shot
     ldx oz_i
     jsr @pl_next_t
     sta ob_t1,x
-@pl_ns:
+@pl_open_half:
+    lda #0                      ; half-open face
+    jsr @pl_set_face
+    jmp @pl_dec
+@pl_chk_wide:
+    cmp #38
+    bne @pl_chk_close1
+    lda #1                      ; wide-open eyes & mouth (steps 1-2: 8F)
+    jsr @pl_set_face
+    jmp @pl_dec
+@pl_chk_close1:
+    cmp #30
+    bne @pl_chk_close2
+    lda #0                      ; half-open closing (steps 3-6: 16F)
+    jsr @pl_set_face
+    jmp @pl_dec
+@pl_chk_close2:
+    cmp #14
+    bne @pl_dec
+    jsr @pl_frame               ; closed pillar for final 14F cooldown
+@pl_dec:
     dec ob_t2,x
     bne @pl_ret
     lda #1
@@ -2678,25 +3012,69 @@ u_pillar:
     lda #ofl_alive | ofl_shoot | ofl_touch | ofl_shield
     sta ob_flags,x
     jmp @pl_frame
+; A = 0 (half-open) or 1 (wide-open); ob_step bits 0(upper)/1(lower) pick rf_F001..rf_F006.
+@pl_set_face:
+    sta oz_t0
+    lda #0
+    ldy ob_dir,x
+    beq :+
+    lda #$40                    ; H-flip right-facing rf_F001..F006 for left facing
+:
+    sta ob_mirror,x
+    lda ob_step,x
+    and #3
+    cmp #3
+    beq @pl_both
+    cmp #1
+    beq @pl_upper
+    ; Lower mouth only (rf_F001 / rf_F002)
+    lda oz_t0
+    bne :+
+    lda #<rf_F001
+    ldy #>rf_F001
+    jmp set_anim
+:
+    lda #<rf_F002
+    ldy #>rf_F002
+    jmp set_anim
+@pl_upper:
+    ; Upper mouth only (rf_F003 / rf_F004)
+    lda oz_t0
+    bne :+
+    lda #<rf_F003
+    ldy #>rf_F003
+    jmp set_anim
+:
+    lda #<rf_F004
+    ldy #>rf_F004
+    jmp set_anim
+@pl_both:
+    ; Both mouths (rf_F005 / rf_F006)
+    lda oz_t0
+    bne :+
+    lda #<rf_F005
+    ldy #>rf_F005
+    jmp set_anim
+:
+    lda #<rf_F006
+    ldy #>rf_F006
+    jmp set_anim
 @pl_next_t:
     ldy ob_aux,x
-    lda @pl_tbl,y
-    asl a
-    asl a                       ; * 4 frames
+    lda @pl_tbl,y               ; read current entry (in 4F ticks, 8..100)
+    pha
     iny
     cpy #25
     bcc :+
     ldy #0
 :
-    sty oz_t0
-    lda oz_t0
+    tya
     sta ob_aux,x
-    lda @pl_tbl,y
-    asl a
-    asl a
+    pla
     rts
+; Authentic arcade bank4:$57B5 (row 0, 25 entries x 4 frames)
 @pl_tbl:
-    .byte 16, 8,20,12,24,10,18, 6,22,14,16, 8,20,12,26,10,18, 8,22,14,16,10,20,12,18
+    .byte 22,30, 8,52, 8,25,30,45,60,70,100,23,39,34,10,30,25,30, 8, 8,18,25,30,45,23
 
 ; 8. Fire Pillar ($0E, Stage 4, Arcade $E4C8):
 ;    Global 32F clock + 9-entry interval table (4,6,2,6,4,6,8,2,6 x 32F);
@@ -3643,20 +4021,48 @@ u_popup:
     lda ob_var,x
     cmp #3
     bne @up_free
-    ; Dragon Boss Key drop after 22F boom + 63F popup!
+    ; Dragon Boss Key drop after 22F boom + 63F popup (matches Stage 1/2 arcade key drop!).
     dec oz_kind_cnt+ok_popup
     lda #ok_key
     sta ob_kind,x
     inc oz_kind_cnt+ok_key
     lda #0
     sta ob_state,x
+    sta ob_vxi,x
+    sta ob_vxf,x
+    sta ob_vyi,x
+    sta ob_vyf,x
+    sta ob_yf,x
+    sta ob_mirror,x
     lda #ofl_alive
     sta ob_flags,x
+    ; Spawn high in visible screen (oz_camy + 192 -> screen Y=48, below HUD) at camera_x + 144,
+    ; and save landing floor Y (oz_py) in ob_t1/t2.
+    lda camera_low
+    clc
+    adc #144
+    sta ob_xl,x
+    lda camera_high
+    adc #0
+    sta ob_xh,x
     lda oz_py
-    sta ob_yl,x
+    sta ob_t1,x                 ; target landing floor Y lo
     lda oz_py+1
+    sta ob_t2,x                 ; target landing floor Y hi
+    lda oz_camy
+    clc
+    adc #192
+    sta ob_yl,x
+    lda oz_camy+1
+    adc #0
     sta ob_yh,x
-    rts
+    lda #30                     ; 30F arcade sparkle (rf_7422) before falling
+    sta ob_t0,x
+    lda #<rf_7422
+    ldy #>rf_7422
+    jsr set_anim
+    lda #snd_song_key
+    jmp call_bank8_play_song
 @up_free:
     jmp free_slot
 @up_ret:
@@ -3702,18 +4108,57 @@ u_trigger:
 @tr_ret:
     rts
 
-; Boss Key + 181-frame clear walk (matches Stage 1 & 2).
+; Boss Key + 181-frame clear walk (matches Stage 1 & 2: 30F sparkle -> -1.24 px/F drop -> pickup).
 u_key:
     lda ob_state,x
-    bne @key_wait
-    ; Drop key to player ground level
-    inc ob_state,x
-    lda #snd_se_key
-    jsr call_bank8_play_se
-    ldx oz_i
-    lda #<rf_5AD1
-    ldy #>rf_5AD1
+    bne @key_not0
+    ; State 0: 30-frame sparkle (rf_7422) high in the air
+    dec ob_t0,x
+    beq :+
+    rts
+:
+    lda #1
+    sta ob_state,x
+    lda #$c3                    ; -1.24 px/F ($FE.$C3) arcade key descent
+    sta ob_vyf,x
+    lda #$fe
+    sta ob_vyi,x
+    lda #<rf_7430
+    ldy #>rf_7430
     jmp set_anim
+@key_not0:
+    cmp #1
+    bne @key_wait
+    ; State 1: descending until ob_y <= target floor (ob_t2:ob_t1)
+    lda ob_yf,x
+    clc
+    adc ob_vyf,x
+    sta ob_yf,x
+    lda ob_yl,x
+    adc ob_vyi,x
+    sta ob_yl,x
+    lda ob_yh,x
+    adc #$ff                    ; sign-extend negative ob_vyi ($FE)
+    sta ob_yh,x
+    cmp ob_t2,x
+    bcc @key_land
+    bne @key_fall_ret
+    lda ob_yl,x
+    cmp ob_t1,x
+    beq @key_land
+    bcs @key_fall_ret
+@key_land:
+    lda ob_t1,x
+    sta ob_yl,x
+    lda ob_t2,x
+    sta ob_yh,x
+    lda #0
+    sta ob_vyf,x
+    sta ob_vyi,x
+    lda #2
+    sta ob_state,x
+@key_fall_ret:
+    rts
 @key_wait:
     ; Touch player?
     jsr calc_dx_player

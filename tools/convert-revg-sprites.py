@@ -93,13 +93,24 @@ STATIC_FRAMES += [(0xFD27, 1)]
 # Dragon ($0C head/fire/body/tail) + fire ($09), Fire Pillar ($0E idle & erupt).
 EXTRA_ANIMATIONS += [
     (0x49B2, 2), (0x49D0, 2),
+    (0x5795, 8), (0x57A1, 8),
     (0xFD32, 0), (0xFD40, 0),
     (0x5344, 3), (0x5352, 3), (0x53B4, 3), (0x53C2, 3),
     (0xD5CE, 1), (0xD615, 0), (0xFD9C, 0),
 ]
 STATIC_FRAMES += [
-    (0x5795, 8), (0x57A1, 8),
     (0x55EC, 1), (0x5602, 8), (0x5631, 10),
+]
+# Synthetic Stone Pillar ($12) face/mouth-opening frames built dynamically in RAM by arcade $E033-$E1C2
+# from $E0BC (shape 8 = 1x3 vertical, colour 1, flip_x=True right-facing; ob_mirror=$40 flips left):
+#   $F001/$F002: lower mouth half/wide; $F003/$F004: upper mouth half/wide; $F005/$F006: both half/wide.
+SYNTHETIC_FRAMES = [
+    (0xF001, 8, 1, True, False, (0x092, 0x091, 0x09A)),
+    (0xF002, 8, 1, True, False, (0x09C, 0x091, 0x09A)),
+    (0xF003, 8, 1, True, False, (0x099, 0x09B, 0x093)),
+    (0xF004, 8, 1, True, False, (0x099, 0x094, 0x09D)),
+    (0xF005, 8, 1, True, False, (0x092, 0x09B, 0x093)),
+    (0xF006, 8, 1, True, False, (0x09C, 0x094, 0x09D)),
 ]
 # Stage 5-7 (Sections 4-6) enemies & bosses: Satan ($06) + shot ($0B),
 # Floor Skull ($09), Astaroth ($0D) + shots ($0A: $FDBF R, $FDC7 L), Cross item ($5B40).
@@ -215,6 +226,21 @@ def main():
         nxt = frame["next"] if frame["next"] in shape_of else ptr
         frames[ptr] = {"duration": frame["duration"], "next": nxt, "pieces": pieces,
                        "weight": weight_of.get(ptr, 1.0)}
+    for ptr, shape, colour, flip_x, flip_y, codes in SYNTHETIC_FRAMES:
+        syn = {"codes": list(codes), "colour": colour, "flip_x": flip_x, "flip_y": flip_y}
+        pieces = []
+        for code, left, top in sp.sprites_of(syn, shape):
+            pens = rom.tile(code)
+            drawn = [[pens[15 - y if flip_y else y][15 - x if flip_x else x] for x in range(16)]
+                     for y in range(16)]
+            for half in (0, 1):
+                cols = [row[half * 8:half * 8 + 8] for row in drawn]
+                if all(p == 15 for row in cols for p in row):
+                    continue
+                rgb = tuple(tuple(None if p == 15 else arcade_rgb[colour * 16 + p] for p in row)
+                            for row in cols)
+                pieces.append({"dx": left + half * 8, "dy": top, "rgb": rgb})
+        frames[ptr] = {"duration": 255, "next": ptr, "pieces": pieces, "weight": 1.0}
 
     # --- palette fit -------------------------------------------------------------------
     import numpy as np

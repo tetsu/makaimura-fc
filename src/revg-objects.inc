@@ -127,13 +127,6 @@ revg_spr_upload:
 @ret:
     rts
 
-call_bank6_objects:
-    lda #6
-    jsr select_bank2
-    jsr revg_update_objects
-    lda #4
-    jmp select_bank2
-
 call_bank6_clear_seq:
     lda #7
     jsr select_bank2
@@ -581,12 +574,17 @@ rs_emit_mapped:
     and #$fc
     ora rs_pal
 :
-    ldx rs_oam
     ldy rs_pyl
+    ldx rs_no_bg_prio
+    bne @prio_ok
+    ldx pan_y_page
+    cpx stage_cam_y_max_page
+    bne @prio_ok
     cpy #208                    ; arcade BG attr bit 3: rows 13-14 (grass/water foreground)
-    bcc :+
+    bcc @prio_ok
     ora #$20                    ; OAM behind-BG priority for underground/underwater pieces
-:
+@prio_ok:
+    ldx rs_oam
     sta sprites+2,x
     tya
     sta sprites,x
@@ -734,6 +732,7 @@ revg_draw_sprites:
     sta rs_oam
     sta rs_full
     sta rs_req_n
+    sta rs_no_bg_prio
     ; Cap sprite CHR uploads to stay within NTSC VBlank (2273 cycles) alongside
     ; BG scroll nametable, BG CHR streaming, HUD updates, palette fades, and OAM DMA.
     ; Unrolled revg_spr_upload_b7 takes ~278 cyc/tile, fitting 4 tiles on clean frames.
@@ -1276,7 +1275,7 @@ rs_draw_shots:
     tax
     pla
     jsr rs_set_fc_y
-    jsr rs_draw_or_last
+    jsr rs_draw_fg
 @next:
     ldx rs_shot_i
     inx
@@ -1284,6 +1283,12 @@ rs_draw_shots:
     beq @far978
     jmp @shot
 @far978:
+    rts
+
+rs_draw_fg:
+    inc rs_no_bg_prio
+    jsr rs_draw_or_last
+    dec rs_no_bg_prio
     rts
 
 ; Y = (rs_frame / 3) & 3 in O(1) via mod-12 binary reduction (12 * 16 = 192, 96, 48, 24, 12).
@@ -1384,7 +1389,7 @@ rs_draw_platforms:
     tax
     pla
     jsr rs_set_fc_y
-    jsr rs_draw_or_last
+    jsr rs_draw_fg
 @next:
     ldx rs_shot_i
     inx

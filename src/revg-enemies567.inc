@@ -52,6 +52,10 @@ fe_end_row_hi: .res 1
 fe_end_row_lo: .res 1
 fe_end_fslot: .res 6            ; Starting CHR-RAM sprite slot for ending frames 0..5
 fe_end_row_buf: .res 32         ; 32-byte nametable row buffer for glitch-free page swaps
+rs_no_bg_prio: .res 1           ; 1 while drawing platforms (never push behind opaque BG)
+s2_boss_bgm: .res 1             ; Stage 2 Unicorn boss BGM one-shot guard (replaces ap_boss_lock)
+s2_plat_clk_lo: .res 1          ; Stage 2 continuous 448-frame water-channel platform clock
+s2_plat_clk_hi: .res 1
 
 .segment "BANK56"
 .scope s567
@@ -566,6 +570,11 @@ on_ground:
     cmp #tile_type_solid
     beq @og_yes
     cmp #tile_type_oneway
+    beq @og_yes
+    cmp #tile_type_ladder
+    bne @og_no
+    lda ob_kind,x
+    cmp #ok_bigman
     beq @og_yes
 @og_no:
     clc
@@ -4702,20 +4711,45 @@ u_popup:
     beq @up_ast
     jmp free_obj
 @up_key:
+    ; Satan Boss Key drop (matches Stage 1/2: 30F rf_7422 sparkle + snd_song_key -> -1.24 px/F fall)
     dec oz_kind_cnt+ok_popup
     lda #ok_key
     sta ob_kind,x
     lda #0
     sta ob_state,x
-    sta ob_cur_l,x
-    sta ob_cur_h,x
+    sta ob_vxi,x
+    sta ob_vxf,x
+    sta ob_vyi,x
+    sta ob_vyf,x
+    sta ob_yf,x
+    sta ob_mirror,x
     lda #ofl_alive
     sta ob_flags,x
+    lda camera_low
+    clc
+    adc #144
+    sta ob_xl,x
+    lda camera_high
+    adc #0
+    sta ob_xh,x
     lda oz_py
-    sta ob_yl,x
+    sta ob_t1,x                 ; target landing floor Y lo
     lda oz_py+1
+    sta ob_t2,x                 ; target landing floor Y hi
+    lda oz_camy
+    clc
+    adc #192                    ; screen Y=48 (visibly below HUD on top floor!)
+    sta ob_yl,x
+    lda oz_camy+1
+    adc #0
     sta ob_yh,x
-    rts
+    lda #30
+    sta ob_t0,x
+    lda #<rf_7422
+    ldy #>rf_7422
+    jsr set_anim
+    lda #snd_song_key
+    jmp call_bank8_play_song
 @up_ast:
     jmp start_clear_seq
 @up_ret:
@@ -4785,14 +4819,56 @@ u_trigger:
     rts
 
 u_key:
-    lda ob_cur_l,x
-    ora ob_cur_h,x
-    bne :+
+    lda ob_state,x
+    bne @ky_not0
+    ; State 0: 30-frame arcade sparkle (rf_7422) high in the air
+    dec ob_t0,x
+    beq :+
+    rts
+:
+    lda #1
+    sta ob_state,x
+    lda #$c3                    ; -1.24 px/F ($FE.$C3) arcade key descent
+    sta ob_vyf,x
+    lda #$fe
+    sta ob_vyi,x
     lda #<rf_7430
     ldy #>rf_7430
-    jsr set_anim
-:
-    ; Wait for player pickup
+    jmp set_anim
+@ky_not0:
+    cmp #1
+    bne @ky_wait
+    ; State 1: descending until ob_y <= target floor (ob_t2:ob_t1)
+    lda ob_yf,x
+    clc
+    adc ob_vyf,x
+    sta ob_yf,x
+    lda ob_yl,x
+    adc ob_vyi,x
+    sta ob_yl,x
+    lda ob_yh,x
+    adc #$ff
+    sta ob_yh,x
+    cmp ob_t2,x
+    bcc @ky_land
+    bne @ky_ret
+    lda ob_yl,x
+    cmp ob_t1,x
+    beq @ky_land
+    bcs @ky_ret
+@ky_land:
+    lda ob_t1,x
+    sta ob_yl,x
+    lda ob_t2,x
+    sta ob_yh,x
+    lda #0
+    sta ob_vyf,x
+    sta ob_vyi,x
+    lda #2
+    sta ob_state,x
+    rts
+@ky_wait:
+    ; State 2: Wait for player pickup
     sec
     lda ob_xl,x
     sbc player_x

@@ -746,15 +746,15 @@ revg_prepare_column:
 revg2_prepare_row:
     lda pan_need_row
     jsr pan_address_for_row
-    ; During live gameplay (pan_ctrl != 0), never overwrite the fixed HUD rows 0..2 ($2000..$205F)
-    ; when vertical scrolling wraps through even pages 2 or 4 (Stages 3, 5, 6).
+    ; During live gameplay (pan_ctrl != 0), never overwrite the fixed HUD rows 0..3 ($2000..$207F)
+    ; when vertical scrolling wraps through even pages 0, 2, or 4 (Stages 2, 3, 5, 6).
     lda pan_ctrl
     beq @row_hud_ok
     lda pan_addr_hi
     cmp #$20
     bne @row_hud_ok
     lda pan_addr_lo
-    cmp #$60
+    cmp #$80
     bcs @row_hud_ok
     lda #pan_no_update
     sta pan_need_row
@@ -997,6 +997,38 @@ revg2_prepare_column:
     adc pan_top_rows
     sta pan_data_y
     jsr pan_address_for_row
+    ; During live gameplay (pan_ctrl != 0), never start a column write inside HUD rows 0..3 ($2000..$207F).
+    lda pan_ctrl
+    beq @col_hud_ok
+    lda pan_addr_hi
+    cmp #$20
+    bne @col_hud_ok
+    lda pan_local_y
+    cmp #hud_rows
+    bcs @col_hud_ok
+    lda #hud_rows
+    sec
+    sbc pan_local_y             ; skip = 4 - pan_local_y (1..4)
+    sta revg2_tmp0
+    clc
+    adc pan_data_y
+    sta pan_data_y
+    lda pan_col_length
+    sec
+    sbc revg2_tmp0
+    beq @col_hud_skip
+    bcc @col_hud_skip
+    sta pan_col_length
+    lda #hud_rows
+    sta pan_local_y
+    lda #$80
+    sta pan_addr_lo
+    bne @col_hud_ok
+@col_hud_skip:
+    lda #pan_no_update
+    sta pan_need_col
+    rts
+@col_hud_ok:
     lda pan_addr_hi
     sta pan_col_addr+1
     and #$28
@@ -1238,10 +1270,17 @@ revg2_prepare_column:
 @cattr_same:
     ldy revg_count
     bne @cattr_read
-    lda revg2_tmp0
-    and #1
+    ; Preserve HUD palette 0 on $23C0..$23C7 based on the actual target attribute page ($23).
+    cpx revg2_attr_split
+    bcs @ca_chk_hi2
+    lda revg_attr_hi
+    jmp @ca_chk_23
+@ca_chk_hi2:
+    lda revg2_attr_hi2
+@ca_chk_23:
+    cmp #$23
     bne @cattr_read
-    lda #0                      ; preserve HUD palette 0 on $2000 attr row 0
+    lda #0                      ; preserve HUD palette 0 on $23C0..$23C7
     beq @cattr_st
 @cattr_read:
     lda revg_bg_active
