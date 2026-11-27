@@ -64,6 +64,7 @@ blank_display:
 .ifdef REVG_STAGE1
     sta revg_bg_active
     sta fe_map_active
+    sta fe_end_active
 .endif
     lda #$80
     sta $e000           ; Restore left/right nametables for the other scenes.

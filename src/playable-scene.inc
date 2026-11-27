@@ -689,14 +689,21 @@ show_course_clear:
     lda scene
     cmp #clear_scene
     bne @result_b7
-    ; Loop 2 Stage 7 CLEAR is FINAL CLEAR (drawn by BANK7); all other clears & ready maps show Makai map.
+    ; Loop 2 Stage 7 CLEAR plays the authentic Loop 2 True Ending (BANK2);
+    ; all other clears & ready maps show the Makai progression map.
     lda fe_map_mode
     bne @show_map
     lda campaign_stage
     cmp #7
     bne @show_map
     lda ap_loop
-    bne @result_b7
+    beq @show_map
+    lda #snd_song_ending        ; Play arcade $32 Loop 2 true ending theme (21s)
+    jsr call_bank8_play_song
+    lda #2
+    jsr select_bank2
+    jsr fe_draw_ending
+    jmp @result_done
 @show_map:
     lda #snd_song_map           ; Play arcade $30 Makai Map / stage start jingle on the map screen
     jsr call_bank8_play_song
@@ -714,6 +721,7 @@ show_course_clear:
     jsr select_bank2
 .ifdef REVG_STAGE1
     lda fe_map_active
+    ora fe_end_active
     beq :+
     jmp enable_map_screen
 :

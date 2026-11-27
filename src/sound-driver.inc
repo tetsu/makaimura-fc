@@ -18,7 +18,8 @@ snd_song_miss     = 8   ; $31: a death with lives left
 snd_song_key      = 9   ; $3E: key appearance fanfare
 snd_song_name_entry = 10 ; $26: high-score name entry theme
 snd_song_map      = 11  ; $30: Makai progression map / stage start jingle
-snd_song_max      = 11
+snd_song_ending   = 12  ; $32: Loop 2 true ending theme (21s)
+snd_song_max      = 12
 
 snd_se_none       = 0
 snd_se_shot      = 1

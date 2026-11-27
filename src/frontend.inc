@@ -13,6 +13,9 @@ fe_timer: .res 1
 .define FE_GLYPHS "7ABCDEFGHIKLMNOPRSTUVW+YJ2"
 opt_x_tile = $38
 opt_arrow_tile = $39
+end_dot_tile = $3a
+end_comma_tile = $3b
+end_bang_tile = $3c
 .ifdef REVG_STAGE1
 title_text_base = revg_title_tile_count
 title_arrow_tile = revg_title_tile_count + (CHR_TEXT_BYTES / 16)
@@ -32,6 +35,15 @@ title_arrow_tile = opt_arrow_tile
         found .set 1
     .elseif c = '>'
         .byte opt_arrow_tile
+        found .set 1
+    .elseif c = '.'
+        .byte end_dot_tile
+        found .set 1
+    .elseif c = ','
+        .byte end_comma_tile
+        found .set 1
+    .elseif c = '!'
+        .byte end_bang_tile
         found .set 1
     .endif
     .repeat .strlen(FE_GLYPHS), index
@@ -1050,6 +1062,11 @@ fe_draw_name_entry:
 
 ; VBlank / forced-blank commit: draws active 3 letters, cursor, and live rank row initials.
 fe_commit_name_entry:
+    lda scene
+    cmp #clear_scene
+    bne :+
+    jmp fe_commit_ending
+:
     ; Active 3 letters at $210d..$210f
     lda #$21
     sta $2006
@@ -1718,3 +1735,737 @@ title_grave_row_top:
 title_grave_row_bot:
     .byte $4a, $4b, $4e, $4f, $4a, $4b, $52, $53, $4a, $4b, $56, $57, $4a, $4b, $4e, $4f
     .byte $4a, $4b, $52, $53, $4a, $4b, $56, $57, $4a, $4b, $4e, $4f, $4a, $4b, $52, $53
+
+.ifdef REVG_STAGE1
+; ============================================================================
+; Loop 2 True Ending (BANK2): authentic Revision G text (mj05g.bin $6F00..$6FCF),
+; arcade $32 ending theme, Arthur + Princess Prin Prin reunion, rising heart.
+; ============================================================================
+fe_end_heart_slot = 30          ; OAM tiles $3D, $3F (16x16 heart at $13C0..$13FF)
+fe_end_star_slot  = 32          ; OAM tile  $41      (8x16 star   at $1400..$141F)
+
+fe_draw_ending:
+    jsr load_menu_patterns
+    ; Upload extra BG tiles $38..$3F ('X', '>', '.', ',', '!', star, brick, parapet).
+    lda #$03
+    sta $2006
+    lda #$80
+    sta $2006
+    ldx #0
+:
+    lda opt_tile_x_chr,x
+    sta $2007
+    inx
+    cpx #16
+    bne :-
+    ldx #0
+:
+    lda opt_tile_arrow_chr,x
+    sta $2007
+    inx
+    cpx #16
+    bne :-
+    ldx #0
+:
+    lda fe_end_extra_bg_chr,x
+    sta $2007
+    inx
+    cpx #6 * 16
+    bne :-
+
+    jsr clear_screen
+
+    ; Upload Ending BG + Sprite palettes ($3F00..$3F1F).
+    lda #$3f
+    sta $2006
+    lda #$00
+    sta $2006
+    ldx #0
+:
+    lda fe_end_palettes,x
+    sta $2007
+    inx
+    cpx #32
+    bne :-
+
+    ; Draw top HUD ("PLAYER 1", "TOP SCORE", live 6-digit scores).
+    lda #<fe_end_hud_lines
+    ldx #>fe_end_hud_lines
+    jsr fe_draw_lines
+    lda #$20
+    sta $2006
+    lda #$43
+    sta $2006
+    ldx #0
+@end_p1_sc:
+    lda ap_score,x
+    clc
+    adc #campaign_zero
+    sta $2007
+    inx
+    cpx #4
+    bne @end_p1_sc
+    lda #campaign_zero
+    sta $2007
+    sta $2007
+    lda #$20
+    sta $2006
+    lda #$4e
+    sta $2006
+    ldx #0
+@end_top_sc:
+    lda ap_top_score,x
+    clc
+    adc #campaign_zero
+    sta $2007
+    inx
+    cpx #4
+    bne @end_top_sc
+    lda #campaign_zero
+    sta $2007
+    sta $2007
+
+    ; Draw starry sky accents and castle balcony floor (rows 23..25).
+    ldx #0
+@end_stars:
+    lda fe_end_star_pos,x
+    beq @end_balcony
+    sta $2006
+    inx
+    lda fe_end_star_pos,x
+    sta $2006
+    inx
+    lda #$3d                    ; star tile
+    sta $2007
+    bne @end_stars
+@end_balcony:
+    lda #$22
+    sta $2006
+    lda #$e0                    ; Row 23: parapet edge
+    sta $2006
+    ldx #32
+    lda #$3f
+:
+    sta $2007
+    dex
+    bne :-
+    ldx #64                     ; Rows 24..25: castle stone bricks
+    lda #$3e
+:
+    sta $2007
+    dex
+    bne :-
+    ; Attributes: row 9 ("CONGRATULATION") = pal 1 (gold), rows 23..25 (balcony) = pal 2 (stone).
+    lda #$23
+    sta $2006
+    lda #$d0                    ; attr row 2 (tiles rows 8..11): gold text
+    sta $2006
+    ldx #8
+    lda #$55
+:
+    sta $2007
+    dex
+    bne :-
+    lda #$23
+    sta $2006
+    lda #$e8                    ; attr rows 5..6 (tiles rows 20..27): castle stone
+    sta $2006
+    ldx #16
+    lda #$aa
+:
+    sta $2007
+    dex
+    bne :-
+
+    ; Draw Page 0 text: "CONGRATULATION" / "THIS STORY IS HAPPY END."
+    lda #<fe_end_page0_lines
+    ldx #>fe_end_page0_lines
+    jsr fe_draw_lines
+
+    ; Upload authentic Revision G Arthur & Princess sprite tiles into CHR-RAM $1000+.
+    jsr fe_end_load_sprites
+
+    lda #0
+    sta fe_idle_lo
+    sta fe_idle_hi
+    sta fe_end_dirty
+    lda #1
+    sta fe_end_active
+    jmp fe_end_build_oam
+
+; Load 5 Revision G frames (rf_9596, rf_95A2, rf_7374, rf_7AD5, rf_7AD8) into CHR-RAM $1000+
+; sequentially, recording each frame's starting slot in fe_end_fslot[0..4], then upload
+; the 16x16 Heart (slots 30..31) and 8x16 Star (slot 32).
+fe_end_load_sprites:
+    lda prg_bank0
+    pha
+    lda #0
+    sta rs_tmp+3                ; current destination CHR-RAM slot (0..32)
+    sta rs_tmp+2                ; frame table index (0..4)
+@frm_loop:
+    ldx rs_tmp+2
+    lda rs_tmp+3
+    sta fe_end_fslot,x
+    txa
+    asl a
+    tax
+    lda fe_end_frames,x
+    sta rs_fid
+    lda fe_end_frames+1,x
+    sta rs_fid+1
+    ; Map meta bank for rs_fid into $8000
+    lda rs_fid+1
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    clc
+    adc #revg_spr_meta_bank
+    jsr select_bank0
+    lda rs_fid
+    sta rs_ptr
+    lda rs_fid+1
+    and #$1f
+    ora #$80
+    sta rs_ptr+1
+    ldy #3
+    lda (rs_ptr),y
+    sta rs_count
+    lda #0
+    sta rs_pi
+@pc_loop:
+    ; Re-map meta bank before reading piece metadata
+    lda rs_fid+1
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    clc
+    adc #revg_spr_meta_bank
+    jsr select_bank0
+    lda rs_pi
+    asl a
+    asl a
+    clc
+    adc #6                      ; offset to tile_id_lo (4 + 2)
+    tay
+    lda (rs_ptr),y
+    sta rs_tmp+0                ; tid_lo
+    iny
+    lda (rs_ptr),y
+    lsr a
+    lsr a
+    and #$07                    ; tid_hi (0..4)
+    clc
+    adc #revg_spr_tile_bank
+    jsr select_bank0
+    ; Compute source address in $8000 window: $8000 + tid_lo * 32
+    lda rs_tmp+0
+    pha
+    lsr a
+    lsr a
+    lsr a
+    ora #$80
+    sta rs_lptr+1
+    pla
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    sta rs_lptr
+    ; Compute destination PPU address: $1000 + slot * 32
+    lda rs_tmp+3
+    pha
+    lsr a
+    lsr a
+    lsr a
+    ora #$10
+    sta $2006
+    pla
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    sta $2006
+    ldy #0
+@copy32:
+    lda (rs_lptr),y
+    sta $2007
+    iny
+    cpy #32
+    bne @copy32
+    inc rs_tmp+3
+    inc rs_pi
+    lda rs_pi
+    cmp rs_count
+    beq :+
+    jmp @pc_loop
+:
+    inc rs_tmp+2
+    lda rs_tmp+2
+    cmp #5
+    beq :+
+    jmp @frm_loop
+:
+    pla
+    jsr select_bank0
+
+    ; Upload 16x16 Heart (slots 30..31 -> $13C0) and 8x16 Star (slot 32 -> $1400).
+    lda #$13
+    sta $2006
+    lda #$c0
+    sta $2006
+    ldx #0
+@copy_extra_spr:
+    lda fe_end_heart_chr,x
+    sta $2007
+    inx
+    cpx #96                     ; 64B heart + 32B star
+    bne @copy_extra_spr
+    rts
+
+; Per-frame tick for Loop 2 True Ending (called from FIXED clear_screen_idle, BANK2 mapped).
+; Returns C=1 at frame 1260 (~21s, end of arcade $32 theme) to advance to Name Entry/Title.
+fe_ending_tick:
+    inc fe_idle_lo
+    bne :+
+    inc fe_idle_hi
+:
+    ; Page 1 swap at frames 360..363 (4 rows, 1 row/VBlank)
+    lda fe_idle_lo
+    sec
+    sbc #<360
+    tax
+    lda fe_idle_hi
+    sbc #>360
+    bne @chk_page2
+    cpx #4
+    bcs @chk_page2
+    txa
+    jsr fe_end_queue_page1_row
+    jmp @do_oam
+@chk_page2:
+    ; Page 2 swap at frames 780..783 (4 rows, 1 row/VBlank)
+    lda fe_idle_lo
+    sec
+    sbc #<780
+    tax
+    lda fe_idle_hi
+    sbc #>780
+    bne @do_oam
+    cpx #4
+    bcs @do_oam
+    txa
+    jsr fe_end_queue_page2_row
+@do_oam:
+    jsr fe_end_build_oam
+    ; Auto-advance after 1260 frames (~21.0s, matching arcade $32 ending theme)
+    lda fe_idle_hi
+    cmp #>1260
+    bcc @stay
+    bne @done
+    lda fe_idle_lo
+    cmp #<1260
+    bcc @stay
+@done:
+    sec
+    rts
+@stay:
+    clc
+    rts
+
+; Queue row A (0..3) of Page 1 into fe_end_row_buf for VBlank upload.
+fe_end_queue_page1_row:
+    tax
+    lda fe_end_row_hi_tbl,x
+    sta fe_end_row_hi
+    lda fe_end_row_lo_tbl,x
+    sta fe_end_row_lo
+    txa
+    asl a
+    tax
+    lda fe_end_page1_ptrs,x
+    sta map_ptr
+    lda fe_end_page1_ptrs+1,x
+    sta map_ptr+1
+    jmp fe_end_fill_row_buf
+
+; Queue row A (0..3) of Page 2 into fe_end_row_buf for VBlank upload.
+fe_end_queue_page2_row:
+    tax
+    lda fe_end_row_hi_tbl,x
+    sta fe_end_row_hi
+    lda fe_end_row_lo_tbl,x
+    sta fe_end_row_lo
+    txa
+    asl a
+    tax
+    lda fe_end_page2_ptrs,x
+    sta map_ptr
+    lda fe_end_page2_ptrs+1,x
+    sta map_ptr+1
+fe_end_fill_row_buf:
+    ldy #31
+    lda #0
+:
+    sta fe_end_row_buf,y
+    dey
+    bpl :-
+    ldy #0
+    lda (map_ptr),y             ; starting column (0..31), or $ff for blank row
+    bmi @row_ready
+    tax
+    iny
+@copy_chars:
+    lda (map_ptr),y
+    cmp #$ff
+    beq @row_ready
+    sta fe_end_row_buf,x
+    inx
+    iny
+    bne @copy_chars
+@row_ready:
+    lda #1
+    sta fe_end_dirty
+    rts
+
+; Build OAM sprites for Arthur, Princess Prin Prin, rising Heart, and twinkling stars.
+fe_end_build_oam:
+    lda #$f8
+    ldx #0
+:
+    sta sprites,x
+    inx
+    inx
+    inx
+    inx
+    bne :-
+    lda #0
+    sta rs_oam
+
+    ; 1. Arthur: walks X = 48 -> 112 over frames 0..63, then cheers at X = 112.
+    lda fe_idle_hi
+    bne @arthur_cheer
+    lda fe_idle_lo
+    cmp #64
+    bcs @arthur_cheer
+    clc
+    adc #48
+    sta rs_ox
+    lda fe_idle_lo
+    lsr a
+    lsr a
+    lsr a
+    and #1                      ; frame 0 (rf_9596) / frame 1 (rf_95A2)
+    jmp @draw_arthur
+@arthur_cheer:
+    lda #112
+    sta rs_ox
+    lda #2                      ; frame 2 (rf_7374 cheer)
+    ldx fe_idle_lo
+    txa
+    and #$20
+    beq @cheer_pose
+    lda #0                      ; alternate gently with proud stand (rf_9596)
+    beq @draw_arthur
+@cheer_pose:
+    lda #2
+@draw_arthur:
+    ldx #0                      ; mirror = 0 (facing right)
+    ldy #168                    ; standing on row 23 balcony (Y=184 -> center Y=168)
+    jsr fe_end_emit_frame
+
+    ; 2. Princess Prin Prin at X = 144, facing left ($40), rejoicing after frame 64.
+    lda #144
+    sta rs_ox
+    lda #3                      ; frame 3 (rf_7AD5)
+    ldx fe_idle_hi
+    bne @prin_anim
+    ldx fe_idle_lo
+    cpx #64
+    bcc @draw_prin
+@prin_anim:
+    lda fe_idle_lo
+    and #$10
+    beq :+
+    lda #4                      ; frame 4 (rf_7AD8)
+    bne @draw_prin
+:
+    lda #3
+@draw_prin:
+    ldx #$40                    ; mirror = $40 (facing left toward Arthur)
+    ldy #168
+    jsr fe_end_emit_frame
+
+    ; 3. Rising & pulsing 16x16 Red Heart between Arthur & Princess (frames >= 64).
+    lda fe_idle_hi
+    bne @heart_bob
+    lda fe_idle_lo
+    cmp #64
+    bcc @emit_stars
+    cmp #112
+    bcs @heart_bob
+    sec
+    sbc #64
+    lsr a                       ; 0..23
+    sta rs_tmp
+    lda #148
+    sec
+    sbc rs_tmp                  ; rises 148 -> 124
+    jmp @heart_put
+@heart_bob:
+    lda fe_idle_lo
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    and #3
+    tax
+    lda fe_end_bob_tbl,x
+@heart_put:
+    ldx rs_oam
+    sta sprites+0,x
+    sta sprites+4,x
+    lda #(fe_end_heart_slot * 2) + 1
+    sta sprites+1,x
+    lda #((fe_end_heart_slot + 1) * 2) + 1
+    sta sprites+5,x
+    lda #1                      ; Palette 1 (red/gold)
+    sta sprites+2,x
+    sta sprites+6,x
+    lda #120
+    sta sprites+3,x
+    lda #128
+    sta sprites+7,x
+    txa
+    clc
+    adc #8
+    sta rs_oam
+
+@emit_stars:
+    ; 4. Two twinkling night-sky star sprites.
+    lda fe_idle_lo
+    and #$10
+    bne @star_done
+    ldx rs_oam
+    lda #44
+    sta sprites+0,x
+    lda #(fe_end_star_slot * 2) + 1
+    sta sprites+1,x
+    lda #1
+    sta sprites+2,x
+    lda #28
+    sta sprites+3,x
+    lda #52
+    sta sprites+4,x
+    lda #(fe_end_star_slot * 2) + 1
+    sta sprites+5,x
+    lda #2
+    sta sprites+6,x
+    lda #220
+    sta sprites+7,x
+@star_done:
+    rts
+
+; Emit ending frame A (0..4) at X=rs_ox, Y=Y, mirror=X into OAM `sprites` using fe_end_fslot.
+fe_end_emit_frame:
+    stx rs_mirror
+    sty rs_oy
+    tax
+    lda fe_end_fslot,x
+    sta rs_tmp+3                ; starting CHR-RAM slot
+    txa
+    asl a
+    tax
+    lda fe_end_frames,x
+    sta rs_fid
+    lda fe_end_frames+1,x
+    sta rs_fid+1
+    lda prg_bank0
+    pha
+    lda rs_fid+1
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    clc
+    adc #revg_spr_meta_bank
+    jsr select_bank0
+    lda rs_fid
+    sta rs_ptr
+    lda rs_fid+1
+    and #$1f
+    ora #$80
+    sta rs_ptr+1
+    ldy #3
+    lda (rs_ptr),y
+    sta rs_count
+    ldx #0
+    ldy #4
+@ep_loop:
+    stx rs_pi
+    sty rs_py
+    lda (rs_ptr),y              ; top (signed)
+    clc
+    adc rs_oy
+    sta rs_tmp+0                ; OAM Y
+    iny
+    lda (rs_ptr),y              ; left (signed)
+    bit rs_mirror
+    bvc :+
+    eor #$ff
+    sec
+    sbc #7
+:
+    clc
+    adc rs_ox
+    sta rs_tmp+1                ; OAM X
+    iny
+    iny
+    lda (rs_ptr),y              ; attr
+    and #$c3
+    eor rs_mirror
+    sta rs_tmp+2                ; OAM attr
+    lda rs_tmp+3
+    clc
+    adc rs_pi
+    asl a
+    ora #1                      ; 8x16 $1000 tile index
+    ldx rs_oam
+    sta sprites+1,x
+    lda rs_tmp+0
+    sta sprites+0,x
+    lda rs_tmp+2
+    sta sprites+2,x
+    lda rs_tmp+1
+    sta sprites+3,x
+    txa
+    clc
+    adc #4
+    sta rs_oam
+    ldx rs_pi
+    lda rs_py
+    clc
+    adc #4
+    tay
+    inx
+    cpx rs_count
+    bne @ep_loop
+    pla
+    jmp select_bank0
+
+; VBlank commit for Loop 2 True Ending (called from FIXED commit_ending, BANK2 mapped).
+fe_commit_ending:
+    lda #0
+    sta $2003
+    lda #>sprites
+    sta $4014
+    lda fe_end_dirty
+    beq @ce_done
+    lda #$a0                    ; +1 horizontal increment, 8x16 sprites, NMI on
+    sta $2000
+    lda fe_end_row_hi
+    sta $2006
+    lda fe_end_row_lo
+    sta $2006
+    ldx #0
+@ce_row:
+    lda fe_end_row_buf,x
+    sta $2007
+    inx
+    cpx #32
+    bne @ce_row
+    lda #0
+    sta fe_end_dirty
+@ce_done:
+    lda #$a0                    ; Keep 8x16 sprites + NMI enabled
+    sta $2000
+    rts
+
+fe_end_frames:
+    .word rf_9596, rf_95A2, rf_7374, rf_7AD5, rf_7AD8
+fe_end_bob_tbl:
+    .byte 124, 123, 124, 125
+fe_end_row_hi_tbl:
+    .byte $21, $21, $21, $21
+fe_end_row_lo_tbl:
+    .byte $20, $60, $a0, $e0
+
+fe_end_palettes:
+    ; BG: 0=white text, 1=gold text, 2=castle balcony stone, 3=night stars
+    .byte $0f, $20, $27, $30, $0f, $28, $27, $38, $0f, $00, $10, $20, $0f, $11, $21, $31
+    ; Sprites: authentic Revision G sprite palettes
+    revg_spr_palette_bytes
+
+fe_end_hud_lines:
+    fe_line $2022, "PLAYER 1"
+    fe_line $202d, "TOP SCORE"
+    .byte 0
+
+fe_end_page0_lines:
+    fe_line $2129, "CONGRATULATION"
+    fe_line $21a4, "THIS STORY IS HAPPY END."
+    .byte 0
+
+.macro fe_end_row col, text
+    .byte col
+    .repeat .strlen(text), idx
+        fe_glyph {.strat(text, idx)}
+    .endrepeat
+    .byte $ff
+.endmacro
+
+fe_end_page1_ptrs:
+    .word fe_end_p1_r0, fe_end_p1_r1, fe_end_p1_r2, fe_end_p1_r3
+fe_end_p1_r0: fe_end_row 1, "BEING THE WISE AND COURAGEOUS"
+fe_end_p1_r1: fe_end_row 4, "KNIGHT THAT YOU ARE, YOU"
+fe_end_p1_r2: fe_end_row 5, "FEEL STRENGTH WELLING"
+fe_end_p1_r3: fe_end_row 9, "IN YOUR BODY."
+
+fe_end_page2_ptrs:
+    .word fe_end_p2_r0, fe_end_p2_r1, fe_end_p2_r2, fe_end_p2_r3
+fe_end_p2_r0: fe_end_row 4, "RETURN TO STARTING POINT"
+fe_end_p2_r1: .byte $ff
+fe_end_p2_r2: fe_end_row 7, "CHALLENGE AGAIN !"
+fe_end_p2_r3: fe_end_row 10, "PRESS START"
+
+fe_end_star_pos:
+    .byte $20, $a3, $20, $bc, $20, $c9, $20, $f6, $22, $42, $22, $5d, $22, $85, $22, $9a, 0
+
+fe_end_extra_bg_chr:
+    ; $3A '.'
+    .byte $00, $00, $00, $00, $00, $18, $18, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    ; $3B ','
+    .byte $00, $00, $00, $00, $00, $18, $18, $30, $00, $00, $00, $00, $00, $00, $00, $00
+    ; $3C '!'
+    .byte $18, $18, $18, $18, $18, $00, $18, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    ; $3D night sky star
+    .byte $00, $10, $10, $7c, $10, $10, $00, $00, $00, $00, $00, $10, $00, $00, $00, $00
+    ; $3E castle stone brick
+    .byte $ff, $81, $81, $ff, $ff, $18, $18, $ff, $00, $7e, $7e, $00, $00, $e7, $e7, $00
+    ; $3F castle parapet
+    .byte $e7, $e7, $e7, $ff, $ff, $81, $81, $ff, $00, $18, $18, $00, $00, $7e, $7e, $00
+
+fe_end_heart_chr:
+    ; 16x16 Heart (two 8x16 sprites, palette 1: $0F bg, $16 red = color 2, $27 gold = color 3)
+    ; Left 8x16 half (top 8x8 + bottom 8x8)
+    .byte $00, $00, $00, $18, $10, $00, $00, $00  ; top plane 0 (gold highlight)
+    .byte $00, $1c, $3e, $7f, $7f, $7f, $3f, $1f  ; top plane 1 (red body)
+    .byte $00, $00, $00, $00, $00, $00, $00, $00  ; bot plane 0
+    .byte $0f, $07, $03, $01, $00, $00, $00, $00  ; bot plane 1
+    ; Right 8x16 half (top 8x8 + bottom 8x8)
+    .byte $00, $00, $00, $00, $00, $00, $00, $00  ; top plane 0
+    .byte $00, $38, $7c, $fe, $fe, $fe, $fc, $f8  ; top plane 1
+    .byte $00, $00, $00, $00, $00, $00, $00, $00  ; bot plane 0
+    .byte $f0, $e0, $c0, $80, $00, $00, $00, $00  ; bot plane 1
+    ; 8x16 Twinkling Star (slot 32)
+    .byte $00, $00, $10, $10, $7c, $10, $10, $00
+    .byte $00, $00, $00, $10, $38, $10, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00
+.endif

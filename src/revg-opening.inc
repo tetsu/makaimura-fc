@@ -87,7 +87,9 @@ op_start_b7:
     inx
     cpx #16
     bne :-
-    rts
+    ; Pre-load stage boss frames into CHR-RAM during forced blank (0-frame appearance delay)
+    ; and Stage 7 Astaroth's 38 center-column BG tiles ($A0..$EB) for flicker-free BG torso.
+    jmp rs_preload_boss_b7
 op_colon_tile:
     ; Authentic Revision G gg1.bin ':' ($3A): plane 0 = bright stroke, plane 1 = drop shadow.
     .byte $00, $08, $00, $00, $08, $00, $00, $00

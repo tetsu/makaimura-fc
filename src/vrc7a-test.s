@@ -633,6 +633,19 @@ game_screen:
 .endif
     jmp audio_tick
 clear_screen_idle:
+.ifdef REVG_STAGE1
+    lda fe_end_active
+    beq @csi_wait
+    lda #2
+    jsr select_bank2
+    jsr fe_ending_tick
+    bcs @csi_adv
+    jsr submit_frame
+    jmp @csi_audio
+@csi_adv:
+    jmp advance_campaign
+@csi_wait:
+.endif
     jsr wait_terrain_frame
 .ifdef REVG_STAGE1
     lda arcade_mode
@@ -644,16 +657,6 @@ clear_screen_idle:
     beq :+
     jmp @csi_chk_gameover
 :
-    ; Loop 2 Stage 7 final clear waits for START; all other Makai Maps scroll and auto-advance.
-    lda fe_map_mode
-    bne @csi_scroll
-    lda campaign_stage
-    cmp #7
-    bne @csi_scroll
-    lda ap_loop
-    beq @csi_scroll
-    jmp @csi_audio
-@csi_scroll:
     lda #2
     jsr select_bank2
     jsr fe_map_tick
@@ -770,7 +773,10 @@ commit_horizontal:
 :
 .ifdef REVG_STAGE1
     cmp #name_entry_scene
+    beq @commit_b2_sc
+    cmp #clear_scene
     bne :+
+@commit_b2_sc:
     jmp commit_name_entry
 :
 .endif

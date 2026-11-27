@@ -69,6 +69,7 @@ SONGS = [
     ("key", [(0, 0x3E)], False),                  # key appearance fanfare ($7409)
     ("name_entry", [(0, 0x26)], True),            # high-score name entry theme ($26)
     ("map", [(0, 0x30)], False),                  # Makai progression map / start jingle ($30)
+    ("ending", [(0, 0x32)], False),               # Loop 2 true ending theme ($32, 21s)
 ]
 
 # The VRC7 built-in patches (the 2019 die dump, as in Mesen's MesenCore.dll).

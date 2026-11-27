@@ -201,6 +201,35 @@ revg_bg_draw_screen:
 @done:
     lda #0
     sta $2000                   ; Back to increment by 1 for the CHR uploads that follow
+    ; Stage 7 throne room: snapshot rows 16..23 ($2200..$22FF) and attr ($23E0..$23EF)
+    ; so hybrid BG Astaroth can restore the throne cleanly when stepping or defeated.
+    lda revg_bg_active
+    cmp #3
+    bne @done_ret
+    lda #$22
+    sta $2006
+    lda #$00
+    sta $2006
+    lda $2007                   ; PPU read-buffer prime
+    ldx #0
+:
+    lda $2007
+    sta s7_bg_orig_nt,x
+    inx
+    bne :-
+    lda #$23
+    sta $2006
+    lda #$e0
+    sta $2006
+    lda $2007                   ; PPU read-buffer prime
+    ldx #0
+:
+    lda $2007
+    sta s7_bg_orig_attr,x
+    inx
+    cpx #16
+    bne :-
+@done_ret:
     rts
 
 ; X = $23 or $27.

@@ -41,7 +41,7 @@ function Invoke-MesenSuite($SuitePath, $RomPath) {
 
 $buildScript = Join-Path $root 'build.ps1'
 $gameRom = Join-Path $root 'build/vrc7a-test-512k.nes'
-$gameSuites = 'revg-boot-flow.lua', 'revg-stage1.lua', 'revg-stage2.lua', 'revg-stage34.lua', 'revg-stage567.lua', 'revg-stage5-terrain.lua', 'revg-options.lua', 'revg-frontend.lua', 'revg-ladder-audio.lua', 'revg-gate-hud-shots.lua', 'revg-enemy-ai.lua'
+$gameSuites = 'revg-boot-flow.lua', 'revg-stage1.lua', 'revg-stage2.lua', 'revg-stage34.lua', 'revg-stage567.lua', 'revg-stage5-terrain.lua', 'revg-options.lua', 'revg-frontend.lua', 'revg-ladder-audio.lua', 'revg-gate-hud-shots.lua', 'revg-enemy-ai.lua', 'revg-boss-sprites.lua'
 if ($Stage1) {
     # Only the game build: power-on to Stage 1, the boss and the key (real section 0 map).
     if (!$UseBuiltRoms) { $gameRom = (& $buildScript -Hardware -Cc65Bin $Cc65Bin)[0] }

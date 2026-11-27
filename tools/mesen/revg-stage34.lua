@@ -168,6 +168,7 @@ emu.addEventCallback(function()
             -- Position Dragon head right in front of Arthur's lance and shoot it to defeat
             local px = readWord(PLAYER_X)
             write(OB_XL + hidx, (px + 28) & 255); write(OB_XH + hidx, (px + 28) >> 8)
+            write(OB_YL + hidx, 80); write(OB_YH + hidx, 0)
             write(OB_HP + hidx, 0)
             input = {b = (frame % 4 == 0)}
         end

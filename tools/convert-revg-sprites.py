@@ -169,12 +169,12 @@ def main():
     # in ROM until they come back to a frame.
     for start, shape in EXTRA_ANIMATIONS:
         ptr = start
-        while ptr not in shape_of or ptr == start:
+        seen_anim = set()
+        while ptr not in seen_anim:
+            seen_anim.add(ptr)
             shape_of[ptr] = shape
             f = rom.frame(ptr, shape)
             ptr = f["next"]
-            if ptr == start:
-                break
     for ptr, shape in STATIC_FRAMES:
         shape_of.setdefault(ptr, shape)
     group_of = {}

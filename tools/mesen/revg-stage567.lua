@@ -28,6 +28,7 @@ local OB_YH = 0x6a77
 local OB_HP = 0x6b67
 local OB_VAR = 0x6b7b
 local OB_FLAGS = 0x6b8f
+local SND_SONG_ID = 0x7800
 
 local TITLE, PLAY, CLEAR = 7, 4, 5
 local OK_SATAN, OK_SKULL, OK_ASTAROTH, OK_KEY = 5, 7, 10, 17
@@ -348,10 +349,49 @@ emu.addEventCallback(function()
     elseif phase == "loop2_final" then
         if scene == CLEAR then
             phaseFrame = frame
-            phase = "loop2_final_w"
+            phase = "loop2_end_check"
         end
-    elseif phase == "loop2_final_w" then
-        if frame == phaseFrame + 15 then input = {start = true}; phaseFrame = frame; phase = "final_title" end
+    elseif phase == "loop2_end_check" then
+        local elapsed = frame - phaseFrame
+        if elapsed == 10 then
+            if not check(read(SND_SONG_ID) == 12,
+                string.format("Loop 2 ending must play snd_song_ending (12), got %d", read(SND_SONG_ID))) then return end
+            -- Page 0: "CONGRATULATION" at $2129 (C=4, O=15, N=14, G=8)
+            local c0 = emu.read(0x129, emu.memType.nesNametableRam)
+            local c1 = emu.read(0x12a, emu.memType.nesNametableRam)
+            local c2 = emu.read(0x12b, emu.memType.nesNametableRam)
+            if not check(c0 == 4 and c1 == 15 and c2 == 14,
+                string.format("Loop 2 ending Page 0 missing CONGRATULATION (%d,%d,%d)", c0, c1, c2)) then return end
+            local visOam = 0
+            for s = 0, 63 do
+                if read(0x200 + s * 4) < 239 then visOam = visOam + 1 end
+            end
+            if not check(visOam >= 11,
+                string.format("Loop 2 ending must draw Arthur+Princess sprites (oam=%d)", visOam)) then return end
+        elseif elapsed == 80 then
+            local sawHeart = false
+            for s = 0, 63 do
+                if read(0x200 + s * 4) < 239 and read(0x200 + s * 4 + 1) == 0x3d then sawHeart = true end
+            end
+            if not check(sawHeart, "Loop 2 ending must show rising Heart sprite ($3D) after Arthur reaches Princess") then return end
+        elseif elapsed == 375 then
+            -- Page 1: "BEING THE WISE AND COURAGEOUS" at $2121 (B=3, E=6, I=10)
+            local c0 = emu.read(0x121, emu.memType.nesNametableRam)
+            local c1 = emu.read(0x122, emu.memType.nesNametableRam)
+            local c2 = emu.read(0x123, emu.memType.nesNametableRam)
+            if not check(c0 == 3 and c1 == 6 and c2 == 10,
+                string.format("Loop 2 ending Page 1 missing BEING... (%d,%d,%d)", c0, c1, c2)) then return end
+        elseif elapsed == 795 then
+            -- Page 2: "RETURN TO STARTING POINT" at $2124 (R=17, E=6, T=19)
+            local c0 = emu.read(0x124, emu.memType.nesNametableRam)
+            local c1 = emu.read(0x125, emu.memType.nesNametableRam)
+            local c2 = emu.read(0x126, emu.memType.nesNametableRam)
+            if not check(c0 == 17 and c1 == 6 and c2 == 19,
+                string.format("Loop 2 ending Page 2 missing RETURN... (%d,%d,%d)", c0, c1, c2)) then return end
+            input = {start = true}
+            phaseFrame = frame
+            phase = "final_title"
+        end
     elseif phase == "final_title" then
         if scene == 15 and frame >= phaseFrame + 25 then
             input = {start = true}

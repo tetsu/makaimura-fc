@@ -28,10 +28,10 @@ local TITLE, PLAY, CLEAR = 7, 4, 5
 local OK_DEVIL, OK_BIGMAN, OK_SHOT = 1, 3, 9
 
 -- Expected frame IDs from src/revg-sprite-data.inc
-local RF_FCE7 = 0x2EA1 -- Petit Devil shot ($08)
-local RF_FCF2 = 0x2EAD -- Big Man horizontal Right ($03)
-local RF_FCFA = 0x2EC5 -- Big Man horizontal Left ($03)
-local RF_FD02 = 0x2EDD -- Big Man downward ($03)
+local RF_FCE7 = 0x300D -- Petit Devil shot ($08)
+local RF_FCF2 = 0x3019 -- Big Man horizontal Right ($03)
+local RF_FCFA = 0x3031 -- Big Man horizontal Left ($03)
+local RF_FD02 = 0x3049 -- Big Man downward ($03)
 
 local frame = 0
 local phase = "boot"
