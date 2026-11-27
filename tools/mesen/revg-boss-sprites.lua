@@ -343,11 +343,26 @@ emu.addEventCallback(function()
         if astFrames >= 60 then
             if not check(astMaxPerLine <= 4, string.format(
                 "Stage 7 Astaroth exceeded 4 OAM sprites/scanline (max=%d)", astMaxPerLine)) then return end
+            -- Verify s7_bg_clear_b7 restores the Stage 7 throne room when Astaroth is removed
+            write(OB_KIND + aidx, 0)
+            phaseFrame = frame
+            phase = "s7_ast_clear_check"
+        end
+    elseif phase == "s7_ast_clear_check" then
+        write(AP_ARMOR, 2); write(AP_INVULN, 0)
+        if frame >= phaseFrame + 3 then
+            local leftover = 0
+            for off = 0x200, 0x2ff do
+                local t = emu.read(off, emu.memType.nesNametableRam)
+                if t >= 0xa0 and t <= 0xf7 then leftover = leftover + 1 end
+            end
+            if not check(leftover == 0, string.format(
+                "Stage 7 throne BG not restored after Astaroth despawn (leftover=%d)", leftover)) then return end
             if not check(vblankOverruns == 0, string.format(
                 "VBlank overrun detected: %d active-render $2007 writes (first at scanline %d)",
                 vblankOverruns, worstOverrunSl)) then return end
             print(string.format(
-                "PASS revg-boss-sprites frame=%d uniMin=%d(flips=%d) satMin=%d astOam=%d(maxLine=%d) astBg=%d maxVblankSl=%d overruns=0",
+                "PASS revg-boss-sprites frame=%d uniMin=%d(flips=%d) satMin=%d astOam=%d(maxLine=%d) astBg=%d bgCleared=true maxVblankSl=%d overruns=0",
                 frame, uniMinOam, uniFlips, satMinOam, astMinOam, astMaxPerLine, astMinBg, maxVblankSl))
             emu.stop(0)
         end

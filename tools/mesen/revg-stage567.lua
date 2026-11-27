@@ -334,7 +334,18 @@ emu.addEventCallback(function()
         end
         if not check(frame < phaseFrame + 500, "Stage 7 Astaroth Cross kill timed out") then return end
     elseif phase == "s7_loop1_w" then
-        if frame == phaseFrame + 15 then input = {start = true}; phaseFrame = frame; phase = "loop2_chk" end
+        if frame == phaseFrame + 10 then
+            -- Verify authentic Loop 1 illusion ending: song $1C (13) + "THIS ROOM IS AN ILLUSION AND"
+            if not check(read(SND_SONG_ID) == 13,
+                string.format("Loop 1 ending must play snd_song_loop1_end (13), got %d", read(SND_SONG_ID))) then return end
+            local c0 = emu.read(0x122, emu.memType.nesNametableRam) -- 'T' = 19
+            local c1 = emu.read(0x123, emu.memType.nesNametableRam) -- 'H' = 9
+            local c2 = emu.read(0x124, emu.memType.nesNametableRam) -- 'I' = 10
+            if not check(c0 == 19 and c1 == 9 and c2 == 10,
+                string.format("Loop 1 ending missing THIS ROOM IS AN ILLUSION... (%d,%d,%d)", c0, c1, c2)) then return end
+        elseif frame == phaseFrame + 15 then
+            input = {start = true}; phaseFrame = frame; phase = "loop2_chk"
+        end
     elseif phase == "loop2_chk" then
         if frame >= phaseFrame + 15 and scene == PLAY then
             if not check(read(AP_LOOP) == 1 and read(CAMPAIGN_STAGE) == 1,
@@ -363,17 +374,28 @@ emu.addEventCallback(function()
             if not check(c0 == 4 and c1 == 15 and c2 == 14,
                 string.format("Loop 2 ending Page 0 missing CONGRATULATION (%d,%d,%d)", c0, c1, c2)) then return end
             local visOam = 0
+            local prinOam = 0
             for s = 0, 63 do
-                if read(0x200 + s * 4) < 239 then visOam = visOam + 1 end
+                local sy = read(0x200 + s * 4)
+                if sy < 239 then
+                    visOam = visOam + 1
+                    local st = read(0x200 + s * 4 + 1)
+                    local sa = read(0x200 + s * 4 + 2)
+                    if st >= 0x2d and st <= 0x3b and (sa & 3) == 3 then
+                        prinOam = prinOam + 1
+                    end
+                end
             end
             if not check(visOam >= 11,
                 string.format("Loop 2 ending must draw Arthur+Princess sprites (oam=%d)", visOam)) then return end
+            if not check(prinOam == 4,
+                string.format("Loop 2 ending must draw 4 Princess OAM tiles ($2D..$3B, pal 3), got %d", prinOam)) then return end
         elseif elapsed == 80 then
             local sawHeart = false
             for s = 0, 63 do
-                if read(0x200 + s * 4) < 239 and read(0x200 + s * 4 + 1) == 0x45 then sawHeart = true end
+                if read(0x200 + s * 4) < 239 and read(0x200 + s * 4 + 1) == 0x3d then sawHeart = true end
             end
-            if not check(sawHeart, "Loop 2 ending must show rising Heart sprite ($45) after Arthur reaches Princess") then return end
+            if not check(sawHeart, "Loop 2 ending must show rising Heart sprite ($3D) after Arthur reaches Princess") then return end
         elseif elapsed == 375 then
             -- Page 1: "BEING THE WISE AND COURAGEOUS" at $2121 (B=3, E=6, I=10)
             local c0 = emu.read(0x121, emu.memType.nesNametableRam)

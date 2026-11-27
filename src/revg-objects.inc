@@ -2047,6 +2047,10 @@ rs_pl_frames:
 
 ; Prepare Stage 7 hybrid BG update for Astaroth at tile column A (center of 4 BG cols col-2..col+1).
 s7_bg_prepare_b7:
+    ldx s7_bg_dirty
+    beq :+
+    rts                         ; Keep pending VBlank upload intact until consumed
+:
     sta rs_tmp+0                ; draw_col
     lda s7_bg_active
     beq @prep_do

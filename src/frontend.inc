@@ -1741,8 +1741,10 @@ title_grave_row_bot:
 ; Loop 2 True Ending (BANK2): authentic Revision G text (mj05g.bin $6F00..$6FCF),
 ; arcade $32 ending theme, Arthur + Princess Prin Prin reunion, rising heart.
 ; ============================================================================
-fe_end_heart_slot = 34          ; OAM tiles $45, $47 (16x16 heart at $1440..$147F)
-fe_end_star_slot  = 36          ; OAM tile  $49      (8x16 star   at $1480..$149F)
+fe_end_prin0_slot = 22          ; OAM tiles $2D..$33 (Princess stand/walk 1 at $12C0..$133F)
+fe_end_prin1_slot = 26          ; OAM tiles $35..$3B (Princess walk 2       at $1340..$13BF)
+fe_end_heart_slot = 30          ; OAM tiles $3D, $3F (16x16 heart           at $13C0..$13FF)
+fe_end_star_slot  = 32          ; OAM tile  $41      (8x16 star             at $1400..$141F)
 
 fe_draw_ending:
     jsr load_menu_patterns
@@ -1877,9 +1879,16 @@ fe_draw_ending:
     dex
     bne :-
 
-    ; Draw Page 0 text: "CONGRATULATION" / "THIS STORY IS HAPPY END."
+    ; Draw initial text: Loop 1 illusion message ($6E8F) or Loop 2 Page 0 ("CONGRATULATION").
+    lda ap_loop
+    beq @draw_loop1_txt
     lda #<fe_end_page0_lines
     ldx #>fe_end_page0_lines
+    jmp @draw_end_txt
+@draw_loop1_txt:
+    lda #<fe_end_loop1_lines
+    ldx #>fe_end_loop1_lines
+@draw_end_txt:
     jsr fe_draw_lines
 
     ; Upload authentic Revision G Arthur & Princess sprite tiles into CHR-RAM $1000+.
@@ -1900,21 +1909,21 @@ fe_end_load_sprites:
     lda prg_bank0
     pha
     lda #0
-    sta rs_tmp+3                ; current destination CHR-RAM slot (0..32)
-    sta rs_tmp+2                ; frame table index (0..4)
+    sta z:rs_tmp+3              ; current destination CHR-RAM slot (0..32)
+    sta z:rs_tmp+2              ; frame table index (0..4)
 @frm_loop:
-    ldx rs_tmp+2
-    lda rs_tmp+3
+    ldx z:rs_tmp+2
+    lda z:rs_tmp+3
     sta fe_end_fslot,x
     txa
     asl a
     tax
     lda fe_end_frames,x
-    sta rs_fid
+    sta z:rs_fid
     lda fe_end_frames+1,x
-    sta rs_fid+1
+    sta z:rs_fid+1
     ; Map meta bank for rs_fid into $8000
-    lda rs_fid+1
+    lda z:rs_fid+1
     lsr a
     lsr a
     lsr a
@@ -1923,20 +1932,20 @@ fe_end_load_sprites:
     clc
     adc #revg_spr_meta_bank
     jsr select_bank0
-    lda rs_fid
-    sta rs_ptr
-    lda rs_fid+1
+    lda z:rs_fid
+    sta z:rs_ptr
+    lda z:rs_fid+1
     and #$1f
     ora #$80
-    sta rs_ptr+1
+    sta z:rs_ptr+1
     ldy #3
     lda (rs_ptr),y
-    sta rs_count
+    sta z:rs_count
     lda #0
-    sta rs_pi
+    sta z:rs_pi
 @pc_loop:
     ; Re-map meta bank before reading piece metadata
-    lda rs_fid+1
+    lda z:rs_fid+1
     lsr a
     lsr a
     lsr a
@@ -1945,14 +1954,14 @@ fe_end_load_sprites:
     clc
     adc #revg_spr_meta_bank
     jsr select_bank0
-    lda rs_pi
+    lda z:rs_pi
     asl a
     asl a
     clc
     adc #6                      ; offset to tile_id_lo (4 + 2)
     tay
     lda (rs_ptr),y
-    sta rs_tmp+0                ; tid_lo
+    sta z:rs_tmp+0              ; tid_lo
     iny
     lda (rs_ptr),y
     lsr a
@@ -1962,22 +1971,22 @@ fe_end_load_sprites:
     adc #revg_spr_tile_bank
     jsr select_bank0
     ; Compute source address in $8000 window: $8000 + tid_lo * 32
-    lda rs_tmp+0
+    lda z:rs_tmp+0
     pha
     lsr a
     lsr a
     lsr a
     ora #$80
-    sta rs_lptr+1
+    sta z:rs_lptr+1
     pla
     asl a
     asl a
     asl a
     asl a
     asl a
-    sta rs_lptr
+    sta z:rs_lptr
     ; Compute destination PPU address: $1000 + slot * 32
-    lda rs_tmp+3
+    lda z:rs_tmp+3
     pha
     lsr a
     lsr a
@@ -1998,27 +2007,43 @@ fe_end_load_sprites:
     iny
     cpy #32
     bne @copy32
-    inc rs_tmp+3
-    inc rs_pi
-    lda rs_pi
-    cmp rs_count
+    inc z:rs_tmp+3
+    inc z:rs_pi
+    lda z:rs_pi
+    cmp z:rs_count
     beq :+
     jmp @pc_loop
 :
-    inc rs_tmp+2
-    lda rs_tmp+2
-    cmp #6
+    inc z:rs_tmp+2
+    lda z:rs_tmp+2
+    cmp #3                      ; Load Arthur's 3 frames (rf_9596, rf_95A2, rf_7374 -> slots 0..21)
     beq :+
     jmp @frm_loop
 :
     pla
     jsr select_bank0
 
-    ; Upload 16x16 Heart (slots 34..35 -> $1440) and 8x16 Star (slot 36 -> $1480).
-    lda #$14
+    ; Upload authentic arcade Princess Prin Prin walk/stand sprites (0x236/0x23E, 0x237/0x23F)
+    ; to slots 22..29 ($12C0..$13BF, 256 bytes) using dedicated Sprite Palette 3 ($0F/$24/$37/$30).
+    lda #$12
     sta $2006
-    lda #$40
+    lda #$c0
     sta $2006
+    ldx #0
+@copy_prin0:
+    lda fe_end_prin0_chr,x
+    sta $2007
+    inx
+    cpx #128
+    bne @copy_prin0
+    ldx #0
+@copy_prin1:
+    lda fe_end_prin1_chr,x
+    sta $2007
+    inx
+    cpx #128
+    bne @copy_prin1
+    ; Upload 16x16 Heart (slots 30..31 -> $13C0) and 8x16 Star (slot 32 -> $1400).
     ldx #0
 @copy_extra_spr:
     lda fe_end_heart_chr,x
@@ -2028,13 +2053,25 @@ fe_end_load_sprites:
     bne @copy_extra_spr
     rts
 
-; Per-frame tick for Loop 2 True Ending (called from FIXED clear_screen_idle, BANK2 mapped).
-; Returns C=1 at frame 1260 (~21s, end of arcade $32 theme) to advance to Name Entry/Title.
+; Per-frame tick for Stage 7 Ending (Loop 1 illusion: 360F -> Loop 2; Loop 2 true: 1260F -> Name Entry/Title).
 fe_ending_tick:
     inc fe_idle_lo
     bne :+
     inc fe_idle_hi
 :
+    lda ap_loop
+    bne @tick_loop2
+    ; Loop 1 illusion ending: Arthur walks into empty room, auto-advances at 360F (~6s, past 275F $1C jingle).
+    jsr fe_end_build_oam
+    lda fe_idle_hi
+    cmp #>360
+    bcc @stay
+    bne @done
+    lda fe_idle_lo
+    cmp #<360
+    bcc @stay
+    bcs @done
+@tick_loop2:
     ; Page 1 swap at frames 360..363 (4 rows, 1 row/VBlank)
     lda fe_idle_lo
     sec
@@ -2145,7 +2182,7 @@ fe_end_build_oam:
     inx
     bne :-
     lda #0
-    sta rs_oam
+    sta z:rs_oam
 
     ; 1. Arthur: walks X = 48 -> 112 over frames 0..63, then cheers at X = 112.
     lda fe_idle_hi
@@ -2155,7 +2192,7 @@ fe_end_build_oam:
     bcs @arthur_cheer
     clc
     adc #48
-    sta rs_ox
+    sta z:rs_ox
     lda fe_idle_lo
     lsr a
     lsr a
@@ -2164,13 +2201,16 @@ fe_end_build_oam:
     jmp @draw_arthur
 @arthur_cheer:
     lda #112
-    sta rs_ox
+    sta z:rs_ox
+    lda ap_loop
+    beq @arthur_l1_stand        ; Loop 1 illusion: Arthur stands bewildered in empty room
     lda #2                      ; frame 2 (rf_7374 cheer)
     ldx fe_idle_lo
     txa
     and #$20
     beq @cheer_pose
-    lda #0                      ; alternate gently with proud stand (rf_9596)
+@arthur_l1_stand:
+    lda #0                      ; standing pose (rf_9596)
     beq @draw_arthur
 @cheer_pose:
     lda #2
@@ -2179,44 +2219,70 @@ fe_end_build_oam:
     ldy #168                    ; standing on row 23 balcony (Y=184 -> center Y=168)
     jsr fe_end_emit_frame
 
-    ; 2. Princess Prin Prin: natively faces LEFT (mirror=0)!
-    ;    Steps left from X = 176 -> 144 to meet Arthur over frames 0..63, then celebrates
-    ;    joyfully alternating rf_7ADB (arms raised) and rf_7AD8 (smiling) facing Arthur!
+    ; On Loop 1 (ap_loop == 0), the room is an illusion: no Princess and no Heart!
+    lda ap_loop
+    bne :+
+    jmp @emit_stars
+:
+
+    ; 2. Princess Prin Prin (authentic arcade 0x236/0x23E & 0x237/0x23F, Palette 3):
+    ;    Walks LEFT from X = 176 -> 140 over frames 0..63 to meet Arthur, then stands
+    ;    beside him facing LEFT (0x236/0x23E) with authentic lavender hair, peach skin, white gown.
     lda fe_idle_hi
-    bne @prin_meet
+    bne @prin_stand
     lda fe_idle_lo
     cmp #64
-    bcs @prin_meet
-    lsr a                       ; 0..31 px step left
-    sta rs_tmp
-    lda #176
+    bcs @prin_stand
+    lsr a                       ; 0..31 px
+    sta z:rs_tmp
+    lda #172
     sec
-    sbc rs_tmp                  ; X = 176 -> 144
-    sta rs_ox
-    lda #3                      ; frame 3 (rf_7AD5 standing/stepping facing left)
-    ldx fe_idle_lo
-    txa
-    and #$08
-    beq @prin_walk_a
-    lda #4                      ; frame 4 (rf_7AD8)
-    bne @draw_prin
-@prin_walk_a:
-    lda #3
-    bne @draw_prin
-@prin_meet:
-    lda #144
-    sta rs_ox
+    sbc z:rs_tmp                ; X = 172 -> 140
+    sta z:rs_ox
     lda fe_idle_lo
-    and #$10
-    beq :+
-    lda #5                      ; frame 5 (rf_7ADB joyful arms-up celebration!)
-    bne @draw_prin
-:
-    lda #4                      ; frame 4 (rf_7AD8 smiling facing left)
-@draw_prin:
-    ldx #0                      ; mirror = 0 (rf_7AD5/7AD8/7ADB natively face LEFT toward Arthur!)
-    ldy #168
-    jsr fe_end_emit_frame
+    and #$08
+    beq @prin_f0
+    lda #(fe_end_prin1_slot * 2) + 1
+    bne @emit_prin
+@prin_stand:
+    lda #140
+    sta z:rs_ox
+@prin_f0:
+    lda #(fe_end_prin0_slot * 2) + 1
+@emit_prin:
+    ; Emit 4 pieces (top-left, top-right, bot-left, bot-right) at (rs_ox-8, Y=152..168), pal 3.
+    ldx z:rs_oam
+    sta sprites+1,x             ; top-left tile
+    clc
+    adc #2
+    sta sprites+5,x             ; top-right tile
+    adc #2
+    sta sprites+9,x             ; bot-left tile
+    adc #2
+    sta sprites+13,x            ; bot-right tile
+    lda #152                    ; top Y (168 - 16)
+    sta sprites+0,x
+    sta sprites+4,x
+    lda #168                    ; bottom Y (stands on row 23 balcony, Y=184)
+    sta sprites+8,x
+    sta sprites+12,x
+    lda #3                      ; Sprite Palette 3 ($0F, $24 lavender, $37 skin, $30 white)
+    sta sprites+2,x
+    sta sprites+6,x
+    sta sprites+10,x
+    sta sprites+14,x
+    lda z:rs_ox
+    sec
+    sbc #8
+    sta sprites+3,x             ; left X
+    sta sprites+11,x
+    lda z:rs_ox
+    sta sprites+7,x             ; right X
+    sta sprites+15,x
+    txa
+    clc
+    adc #16
+    sta z:rs_oam
 
     ; 3. Rising & pulsing 16x16 Red Heart between Arthur & Princess (frames >= 64).
     lda fe_idle_hi
@@ -2229,10 +2295,10 @@ fe_end_build_oam:
     sec
     sbc #64
     lsr a                       ; 0..23
-    sta rs_tmp
+    sta z:rs_tmp
     lda #148
     sec
-    sbc rs_tmp                  ; rises 148 -> 124
+    sbc z:rs_tmp                ; rises 148 -> 124
     jmp @heart_put
 @heart_bob:
     lda fe_idle_lo
@@ -2244,7 +2310,7 @@ fe_end_build_oam:
     tax
     lda fe_end_bob_tbl,x
 @heart_put:
-    ldx rs_oam
+    ldx z:rs_oam
     sta sprites+0,x
     sta sprites+4,x
     lda #(fe_end_heart_slot * 2) + 1
@@ -2261,14 +2327,14 @@ fe_end_build_oam:
     txa
     clc
     adc #8
-    sta rs_oam
+    sta z:rs_oam
 
 @emit_stars:
     ; 4. Two twinkling night-sky star sprites.
     lda fe_idle_lo
     and #$10
     bne @star_done
-    ldx rs_oam
+    ldx z:rs_oam
     lda #44
     sta sprites+0,x
     lda #(fe_end_star_slot * 2) + 1
@@ -2290,21 +2356,21 @@ fe_end_build_oam:
 
 ; Emit ending frame A (0..4) at X=rs_ox, Y=Y, mirror=X into OAM `sprites` using fe_end_fslot.
 fe_end_emit_frame:
-    stx rs_mirror
-    sty rs_oy
+    stx z:rs_mirror
+    sty z:rs_oy
     tax
     lda fe_end_fslot,x
-    sta rs_tmp+3                ; starting CHR-RAM slot
+    sta z:rs_tmp+3              ; starting CHR-RAM slot
     txa
     asl a
     tax
     lda fe_end_frames,x
-    sta rs_fid
+    sta z:rs_fid
     lda fe_end_frames+1,x
-    sta rs_fid+1
+    sta z:rs_fid+1
     lda prg_bank0
     pha
-    lda rs_fid+1
+    lda z:rs_fid+1
     lsr a
     lsr a
     lsr a
@@ -2313,65 +2379,65 @@ fe_end_emit_frame:
     clc
     adc #revg_spr_meta_bank
     jsr select_bank0
-    lda rs_fid
-    sta rs_ptr
-    lda rs_fid+1
+    lda z:rs_fid
+    sta z:rs_ptr
+    lda z:rs_fid+1
     and #$1f
     ora #$80
-    sta rs_ptr+1
+    sta z:rs_ptr+1
     ldy #3
     lda (rs_ptr),y
-    sta rs_count
+    sta z:rs_count
     ldx #0
     ldy #4
 @ep_loop:
-    stx rs_pi
-    sty rs_py
+    stx z:rs_pi
+    sty z:rs_py
     lda (rs_ptr),y              ; top (signed)
     clc
-    adc rs_oy
-    sta rs_tmp+0                ; OAM Y
+    adc z:rs_oy
+    sta z:rs_tmp+0              ; OAM Y
     iny
     lda (rs_ptr),y              ; left (signed)
-    bit rs_mirror
+    bit z:rs_mirror
     bvc :+
     eor #$ff
     sec
     sbc #7
 :
     clc
-    adc rs_ox
-    sta rs_tmp+1                ; OAM X
+    adc z:rs_ox
+    sta z:rs_tmp+1              ; OAM X
     iny
     iny
     lda (rs_ptr),y              ; attr
     and #$c3
-    eor rs_mirror
-    sta rs_tmp+2                ; OAM attr
-    lda rs_tmp+3
+    eor z:rs_mirror
+    sta z:rs_tmp+2              ; OAM attr
+    lda z:rs_tmp+3
     clc
-    adc rs_pi
+    adc z:rs_pi
     asl a
     ora #1                      ; 8x16 $1000 tile index
-    ldx rs_oam
+    ldx z:rs_oam
     sta sprites+1,x
-    lda rs_tmp+0
+    lda z:rs_tmp+0
     sta sprites+0,x
-    lda rs_tmp+2
+    lda z:rs_tmp+2
     sta sprites+2,x
-    lda rs_tmp+1
+    lda z:rs_tmp+1
     sta sprites+3,x
     txa
     clc
     adc #4
-    sta rs_oam
-    ldx rs_pi
-    lda rs_py
+    sta z:rs_oam
+    ldx z:rs_pi
+    lda z:rs_py
     clc
     adc #4
     tay
     inx
-    cpx rs_count
+    cpx z:rs_count
     bne @ep_loop
     pla
     jmp select_bank0
@@ -2405,7 +2471,7 @@ fe_commit_ending:
     rts
 
 fe_end_frames:
-    .word rf_9596, rf_95A2, rf_7374, rf_7AD5, rf_7AD8, rf_7ADB
+    .word rf_9596, rf_95A2, rf_7374
 fe_end_bob_tbl:
     .byte 124, 123, 124, 125
 fe_end_row_hi_tbl:
@@ -2416,8 +2482,9 @@ fe_end_row_lo_tbl:
 fe_end_palettes:
     ; BG: 0=white text, 1=gold text, 2=castle balcony stone, 3=night stars
     .byte $0f, $20, $27, $30, $0f, $28, $27, $38, $0f, $00, $10, $20, $0f, $11, $21, $31
-    ; Sprites: authentic Revision G sprite palettes
-    revg_spr_palette_bytes
+    ; Sprites: 0=Arthur face/skin, 1=Heart red/gold, 2=Arthur silver-blue armor,
+    ;          3=Princess Prin Prin (arcade Pal 2: $24 lavender hair, $37 skin, $30 white gown)
+    .byte $0f, $0f, $17, $37, $0f, $0f, $16, $27, $0f, $0f, $22, $31, $0f, $24, $37, $30
 
 fe_end_hud_lines:
     fe_line $2022, "PLAYER 1"
@@ -2427,6 +2494,14 @@ fe_end_hud_lines:
 fe_end_page0_lines:
     fe_line $2129, "CONGRATULATION"
     fe_line $21a4, "THIS STORY IS HAPPY END."
+    .byte 0
+
+; Authentic Revision G Loop 1 Illusion Ending text (mj05g.bin $6E8F..$6EFC)
+fe_end_loop1_lines:
+    fe_line $2122, "THIS ROOM IS AN ILLUSION AND"
+    fe_line $2162, "IS A TRAP DEVISED BY SATAN."
+    fe_line $21a5, "GO AHEAD DAUNTLESSLY !"
+    fe_line $21e6, "MAKE RAPID PROGRES !"
     .byte 0
 
 .macro fe_end_row col, text
@@ -2467,6 +2542,27 @@ fe_end_extra_bg_chr:
     .byte $ff, $81, $81, $ff, $ff, $18, $18, $ff, $00, $7e, $7e, $00, $00, $e7, $e7, $00
     ; $3F castle parapet
     .byte $e7, $e7, $e7, $ff, $ff, $81, $81, $ff, $00, $18, $18, $00, $00, $7e, $7e, $00
+
+; Authentic arcade Princess Prin Prin standing/walking sprites (OBJ ROM 0x236/0x23E & 0x237/0x23F)
+; encoded for Sprite Palette 3 ($0F bg, $24 lavender hair, $37 skin, $30 white gown).
+fe_end_prin0_chr:
+    .byte $00, $00, $0f, $3f, $3f, $77, $77, $6b, $00, $00, $00, $15, $3f, $28, $08, $1e
+    .byte $7b, $20, $20, $30, $39, $3f, $7f, $6f, $15, $1f, $1f, $0f, $06, $13, $26, $36
+    .byte $00, $00, $c0, $f0, $f0, $f8, $f8, $f8, $00, $00, $00, $00, $80, $c0, $40, $00
+    .byte $78, $38, $78, $fc, $fc, $fc, $fe, $fe, $80, $c0, $80, $00, $00, $70, $f8, $f8
+    .byte $76, $5c, $5f, $1f, $3f, $7f, $3f, $7f, $0d, $23, $20, $60, $5f, $1f, $3f, $3f
+    .byte $7f, $7f, $7f, $ff, $ff, $ff, $ff, $ff, $7f, $7f, $7f, $7f, $7f, $ff, $ff, $ff
+    .byte $ce, $ce, $ce, $cc, $88, $dc, $fe, $fe, $30, $30, $30, $70, $f0, $e8, $dc, $fc
+    .byte $fe, $ff, $ff, $ff, $ff, $ff, $ff, $ff, $fc, $fe, $fe, $fe, $fe, $fe, $ff, $ff
+fe_end_prin1_chr:
+    .byte $00, $00, $1f, $7f, $7f, $ef, $ef, $d7, $00, $00, $00, $2a, $7f, $51, $10, $3c
+    .byte $f6, $40, $40, $61, $73, $7f, $3f, $1f, $2b, $3f, $3f, $1e, $0c, $05, $1b, $3b
+    .byte $00, $00, $80, $e0, $e0, $f0, $f0, $f0, $00, $00, $00, $00, $00, $80, $80, $00
+    .byte $f0, $78, $f8, $f8, $fc, $fc, $fc, $fe, $00, $80, $00, $00, $00, $c0, $e0, $c0
+    .byte $3f, $3e, $38, $1c, $1f, $3f, $3f, $7f, $10, $01, $07, $03, $1f, $3f, $3f, $3f
+    .byte $7f, $7f, $7f, $7f, $7f, $7f, $7f, $3f, $7f, $7f, $7f, $7f, $7f, $7f, $3f, $3f
+    .byte $3e, $3e, $7c, $fe, $fe, $f8, $f8, $f8, $c0, $c0, $80, $40, $e0, $e0, $f0, $f0
+    .byte $fc, $fc, $fe, $fe, $fe, $ff, $ff, $ff, $f8, $f8, $fc, $fc, $fc, $fe, $fe, $ff
 
 fe_end_heart_chr:
     ; 16x16 Heart (two 8x16 sprites, palette 1: $0F bg, $16 red = color 2, $27 gold = color 3)
