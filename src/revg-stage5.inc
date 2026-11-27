@@ -46,16 +46,20 @@ revg5_desc:
     .byte revg5_boss_hp, 0
     .byte revg5_boss_fire_period
 
+; Stage 5 ball platforms (arcade support $05 var 5, 6, 4; standing feet = center - 21 px):
+;   var 5: floor r=42 gap X=256..512 (fc_feet=576), center (280,600) -> feet 579, span 208 (280..488)
+;   var 6: floor r=47 gap X=352..448 (fc_feet=656), center (376,680) -> feet 659, span 48 (376..424)
+;   var 4: floor r=37 gap X=320..544 (fc_feet=496), center (520,520) -> feet 499, span 172 (348..520)
 revg5_plats:
-    .byte 2                             ; plat_moving_h (ball platform 1)
-    .word 280, 600
+    .byte 2                             ; plat_moving_h (ball platform 1, var 5)
+    .word 280, 579
+    .byte 208
+    .byte 2                             ; plat_moving_h (ball platform 2, var 6)
+    .word 376, 659
     .byte 48
-    .byte 2                             ; plat_moving_h (ball platform 2)
-    .word 376, 680
-    .byte 48
-    .byte 2                             ; plat_moving_h (ball platform 3)
-    .word 520, 520
-    .byte 48
+    .byte 2                             ; plat_moving_h (ball platform 3, var 4)
+    .word 348, 499
+    .byte 172
 
 revg5_bg_pal:
     .byte $0f, $10, $00, $2d,  $0f, $2d, $10, $3d

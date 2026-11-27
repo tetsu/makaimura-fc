@@ -95,12 +95,27 @@ sch_limit_s4: .byte 2, 1
 .include "revg-section2-spawns.inc"
 .include "revg-section3-spawns.inc"
 
-; 16-direction velocity tables (2.0 px/frame, 8.8 signed) for Dragon ($5370).
-; Dir: 0=R, 4=D (Y- in arcade), 8=L, 12=U (Y+ in arcade).
-drg_vxi: .byte $02, $01, $01, $00, $00, $FF, $FE, $FE, $FE, $FE, $FE, $FF, $00, $00, $01, $01
-drg_vxf: .byte $00, $DA, $6A, $C3, $00, $3D, $96, $26, $00, $26, $96, $3D, $00, $C3, $6A, $DA
-drg_vyi: .byte $00, $FF, $FE, $FE, $FE, $FE, $FE, $FF, $00, $00, $01, $01, $02, $01, $01, $00
-drg_vyf: .byte $00, $3D, $96, $26, $00, $26, $96, $3D, $00, $C3, $6A, $DA, $00, $DA, $6A, $C3
+; Compact 16-direction velocity tables (0=R, 4=D, 8=L, 12=U; vy[d] == vx[(d+4)&15]):
+;   0: 2.26 px/F (Arremer aimed), 16: 2.50 px/F (Devil fast), 32: 0.38 px/F (Devil slow),
+;  48: 2.00 px/F (Dragon $5370),  64: 1.55 px/F (Woody Pig $A0D0).
+vdir_xi:
+    .byte $02,$02,$01,$00,$00,$FF,$FE,$FD,$FD,$FD,$FE,$FF,$00,$00,$01,$02
+    .byte $02,$02,$01,$00,$00,$FF,$FE,$FD,$FD,$FD,$FE,$FF,$00,$00,$01,$02
+    .byte $00,$00,$00,$00,$00,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$00,$00,$00,$00
+    .byte $02,$01,$01,$00,$00,$FF,$FE,$FE,$FE,$FE,$FE,$FF,$00,$00,$01,$01
+    .byte $01,$01,$01,$00,$00,$FF,$FE,$FE,$FE,$FE,$FE,$FF,$00,$00,$01,$01
+vdir_xf:
+    .byte $42,$17,$99,$DC,$00,$24,$67,$E9,$BE,$E9,$67,$24,$00,$DC,$99,$17
+    .byte $80,$4E,$C4,$F4,$00,$0C,$3C,$B2,$80,$B2,$3C,$0C,$00,$F4,$C4,$4E
+    .byte $61,$5A,$45,$25,$00,$DB,$BB,$A6,$9F,$A6,$BB,$DB,$00,$25,$45,$5A
+    .byte $00,$DA,$6A,$C3,$00,$3D,$96,$26,$00,$26,$96,$3D,$00,$C3,$6A,$DA
+    .byte $8D,$6F,$19,$98,$00,$68,$E7,$91,$73,$91,$E7,$68,$00,$98,$19,$6F
+; 16-entry quarter-sine (0..126) for Bat wave & Flyer sine leap
+s34_qsine:
+    .byte   0, 12, 25, 37, 49, 60, 71, 81, 90, 98,106,112,117,122,125,126
+; Arcade Dragon segment lag table (frames behind head): 10,17,24,31,38,45,52,58
+drg_lags:
+    .byte 10, 17, 24, 31, 38, 45, 52, 58
 
 ; --- Initialization -------------------------------------------------------------------
 init:
@@ -475,7 +490,251 @@ in_view:
     sec
     rts
 
-; Despawn if far off-screen (X outside [cam - 96, cam + 352] or Y outside [camy - 96, camy + 336]).
+; Load 16-dir velocity: A = dir (0..15), Y = table base (0/16/32/48/64).
+load_vdir:
+    sty oz_t0
+    and #15
+    sta oz_t1
+    clc
+    adc oz_t0
+    tay
+    lda vdir_xi,y
+    sta ob_vxi,x
+    lda vdir_xf,y
+    sta ob_vxf,x
+    lda oz_t1
+    clc
+    adc #4
+    and #15
+    clc
+    adc oz_t0
+    tay
+    lda vdir_xi,y
+    sta ob_vyi,x
+    lda vdir_xf,y
+    sta ob_vyf,x
+    rts
+
+; Set ob_vx = +-(Y.A) by ob_dir,x and zero ob_vy.
+set_vx_dir:
+    sta oz_t0
+    sty oz_t1
+    lda #0
+    sta ob_vyi,x
+    sta ob_vyf,x
+    lda ob_dir,x
+    bne @neg
+    lda oz_t0
+    sta ob_vxf,x
+    lda oz_t1
+    sta ob_vxi,x
+    rts
+@neg:
+    lda #0
+    sec
+    sbc oz_t0
+    sta ob_vxf,x
+    lda #0
+    sbc oz_t1
+    sta ob_vxi,x
+    rts
+
+; Exact 16-dir index (0=R, 4=D, 8=L, 12=U) from object X toward player -> A.
+; Note: calc_dx_player gives ob_x - player_x, calc_dy_player gives ob_y - oz_py.
+dir_to_player16:
+    jsr calc_dx_player
+    jsr calc_dy_player
+    ; Target dx = player_x - ob_x = -oz_dx; sign bit (left) = !oz_dx+1.7
+    lda oz_dx+1
+    eor #$80
+    sta oz_t2                   ; bit 7 = player is left of object
+    lda oz_dx+1
+    bpl @dx_pos
+    lda #0
+    sec
+    sbc oz_dx
+    sta oz_t0
+    lda #0
+    sbc oz_dx+1
+    beq @dx_ok
+    lda #255
+    sta oz_t0
+    bne @dx_ok
+@dx_pos:
+    lda oz_dx
+    sta oz_t0
+    lda oz_dx+1
+    beq @dx_ok
+    lda #255
+    sta oz_t0
+@dx_ok:
+    ; oz_dy = ob_y - player_y (positive = player is BELOW object = down)
+    lda oz_dy+1
+    sta oz_t3                   ; bit 7 = player is ABOVE object (up)
+    bpl @dy_pos
+    lda #0
+    sec
+    sbc oz_dy
+    sta oz_t1
+    lda #0
+    sbc oz_dy+1
+    beq @dy_ok
+    lda #255
+    sta oz_t1
+    bne @dy_ok
+@dy_pos:
+    lda oz_dy
+    sta oz_t1
+    lda oz_dy+1
+    beq @dy_ok
+    lda #255
+    sta oz_t1
+@dy_ok:
+    lda oz_t0
+    lsr a
+    lsr a
+    cmp oz_t1
+    bcs @s0
+    lda oz_t1
+    lsr a
+    lsr a
+    cmp oz_t0
+    bcs @s4
+    lda oz_t0
+    lsr a
+    cmp oz_t1
+    bcs @s1
+    lda oz_t1
+    lsr a
+    cmp oz_t0
+    bcs @s3
+    lda #2
+    bne @mq
+@s0:
+    lda #0
+    beq @mq
+@s1:
+    lda #1
+    bne @mq
+@s3:
+    lda #3
+    bne @mq
+@s4:
+    lda #4
+@mq:
+    sta oz_t0
+    bit oz_t2
+    bmi @ql
+    bit oz_t3
+    bmi @qur
+    lda oz_t0
+    rts
+@qur:
+    lda #16
+    sec
+    sbc oz_t0
+    and #15
+    rts
+@ql:
+    bit oz_t3
+    bmi @qul
+    lda #8
+    sec
+    sbc oz_t0
+    rts
+@qul:
+    lda #8
+    clc
+    adc oz_t0
+    rts
+
+; Check |oz_dx| <= A (C=1 if true).
+abs_dx_le:
+    sta oz_t0
+    lda oz_dx
+    clc
+    adc oz_t0
+    sta oz_t1
+    lda oz_dx+1
+    adc #0
+    bne @no
+    lda oz_t0
+    asl a
+    cmp oz_t1
+    rts
+@no:
+    clc
+    rts
+
+; Check |oz_dy| <= A (C=1 if true).
+abs_dy_le:
+    sta oz_t0
+    lda oz_dy
+    clc
+    adc oz_t0
+    sta oz_t1
+    lda oz_dy+1
+    adc #0
+    bne @no
+    lda oz_t0
+    asl a
+    cmp oz_t1
+    rts
+@no:
+    clc
+    rts
+
+; Check player within |dx|<=A and |dy|<=Y (C=1 if inside).
+rel_box_le:
+    pha
+    tya
+    pha
+    jsr calc_dx_player
+    jsr calc_dy_player
+    pla
+    jsr abs_dy_le
+    pla
+    bcc @rbn
+    jmp abs_dx_le
+@rbn:
+    clc
+    rts
+
+; Check if any active player shot is within +-A px horizontally of ob_x (C=1 if found).
+shot_near_x:
+    sta oz_t2
+    ldy #ap_max_shots - 1
+@sn_lp:
+    lda ps_active,y
+    beq @sn_nx
+    lda ps_x_lo,y
+    sec
+    sbc ob_xl,x
+    sta oz_t0
+    lda ps_x_hi,y
+    sbc ob_xh,x
+    sta oz_t1
+    lda oz_t0
+    clc
+    adc oz_t2
+    sta oz_t0
+    lda oz_t1
+    adc #0
+    bne @sn_nx
+    lda oz_t2
+    asl a
+    cmp oz_t0
+    bcs @sn_y
+@sn_nx:
+    dey
+    bpl @sn_lp
+    clc
+    rts
+@sn_y:
+    sec
+    rts
+
+; Arcade $8DC5: Despawn if X outside [cam-128, cam+383] OR Y outside [camy-64, camy+319].
 offscreen_cull:
     lda ob_xl,x
     sec
@@ -486,18 +745,12 @@ offscreen_cull:
     sta oz_t1
     lda oz_t0
     clc
-    adc #96
+    adc #128
     lda oz_t1
     adc #0
-    beq @xc_ok
-    cmp #1
-    bne @cull
-    lda oz_t0
-    clc
-    adc #96
-    cmp #192
-    bcs @cull
-@xc_ok:
+    cmp #2
+    bcs offscreen_do_cull
+offscreen_y_cull:
     lda ob_yl,x
     sec
     sbc oz_camy
@@ -507,23 +760,22 @@ offscreen_cull:
     sta oz_t1
     lda oz_t0
     clc
-    adc #96
+    adc #64
+    sta oz_t0
     lda oz_t1
     adc #0
-    beq @keep
+    beq offscreen_keep
     cmp #1
-    bne @cull
+    bne offscreen_do_cull
     lda oz_t0
-    clc
-    adc #96
-    cmp #176
-    bcs @cull
-@keep:
-    clc
-    rts
-@cull:
+    cmp #128
+    bcc offscreen_keep
+offscreen_do_cull:
     jsr free_slot
     sec
+    rts
+offscreen_keep:
+    clc
     rts
 
 ; --- Fixed enemy & support trigger placement ------------------------------------------
@@ -1125,13 +1377,13 @@ update:
     lda pan_y_page
     cmp #3                      ; bottom page
     bne @upd_loop
-    jsr spawn_dragon_boss
+    jsr call_spawn_dragon_boss
     jmp @upd_loop
 @chk_s4_boss:
     lda camera_high
     cmp #10                     ; page 10 (X >= 2560)
     bcc @upd_loop
-    jsr spawn_dragon_boss
+    jsr call_spawn_dragon_boss
 @upd_loop:
     ldx #0
 @obj:
@@ -1162,164 +1414,278 @@ update:
     bne @obj
     rts
 @call:
+    lda oz_ptr+1
+    cmp #$c0
+    bcs @call_local
+    lda prg_bank0
+    pha
+    lda #15
+    jsr select_bank0
+    ldx oz_i
+    jsr @call_local
+    pla
+    jmp select_bank0
+@call_local:
     jmp (oz_ptr)
 
-; --- Enemy AI Routines ----------------------------------------------------------------
-; 1. Woody Pig ($00 var 1): horizontal swoop + spear throw.
+call_spawn_dragon_boss:
+    lda prg_bank0
+    pha
+    lda #15
+    jsr select_bank0
+    jsr spawn_dragon_boss
+    pla
+    jmp select_bank0
+
+; --- Enemy AI Routines (non-ground AIs in BANK15 $8000, ground AIs in BANK51 $C000) ---
+.segment "BANK15"
+; 1. Woody Pig ($00 var 1, Arcade $9ED0-$A3B0):
+;    State 1: 48F invuln glowing eyes (rf_4764/rf_475A).
+;    State 2: Flat flight at 1.55 px/F (1/4 fast 2.25 px/F), no spurious Y bob.
+;    State 3 ($0101): 8-step somersault loop (4F or 6F/step, 1.55 px/F 16-dir table).
+;    State 4 ($0102): Stop-and-fire (26F pause + 2.27 px/F horiz/down spear + 20F recovery).
 u_pig:
     lda ob_state,x
-    bne @fly
-    inc ob_state,x
-    jsr face_player
-    lda #0
-    sta ob_vxi,x
-    lda #$e0
-    ldy ob_dir,x
-    beq :+
-    lda #$ff
-    sta ob_vxi,x
-    lda #$20
+    beq @pg_init
+    cmp #1
+    beq @pg_eyes
+    cmp #2
+    bne :+
+    jmp @pg_fly
 :
-    sta ob_vxf,x
-    lda #50
+    cmp #3
+    bne :+
+    jmp @pg_loop
+:
+    jmp @pg_shoot
+@pg_init:
+    lda #1
+    sta ob_state,x
+    lda #0
+    sta ob_flags,x              ; invuln during 48F eyes intro
+    jsr face_player
+    jsr rng
+    and #7
+    sta ob_by_h,x               ; loops remaining (0..7)
+    jsr rng
+    and #3
+    bne :+
+    lda #1                      ; bit 0: 1/4 fast 2.25 px/F
+    bne @pg_sbit
+:
+    lda #0
+@pg_sbit:
+    sta oz_t0
+    jsr rng
+    and #2                      ; bit 1: 6F vs 4F loop step
+    ora oz_t0
+    sta ob_by_l,x
+    lda #48
     sta ob_t0,x
+    lda #0
+    sta ob_mirror,x
     lda ob_dir,x
     beq :+
-    lda #$40
+    lda #<rf_4764
+    ldy #>rf_4764
+    jmp set_anim
 :
+    lda #<rf_475A
+    ldy #>rf_475A
+    jmp set_anim
+@pg_eyes:
+    dec ob_t0,x
+    bne @pg_ret
+    jsr face_player
+@pg_enter_fly:
+    lda #2
+    sta ob_state,x
+    lda #ofl_alive | ofl_shoot | ofl_touch
+    sta ob_flags,x
+    lda #0
     sta ob_mirror,x
+    ldy ob_dir,x
+    beq :+
+    lda #8
+:
+    sta ob_aux,x
+    jsr @pg_set_fly_v
+    jsr rng
+    and #31
+    clc
+    adc #40
+    sta ob_t0,x                 ; spear cooldown
+    lda ob_dir,x
+    beq :+
     lda #<rf_4974
     ldy #>rf_4974
     jmp set_anim
-@fly:
-    jsr move_x
-    ; Slight vertical sine bob
-    inc ob_t1,x
-    lda ob_t1,x
-    and #$10
-    beq :+
-    lda #$ff
-    sta ob_vyi,x
-    lda #$c0
-    bne :++
 :
-    lda #0
-    sta ob_vyi,x
-    lda #$40
-:
-    sta ob_vyf,x
-    jsr move_y
-    dec ob_t0,x
-    bne :+
-    lda #90
-    sta ob_t0,x
-    jsr fire_spear_shot         ; Woody Pig throws horizontal spear (rf_FD12)
-:
-    jmp offscreen_cull
-
-; 2. Cave Bat ($01 var 2, docs/revision-g-enemy-behaviour.md):
-;    Hangs on ceiling until on-screen & within 128 px; swoops 43 frames toward player's height
-;    at +-1.25 px/F ($01.$40 right, $FE.$C0 left), then flies horizontally with a 42-frame sine wave.
-bat_wave_vyi: .byte $00, $00, $00, $00, $00, $00, $00, $00, $ff, $ff, $ff, $ff, $ff, $ff, $ff, $00
-bat_wave_vyf: .byte $40, $80, $b0, $c0, $b0, $80, $40, $00, $c0, $80, $50, $40, $50, $80, $c0, $00
-u_bat:
-    lda ob_state,x
-    beq @init
-    cmp #1
-    beq @hang
-    cmp #2
-    bne :+
-    jmp @swoop
-:
-    jmp @wave
-@init:
-    inc ob_state,x
-    jsr face_player
-    lda ob_dir,x
-    beq :+
-    lda #<rf_49D0
-    ldy #>rf_49D0
-    bne :++
-:
-    lda #<rf_49B2
-    ldy #>rf_49B2
-:
+    lda #<rf_4966
+    ldy #>rf_4966
     jmp set_anim
-@hang:
-    jsr in_view
-    bcc :+
+@pg_ret:
+    rts
+@pg_fly:
+    jsr move_x
+    dec ob_t0,x
+    bne @pg_chk_lp
+    ; Enter $0102 stop-and-fire (26F stop + spear + 20F hold)
+    lda #4
+    sta ob_state,x
+    lda #46
+    sta ob_t0,x
+    jmp offscreen_cull
+@pg_chk_lp:
+    lda ob_by_h,x
+    beq @pg_cull
+    lda frames
+    and #15
+    bne @pg_cull
+    jsr calc_dx_player
+    lda #112
+    jsr abs_dx_le
+    bcc @pg_cull
+    jsr rng
+    and #3
+    bne @pg_cull
+    dec ob_by_h,x
+    lda #3
+    sta ob_state,x
+    lda #8
+    sta ob_step,x               ; 8 steps around 16-dir circle (+-2 each)
+    jsr @pg_lstep_t
+    sta ob_t1,x
+@pg_cull:
+    jmp offscreen_cull
+@pg_loop:
+    jsr move_x
+    jsr move_y
+    dec ob_t1,x
+    bne @pg_cull
+    jsr @pg_lstep_t
+    sta ob_t1,x
+    lda ob_dir,x
+    beq @pg_lcw
+    lda ob_aux,x
+    clc
+    adc #2
+    bne @pg_lset
+@pg_lcw:
+    lda ob_aux,x
+    sec
+    sbc #2
+@pg_lset:
+    and #15
+    sta ob_aux,x
+    ldy #64
+    jsr load_vdir
+    dec ob_step,x
+    bne @pg_cull
+    jmp @pg_enter_fly
+@pg_shoot:
+    dec ob_t0,x
+    lda ob_t0,x
+    cmp #20
+    bne :+
+    jsr face_player
+    jsr fire_spear_shot
+    ldx oz_i
     rts
 :
+    cmp #0
+    bne @pg_cull
+    jmp @pg_enter_fly
+@pg_set_fly_v:
+    lda ob_by_l,x
+    and #1
+    beq @pg_norm
+    lda #$40                    ; 2.25 px/F
+    ldy #2
+    jmp set_vx_dir
+@pg_norm:
+    lda #$8d                    ; 1.55 px/F
+    ldy #1
+    jmp set_vx_dir
+@pg_lstep_t:
+    lda ob_by_l,x
+    and #2
+    beq :+
+    lda #6
+    rts
+:
+    lda #4
+    rts
+
+; 2. Cave Bat ($01 var 2, Arcade $A450-$A720):
+;    Hangs on ceiling until on-screen & within 128 px; swoops 43F toward player's height
+;    at +-1.25 px/F ($01.$40 / $FE.$C0), then flies horizontally with a 42F +-16px sine wave.
+u_bat:
+    lda ob_state,x
+    beq @bt_init
+    cmp #1
+    beq @bt_hang
+    cmp #2
+    bne :+
+    jmp @bt_swoop
+:
+    jmp @bt_wave
+@bt_init:
+    inc ob_state,x
+    jsr face_player
+    jmp @bt_anim
+@bt_hang:
+    jsr in_view
+    bcs @bt_ret
     jsr calc_dx_player
-    lda oz_dx+1
-    beq @chk_d
-    cmp #$ff
-    bne @bat_ret
-    lda oz_dx
-    cmp #$80                    ; within 128 px on left
-    bcc @bat_ret
-    bcs @start_swoop
-@chk_d:
-    lda oz_dx
-    cmp #128                    ; within 128 px on right
-    bcs @bat_ret
-@start_swoop:
+    lda #127
+    jsr abs_dx_le
+    bcc @bt_ret
     jsr face_player
     lda #2
     sta ob_state,x
     lda #43                     ; arcade 43-frame swoop
     sta ob_t0,x
-    ; Choose smooth vertical descent toward player's Y (avoid plunging into floor).
+    lda #$40                    ; +-1.25 px/F ($01.$40 / $FE.$C0)
+    ldy #1
+    jsr set_vx_dir
     jsr calc_dy_player          ; oz_dy = bat_y - player_y
     lda oz_dy+1
-    bmi @gentle_drop            ; already at/below player
-    bne @steep_drop
+    bmi @bt_gdrop
+    bne @bt_sdrop
     lda oz_dy
     cmp #56
-    bcc @mid_drop
-@steep_drop:
-    lda #$fe                    ; -1.5 px/F
+    bcc @bt_mdrop
+@bt_sdrop:
+    lda #$fe
     sta ob_vyi,x
     lda #$80
     sta ob_vyf,x
-    bne @set_bat_vx
-@mid_drop:
-    lda #$ff                    ; -1.0 px/F
+    bne @bt_anim
+@bt_mdrop:
+    lda #$ff
     sta ob_vyi,x
     lda #$00
     sta ob_vyf,x
-    beq @set_bat_vx
-@gentle_drop:
-    lda #$ff                    ; -0.25 px/F
+    beq @bt_anim
+@bt_gdrop:
+    lda #$ff
     sta ob_vyi,x
     lda #$c0
     sta ob_vyf,x
-@set_bat_vx:
-    lda #1                      ; +1.25 px/F ($01.$40) right, -1.25 px/F ($FE.$C0) left
-    ldy ob_dir,x
-    beq :+
-    lda #$fe
-:
-    sta ob_vxi,x
-    lda #$40
-    ldy ob_dir,x
-    beq :+
-    lda #$c0
-:
-    sta ob_vxf,x
+@bt_anim:
     lda ob_dir,x
     beq :+
     lda #<rf_49D0
     ldy #>rf_49D0
-    bne :++
+    jmp set_anim
 :
     lda #<rf_49B2
     ldy #>rf_49B2
-:
     jmp set_anim
-@bat_ret:
+@bt_ret:
     rts
-@swoop:
+@bt_swoop:
     jsr move_x
     jsr move_y
     dec ob_t0,x
@@ -1328,380 +1694,756 @@ u_bat:
     sta ob_state,x
     lda #0
     sta ob_t1,x
+    lda ob_yl,x
+    sta ob_by_l,x
+    lda ob_yh,x
+    sta ob_by_h,x
 :
     jmp offscreen_cull
-@wave:
+@bt_wave:
     jsr move_x
+    ; Authentic ~42F period, +-16 px sine wave around ob_by
     inc ob_t1,x
     lda ob_t1,x
-    lsr a                       ; 16 entries x ~2.6F = ~42F period (half-period ~21F, +-16 px)
+    cmp #42
+    bcc :+
+    lda #0
+    sta ob_t1,x
+:
+    ; Map 0..41 -> half-wave 0..20 (+sign) or 21..41 (-sign), quarter index 0..10 -> 0..15
+    cmp #21
+    bcs @bt_neg
+    sta oz_t0
+    lda #0
+    sta oz_t1
+    beq @bt_q
+@bt_neg:
+    sec
+    sbc #21
+    sta oz_t0
+    lda #1
+    sta oz_t1
+@bt_q:
+    lda oz_t0
+    cmp #11
+    bcc :+
+    lda #20
+    sec
+    sbc oz_t0
+:
+    ; Scale 0..10 -> 0..15 (idx + idx/2)
+    sta oz_t0
     lsr a
-    and #$0f
+    clc
+    adc oz_t0
+    cmp #16
+    bcc :+
+    lda #15
+:
     tay
-    lda bat_wave_vyi,y
-    sta ob_vyi,x
-    lda bat_wave_vyf,y
-    sta ob_vyf,x
-    jsr move_y
+    lda s34_qsine,y             ; 0..126 -> >>3 = 0..15 (+-16 px)
+    lsr a
+    lsr a
+    lsr a
+    sta oz_t0
+    lda oz_t1
+    bne @bt_sub
+    lda ob_by_l,x
+    clc
+    adc oz_t0
+    sta ob_yl,x
+    lda ob_by_h,x
+    adc #0
+    sta ob_yh,x
+    jmp offscreen_cull
+@bt_sub:
+    lda ob_by_l,x
+    sec
+    sbc oz_t0
+    sta ob_yl,x
+    lda ob_by_h,x
+    sbc #0
+    sta ob_yh,x
     jmp offscreen_cull
 
-; 3. Petit Devil ($02 var 1, Stage 4, docs/revision-g-late-enemy-behaviour.md):
-;    Rises 31F at +1.0 px/F, then 49F at +1.40 px/F, then swoops toward player (clamped Y >= 54).
+; 3. Petit Devil ($02 var 1, Stage 4, Arcade $A7D7-$AD10):
+;    State 1: 31F invuln rise (+1.0 px/F) -> 49..80F vuln rise (+1.40 px/F) = 80..111F emerge.
+;    State 2: 3 alternating fast (2.50 px/F, 80..111F) / slow (0.38 px/F, 48..95F) 16-dir curving,
+;             Y >= 54 floor clamp (no bounce).
+;    State 3 ($0103): Fly off horizontally at 2.50 px/F.
 u_devil:
     lda ob_state,x
-    beq @init
+    beq @dv_init
     cmp #1
-    beq @rise
-    jmp @swoop
-@init:
-    inc ob_state,x
-    lda #80                     ; arcade 80F rise (31F slow + 49F fast)
+    beq @dv_rise
+    cmp #2
+    beq @dv_swoop
+    jmp @dv_leave
+@dv_init:
+    lda #1
+    sta ob_state,x
+    lda #0
+    sta ob_flags,x              ; invuln for first 31F
+    lda #31
     sta ob_t0,x
+    lda #0
+    sta ob_by_l,x               ; sub-stage 0=invuln 31F, 1=vuln 49..80F
+    lda #3
+    sta ob_aux,x                ; 3 fast/slow cycles
     lda #1
     sta ob_vyi,x
-    lda #$00                    ; +1.0 px/F for first 31 frames
+    lda #0
     sta ob_vyf,x
     lda #<rf_A893
     ldy #>rf_A893
     jmp set_anim
-@rise:
-    lda ob_t0,x
-    cmp #49
-    bne :+
-    lda #$65                    ; +1.40 px/F ($01.$65) from frame 32 onward
-    sta ob_vyf,x
-:
+@dv_rise:
     jsr move_y
     dec ob_t0,x
-    bne @dev_cull
+    bne @dv_cull
+    lda ob_by_l,x
+    bne @dv_start_sw
+    ; End 31F invuln -> 49..80F vulnerable fast rise (+1.40 px/F)
+    lda #1
+    sta ob_by_l,x
+    lda #ofl_alive | ofl_shoot | ofl_touch
+    sta ob_flags,x
+    lda #$65
+    sta ob_vyf,x
+    jsr rng
+    and #31
+    clc
+    adc #49
+    sta ob_t0,x
+    jmp offscreen_cull
+@dv_start_sw:
     lda #2
     sta ob_state,x
-    lda #80
+    lda #0
+    sta ob_by_l,x               ; phase 0 = fast 2.50 px/F
+    jsr rng
+    and #31
+    clc
+    adc #80
     sta ob_t0,x
-    jsr face_player
-    lda #2                      ; arcade var 1 fast speed (~2.25..2.5 px/F)
-    ldy ob_dir,x
-    beq :+
-    lda #$fd
-:
-    sta ob_vxi,x
-    lda #$40
-    ldy ob_dir,x
-    beq :+
-    lda #$c0
-:
-    sta ob_vxf,x
-    lda #0
-    sta ob_vyi,x
-    sta ob_vyf,x
-@dev_cull:
+    jsr dir_to_player16
+    sta ob_step,x
+    jsr @dv_load_v
+@dv_cull:
     jmp offscreen_cull
-@swoop:
+@dv_swoop:
     jsr move_x
-    inc ob_t1,x
-    lda ob_t1,x
-    and #$10
-    beq :+
-    lda #$ff
-    sta ob_vyi,x
-    lda #$a0
-    bne :++
-:
-    lda #0
-    sta ob_vyi,x
-    lda #$60
-:
-    sta ob_vyf,x
     jsr move_y
-    ; Arcade $A7FF: never descend below Y = 54 ($36).
+    ; Arcade $A7FF: floor clamp Y >= 54
     lda ob_yh,x
-    bne @dev_ok
+    bne :+
     lda ob_yl,x
     cmp #54
-    bcs @dev_ok
+    bcs :+
     lda #54
     sta ob_yl,x
-@dev_ok:
+    lda #0
+    sta ob_yf,x
+:
+    ; Curve 16-dir heading 1 step toward player every 8F
+    lda frames
+    and #7
+    bne @dv_ns
+    jsr dir_to_player16
+    sec
+    sbc ob_step,x
+    and #15
+    beq @dv_ns
+    cmp #8
+    bcc @dv_cw
+    lda ob_step,x
+    sec
+    sbc #1
+    and #15
+    sta ob_step,x
+    jmp @dv_uv
+@dv_cw:
+    lda ob_step,x
+    clc
+    adc #1
+    and #15
+    sta ob_step,x
+@dv_uv:
+    jsr @dv_load_v
+@dv_ns:
+    dec ob_t0,x
+    bne @dv_cull
+    lda ob_by_l,x
+    bne @dv_sl_dn
+    lda #1
+    sta ob_by_l,x
+    jsr rng
+    and #31
+    clc
+    adc #48
+    sta ob_t0,x
+    jsr @dv_load_v
     jmp offscreen_cull
+@dv_sl_dn:
+    dec ob_aux,x
+    beq @dv_go_lv
+    lda #0
+    sta ob_by_l,x
+    jsr rng
+    and #31
+    clc
+    adc #80
+    sta ob_t0,x
+    jsr dir_to_player16
+    sta ob_step,x
+    jsr @dv_load_v
+    jmp offscreen_cull
+@dv_go_lv:
+    lda #3
+    sta ob_state,x
+    lda #$80                    ; 2.50 px/F leave
+    ldy #2
+    jsr set_vx_dir
+@dv_leave:
+    jsr move_x
+    jmp offscreen_cull
+@dv_load_v:
+    ldy #16                     ; 2.50 px/F
+    lda ob_by_l,x
+    beq :+
+    ldy #32                     ; 0.38 px/F
+:
+    lda ob_step,x
+    jsr load_vdir
+    lda #0
+    ldy ob_vxi,x
+    bpl :+
+    lda #1
+:
+    sta ob_dir,x
+    beq :+
+    lda #$40
+:
+    sta ob_mirror,x
+    rts
 
-; 4. Purple Flyer ($04 var 2, Stage 3, docs/revision-g-late-enemy-behaviour.md):
-;    Dives at -1.71 px/F ($FE.$49) until grounded, then walks at 1.43 px/F ($01.$6E / $FE.$92)
-;    and leaps/flies when floor ends or timer expires.
+.segment "BANK51"
+; 4. Purple Flyer ($04 var 2, Stage 3, Arcade $B0BF-$B510):
+;    10F invuln wait -> 6-stage accelerating descent (0.19..1.97 X, -1.71 Y) ->
+;    {120,160,60,16}F walk at 1.43 px/F + shot-dodge -> 32F sine leap (+32/+48 px) ->
+;    {60,90,120,180}F level flight + shot-dodge dive -> gentle+fast fall -> 3,600F Arremer transform!
 u_flyer:
     lda ob_state,x
-    beq @init
-    cmp #1
-    beq @dive
-    cmp #2
-    beq @walk
-    jmp @fly
-@init:
-    inc ob_state,x
-    jsr face_player
-    lda #48
-    sta ob_t0,x
-    lda #$fe                    ; arcade -1.71 px/F ($FE.$49)
-    sta ob_vyi,x
-    lda #$49
-    sta ob_vyf,x
+    bne @fl_not0
+    lda #1
+    sta ob_state,x
     lda #0
-    sta ob_vxi,x
-    lda #$80
-    ldy ob_dir,x
-    beq :+
-    lda #$ff
-    sta ob_vxi,x
-    lda #$80
-:
-    sta ob_vxf,x
+    sta ob_flags,x              ; 10F invuln wait
+    lda #10
+    sta ob_t0,x
+    lda #14                     ; 3,600F transform countdown
+    sta ob_aux,x
+    lda #16
+    sta ob_aux2,x
+    jsr face_player
     lda #<rf_B19E
     ldy #>rf_B19E
     jmp set_anim
-@dive:
-    jsr move_x
-    jsr move_y
-    jsr on_ground
-    bcs @hit_ground
-    dec ob_t0,x
-    bne @fl_cull
-    jmp @start_fly
-@hit_ground:
-    jsr snap_ground
+@fl_not0:
+    dec ob_aux2,x
+    bne @fl_nx
+    dec ob_aux,x
+    bne @fl_nx
+    ; Transform into Red Arremer!
+    dec oz_kind_cnt+ok_flyer
+    lda #ok_arremer
+    sta ob_kind,x
+    inc oz_kind_cnt+ok_arremer
     lda #2
-    sta ob_state,x
-    lda #90
-    sta ob_t0,x
-    jsr face_player
-    jsr @set_flyer_vx
-@fl_cull:
-    jmp offscreen_cull
-@set_flyer_vx:
-    lda #1                      ; arcade 1.43 px/F ($01.$6E right, $FE.$92 left)
-    ldy ob_dir,x
-    beq :+
-    lda #$fe
-:
-    sta ob_vxi,x
-    lda #$6e
-    ldy ob_dir,x
-    beq :+
-    lda #$92
-:
-    sta ob_vxf,x
-    rts
-@walk:
-    lda ob_xl,x
-    sta oz_t3
-    jsr move_x
-    dec ob_t0,x
-    beq @start_fly
-    lda ob_xl,x
-    eor oz_t3
-    and #$f0
-    beq @fl_cull
-    jsr on_ground
-    bcs @fl_cull
-@start_fly:
-    lda #3
-    sta ob_state,x
-    lda #64
-    sta ob_t0,x
-    jsr face_player
-    jsr @set_flyer_vx
-    lda #1
-    sta ob_vyi,x
-    lda #$00
-    sta ob_vyf,x
-    jmp offscreen_cull
-@fly:
-    jsr move_x
-    lda ob_t0,x
-    cmp #40                     ; rise for first 24 frames, then fly level
-    bcc :+
-    jsr move_y
-:
-    dec ob_t0,x
-    bne @fl_cull
-    lda #1
-    sta ob_state,x
-    lda #48
-    sta ob_t0,x
-    lda #$fe
-    sta ob_vyi,x
-    lda #$49
-    sta ob_vyf,x
-    jmp offscreen_cull
-
-; 5. Red Arremer ($05, Stages 3 & 4, docs/revision-g-enemy-behaviour.md):
-;    Sits until player approaches or shoots (dodges incoming shots within 56 px!),
-;    hovers with wing-flap animation, fires Red Arremer fireball (rf_FDD7), and swoops toward Arthur.
-u_arremer:
-    lda ob_state,x
-    beq @init
-    cmp #1
-    beq @sit
-    cmp #2
-    beq @hover
-    jmp @swoop
-@init:
-    inc ob_state,x
-    jsr face_player
-    lda ob_dir,x
-    beq :+
-    lda #$40
-:
-    sta ob_mirror,x
-    lda #<rf_BA04
-    ldy #>rf_BA04
-    jmp set_anim
-@sit:
-    jsr in_view
-    bcs @ar_ret
-    jsr ar_shot_near            ; Arcade $B6F8: dodge-wake immediately if player shoots!
-    bcs @ar_wake
-    jsr calc_dx_player
-    lda oz_dx+1
-    beq @ar_c
-    cmp #$ff
-    bne @ar_ret
-    lda oz_dx
-    cmp #$90
-    bcc @ar_ret
-    bcs @ar_wake
-@ar_c:
-    lda oz_dx
-    cmp #112
-    bcs @ar_ret
-@ar_wake:
-    lda #2
-    sta ob_state,x
-    lda #40
-    sta ob_t0,x
-    lda #<rf_4BB2               ; Wing-flap flying animation
-    ldy #>rf_4BB2
-    jsr set_anim
-    ldx oz_i
-    lda #1
-    sta ob_vyi,x
-    lda #$40                    ; +1.25 px/F quick rise
-    sta ob_vyf,x
-@ar_ret:
-    rts
-@hover:
-    jsr face_player
-    lda ob_dir,x
-    beq :+
-    lda #$40
-:
-    sta ob_mirror,x
-    ; Dodge incoming shots by rising sharply
-    jsr ar_shot_near
-    bcc @no_dodge
-    lda #1
-    sta ob_vyi,x
-    lda #$80
-    sta ob_vyf,x
-    jsr move_y
-    jmp @hov_tick
-@no_dodge:
-    ; Rise gently while timer > 20, then hover
-    lda ob_t0,x
-    cmp #20
-    bcc @hov_tick
-    jsr move_y
-@hov_tick:
-    dec ob_t0,x
-    bne @ar_ret
-    ; Fire Red Arremer fireball (rf_FDD7) and swoop toward Arthur's height!
-    jsr fire_arremer_shot
-    ldx oz_i
-    lda #3
-    sta ob_state,x
-    lda #43                     ; Arcade 43-frame swoop
-    sta ob_t0,x
-    lda #2
-    ldy ob_dir,x
-    beq :+
-    lda #$fe
-:
-    sta ob_vxi,x
+    sta ob_hp,x
     lda #0
-    sta ob_vxf,x
-    jsr calc_dy_player
-    lda oz_dy+1
-    bmi @sw_lvl                 ; already below player: level rush
+    sta ob_state,x
+    rts
+@fl_nx:
+    lda ob_state,x
+    cmp #1
+    bne @fl_not1
+    dec ob_t0,x
+    bne @fl_ret
+    lda #ofl_alive | ofl_shoot | ofl_touch
+    sta ob_flags,x
+    lda #2
+    sta ob_state,x
+    jsr face_player
+    lda #0
+    sta ob_step,x
+    lda #6
+    sta ob_t0,x
+    jsr @fl_desc_vx
+@fl_ret:
+    rts
+@fl_not1:
+    cmp #2
+    bne @fl_not2
+    dec ob_t0,x
+    bne @fl_dmv
+    lda #6
+    sta ob_t0,x
+    lda ob_step,x
+    cmp #5
+    bcs @fl_dmv
+    inc ob_step,x
+    jsr @fl_desc_vx
+@fl_dmv:
+    jsr move_x
+    jsr move_y
+    jsr on_ground
+    bcc @fl_cull_j
+    jsr snap_ground
+@fl_enter_walk:
+    lda #3
+    sta ob_state,x
+    lda #<rf_B10B
+    ldy #>rf_B10B
+    jsr set_anim
+    jsr face_player
+    jsr rng
+    and #3
+    tay
+    lda @fl_wtbl,y
+    sta ob_t0,x
+    rts
+@fl_cull_j:
+    jmp offscreen_cull
+@fl_not2:
+    cmp #3
+    bne @fl_not3
+    lda #48
+    jsr shot_near_x
+    bcs @fl_leap
+    lda #$6e                    ; 1.43 px/F
+    ldy #1
+    jsr set_vx_dir
+    jsr move_x
+    jsr on_ground
+    bcc @fl_leap
+    dec ob_t0,x
+    bne @fl_cull_j
+@fl_leap:
+    lda #4
+    sta ob_state,x
+    lda #<rf_B19E
+    ldy #>rf_B19E
+    jsr set_anim
+    lda ob_yl,x
+    sta ob_by_l,x
+    lda ob_yh,x
+    sta ob_by_h,x
+    lda #0
+    sta ob_step,x
+    jsr rng
+    and #1
+    sta ob_t0,x
+    rts
+@fl_not3:
+    cmp #4
+    bne @fl_not4
+    lda #$6e
+    ldy #1
+    jsr set_vx_dir
+    jsr move_x
+    lda ob_step,x
+    lsr a
+    tay
+    lda s34_qsine,y
+    lsr a
+    lsr a                       ; 0..31
+    sta oz_t0
+    lda ob_t0,x
+    beq :+
+    lda oz_t0
+    lsr a
+    clc
+    adc oz_t0                   ; 0..46
+    sta oz_t0
+:
+    lda ob_by_l,x
+    clc
+    adc oz_t0
+    sta ob_yl,x
+    lda ob_by_h,x
+    adc #0
+    sta ob_yh,x
+    inc ob_step,x
+    lda ob_step,x
+    cmp #32
+    bcc @fl_cull2
+    lda #5
+    sta ob_state,x
+    jsr face_player
+    jsr rng
+    and #3
+    tay
+    lda @fl_ftbl,y
+    sta ob_t0,x
+    rts
+@fl_not4:
+    cmp #5
+    bne @fl_desc2
+    lda #48
+    jsr shot_near_x
+    bcs @fl_go_d2
+    lda #$6e
+    ldy #1
+    jsr set_vx_dir
+    jsr move_x
+    dec ob_t0,x
+    bne @fl_cull2
+@fl_go_d2:
+    lda #6
+    sta ob_state,x
+    lda #0
+    sta ob_step,x
     lda #$ff
     sta ob_vyi,x
-    lda #$20                    ; -0.875 px/F dive toward player
-    sta ob_vyf,x
-    rts
-@sw_lvl:
     lda #0
-    sta ob_vyi,x
     sta ob_vyf,x
     rts
-@swoop:
+@fl_desc2:
+    lda ob_step,x
+    cmp #16
+    bcs :+
+    inc ob_step,x
+    bne @fl_d2m
+:
+    lda #$fe
+    sta ob_vyi,x
+    lda #0
+    sta ob_vyf,x
+@fl_d2m:
     jsr move_x
     jsr move_y
-    dec ob_t0,x
+    jsr on_ground
+    bcc @fl_cull2
+    jsr snap_ground
+    jmp @fl_enter_walk
+@fl_cull2:
+    jmp offscreen_cull
+@fl_desc_vx:
+    ldy ob_step,x
+    lda @fl_dxf,y
+    pha
+    lda @fl_dxi,y
+    tay
+    pla
+    jsr set_vx_dir
+    lda #$49
+    sta ob_vyf,x
+    lda #$fe                    ; -1.71 px/F
+    sta ob_vyi,x
+    rts
+@fl_dxi: .byte $00,$00,$00,$01,$01,$01
+@fl_dxf: .byte $30,$80,$E0,$40,$A0,$F8
+@fl_wtbl: .byte 120,160,60,16
+@fl_ftbl: .byte 60,90,120,180
+
+; 5. Red Arremer ($05, Stages 3 & 4, Arcade $B4E6-$BC40):
+;    Full 7-state machine (sleep X+-96 Y+-48 or free-wake on hit, ground walk 0.80,
+;    fly-over 1.75, shoot 6F+shot+6F, spacing 2.13, shot-dodge $0105, swoop 2.13),
+;    5F hit-stun, Y-only culling.
+u_arremer:
+    lda ob_flash,x
+    beq :+
+    rts
+:
+    lda ob_state,x
+    bne @ar_not0
+    lda ob_cur_l,x
+    ora ob_cur_h,x
     bne :+
+    lda #<rf_BA04
+    ldy #>rf_BA04
+    jsr set_anim
+    lda #ofl_alive | ofl_shoot | ofl_touch
+    sta ob_flags,x
+:
+    lda #96
+    ldy #48
+    jsr rel_box_le
+    bcc @ar_ret0
+@ar_wake:
+    lda #2
+    sta ob_hp,x
+    lda #0
+    sta ob_aux,x
+    lda #90
+    sta ob_t0,x
+    lda #72
+    sta ob_t1,x
+    lda #1
+    sta ob_state,x
+    lda #<rf_4C53
+    ldy #>rf_4C53
+    jmp set_anim
+@ar_ret0:
+    rts
+@ar_not0:
+    cmp #1
+    beq @ar_walk
+    cmp #2
+    bne :+
+    jmp @ar_fly
+:
+    cmp #3
+    bne :+
+    jmp @ar_shoot
+:
+    cmp #4
+    bne :+
+    jmp @ar_space
+:
+    cmp #5
+    bne :+
+    jmp @ar_dodge
+:
+    jmp @ar_swoop
+@ar_walk:
+    jsr face_player
+    lda ob_dir,x
+    beq :+
+    lda #$40
+:
+    sta ob_mirror,x
+    lda #$cc                    ; 0.80 px/F
+    ldy #0
+    jsr set_vx_dir
+    jsr move_x
+    dec ob_t0,x
+    bne @ar_cr
+    lda ob_aux,x
+    and #7
+    tay
+    lda @ar_ft,y
+    sta ob_t0,x
+    inc ob_aux,x
+    lda #3
+    sta ob_state,x
+    lda #12
+    sta ob_t2,x
+    lda #<rf_4DA7
+    ldy #>rf_4DA7
+    jmp set_anim
+@ar_cr:
+    dec ob_t1,x
+    bne @ar_cd
+    lda ob_aux,x
+    and #7
+    tay
+    lda @ar_rt,y
+    sta ob_t1,x
+    lda #6
+    sta ob_state,x
+    lda #0
+    sta ob_step,x
+    lda #43
+    sta ob_t2,x
+    lda #<rf_4D0F
+    ldy #>rf_4D0F
+    jmp set_anim
+@ar_cd:
+    lda #64
+    jsr shot_near_x
+    bcc @ar_sp
+    lda #5
+    sta ob_state,x
+    lda #0
+    sta ob_step,x
+    lda #21
+    sta ob_t2,x
+    lda #<rf_4C9B
+    ldy #>rf_4C9B
+    jmp set_anim
+@ar_sp:
+    jsr calc_dx_player
+    lda #47
+    jsr abs_dx_le
+    bcs @ar_go_sp
+    lda #112
+    jsr abs_dx_le
+    bcs @ar_ycull
     lda #2
     sta ob_state,x
-    lda #44
-    sta ob_t0,x
+    lda #0
+    sta ob_step,x
+    lda #21
+    sta ob_t2,x
+    lda #<rf_4C9B
+    ldy #>rf_4C9B
+    jmp set_anim
+@ar_go_sp:
+    lda #4
+    sta ob_state,x
+    jsr rng
+    and #15
+    clc
+    adc #10
+    sta ob_t2,x
+    lda ob_dir,x
+    eor #1
+    sta ob_step,x
+@ar_ycull:
+    jmp offscreen_y_cull
+@ar_fly:
+    lda ob_step,x
+    bne @arf1
+    lda #3
+    sta ob_vyi,x
+    lda #0
+    sta ob_vyf,x
+    jsr move_y
+    dec ob_t2,x
+    bne @ar_ycull
+    lda #1
+    sta ob_step,x
+    lda #60
+    sta ob_t2,x
+    jsr face_player
+    rts
+@arf1:
+    cmp #1
+    bne @arf_dn
+    lda #$c0                    ; 1.75 px/F
+    ldy #1
+    jsr set_vx_dir
+    jsr move_x
+    dec ob_t2,x
+    bne @ar_ycull
+    lda #2
+    sta ob_step,x
+    lda #20
+    sta ob_t2,x
+    rts
+@arf_dn:
+    lda #$fd
+    sta ob_vyi,x
+    lda #0
+    sta ob_vyf,x
+    jsr move_y
+    jsr on_ground
+    bcs @arf_ld
+    dec ob_t2,x
+    bne @ar_ycull
+@arf_ld:
+    jsr snap_ground
+@ar_to_walk:
+    lda #1
+    sta ob_state,x
+    lda #<rf_4C53
+    ldy #>rf_4C53
+    jmp set_anim
+@ar_shoot:
+    dec ob_t2,x
+    lda ob_t2,x
+    cmp #6
+    bne :+
+    jsr fire_arremer_shot
+    ldx oz_i
+    rts
+:
+    cmp #0
+    bne @ar_ycull
+    jmp @ar_to_walk
+@ar_space:
+    lda ob_dir,x
+    pha
+    lda ob_step,x
+    sta ob_dir,x
+    lda #$20                    ; 2.13 px/F
+    ldy #2
+    jsr set_vx_dir
+    pla
+    sta ob_dir,x
+    jsr move_x
+    dec ob_t2,x
+    bne @ar_yc2
+    jmp @ar_to_walk
+@ar_dodge:
+    lda ob_step,x
+    bne @ard1
     lda #1
     sta ob_vyi,x
     lda #$20
     sta ob_vyf,x
+    jsr move_y
+    dec ob_t2,x
+    bne @ar_yc2
+    lda #1
+    sta ob_step,x
+    lda #40
+    sta ob_t2,x
+    rts
+@ard1:
+    cmp #1
+    beq :+
+    jmp @arf_dn
 :
-    jmp offscreen_cull
-
-; C=1 if a player shot is within 56 px horizontally of Red Arremer X.
-ar_shot_near:
-    ldy #0
-@as_lp:
-    lda ps_active,y
-    beq @as_nx
-    lda ps_x_lo,y
-    sec
-    sbc ob_xl,x
-    sta oz_t0
-    lda ps_x_hi,y
-    sbc ob_xh,x
-    sta oz_t1
-    lda oz_t0
-    clc
-    adc #56
-    lda oz_t1
-    adc #0
-    bne @as_nx
-    lda oz_t0
-    clc
-    adc #56
-    cmp #112
-    bcc @as_yes
-@as_nx:
-    iny
-    cpy #ap_max_shots
-    bne @as_lp
-    clc
+    dec ob_t2,x
+    lda ob_t2,x
+    cmp #20
+    bne :+
+    jsr fire_arremer_shot
+    ldx oz_i
     rts
-@as_yes:
-    sec
+:
+    cmp #0
+    bne @ar_yc2
+    lda #2
+    sta ob_step,x
+    lda #24
+    sta ob_t2,x
     rts
+@ar_swoop:
+    lda #$20                    ; 2.13 px/F
+    ldy #2
+    jsr set_vx_dir
+    jsr calc_dy_player
+    lda #0
+    ldy oz_dy+1
+    bmi :+
+    ldy oz_dy
+    cpy #16
+    bcc :+
+    lda #$ff
+:
+    sta ob_vyi,x
+    jsr move_x
+    jsr move_y
+    jsr on_ground
+    bcc :+
+    jsr snap_ground
+:
+    dec ob_t2,x
+    bne @ar_yc2
+    jmp @ar_to_walk
+@ar_yc2:
+    jmp offscreen_y_cull
+@ar_ft: .byte 90,100,220,130,160,180,200,120
+@ar_rt: .byte 72,136,85,92,108,144,70,49
 
-; 6. Zombie ($0B, Stage 3, arcade $D25A):
-;    Probes downward to solid/oneway floor (despawns if no floor below - never mid-air!),
-;    rises from ground, walks at 0.81 px/F, and sinks when floor ends or timer expires.
+; 6. Zombie ($0B, Stage 3, Arcade $D25A):
+;    Ground scan -> var 0: 87F invuln rise (rf_5245) / var 1: immediate walk ->
+;    0.81 px/F walk (360F limit, 40..103F post-pass, ledge check) -> 36F invuln sink -> free!
 u_zombie:
     lda ob_state,x
-    beq @init
+    beq @z_init
     cmp #1
-    beq @rise
-    jmp @walk
-@init:
-    ; If spawn point starts inside solid rock, step up 16 px once; if still solid, discard
-    ; so zombies never emerge embedded inside walls/ceilings.
+    beq @z_rise
+    cmp #2
+    bne :+
+    jmp @z_walk
+:
+    jmp @z_sink
+@z_init:
     jsr on_ground
     bcc @z_scan
     lda ob_yl,x
@@ -1714,10 +2456,9 @@ u_zombie:
     jsr on_ground
     bcc @z_scan
     jmp free_slot
-    ; Scan downward in 8 px steps to find solid/oneway floor (arcade $0000.1).
 @z_scan:
     jsr on_ground
-    bcs @z_grounded
+    bcs @z_grd
     lda ob_yl,x
     sec
     sbc #8
@@ -1726,203 +2467,244 @@ u_zombie:
     dec ob_yh,x
     lda ob_yh,x
     bpl @z_scan
-    jmp free_slot               ; No floor below: discard (never spawn in mid-air)
-@z_grounded:
+    jmp free_slot
+@z_grd:
     jsr snap_ground
-    inc ob_state,x
     jsr face_player
-    lda ob_dir,x
-    beq :+
-    lda #$40
-:
+    lda #0
+    sta ob_flags,x              ; invuln while rising
     sta ob_mirror,x
     lda #snd_se_rise
     jsr call_bank8_play_se
     ldx oz_i
-    lda #45                     ; Rise out of ground before walking
+    lda ob_var,x
+    bne @z_go_walk
+    lda #1
+    sta ob_state,x
+    lda #87                     ; arcade 87F rise
     sta ob_t0,x
-    lda #<rf_D275
-    ldy #>rf_D275
+    lda #<rf_5245
+    ldy #>rf_5245
     jmp set_anim
-@rise:
+@z_rise:
     dec ob_t0,x
     bne @z_ret
+@z_go_walk:
     lda #2
     sta ob_state,x
-    lda #140
+    lda #ofl_alive | ofl_shoot | ofl_touch
+    sta ob_flags,x
+    jsr face_player
+    lda #180                    ; 360F (ticked every 2F)
     sta ob_t0,x
+    jsr rng
+    and #$3f
+    clc
+    adc #40                     ; 40..103F post-pass
+    sta ob_t1,x
     lda #0
-    sta ob_vxi,x
-    lda #$d0                    ; arcade 0.81 px/F
-    ldy ob_dir,x
+    sta ob_step,x
+    sta ob_mirror,x
+    lda ob_dir,x
     beq :+
-    lda #$ff
-    sta ob_vxi,x
-    lda #$30
+    lda #<rf_52FC
+    ldy #>rf_52FC
+    jmp set_anim
 :
-    sta ob_vxf,x
-    lda #<rf_D29C
-    ldy #>rf_D29C
+    lda #<rf_5316
+    ldy #>rf_5316
     jmp set_anim
 @z_ret:
     rts
-@walk:
+@z_walk:
+    lda #$cf                    ; 0.81 px/F
+    ldy #0
+    jsr set_vx_dir
     lda ob_xl,x
     sta oz_t3
     jsr move_x
-    dec ob_t0,x
-    beq @z_sink
-    ; Check ground when crossing a 16-px metatile column boundary (arcade $D37A).
     lda ob_xl,x
     eor oz_t3
     and #$f0
-    beq @z_cull
+    beq @z_chk_p
     jsr on_ground
-    bcc @z_sink
+    bcc @z_go_sink
+@z_chk_p:
+    lda ob_step,x
+    bne @z_past
+    jsr calc_dx_player          ; oz_dx = ob_x - player_x
+    lda ob_dir,x
+    beq @z_pr
+    lda oz_dx+1
+    bmi @z_set_past             ; moving left & ob_x < player_x -> passed!
+    bpl @z_tk
+@z_pr:
+    lda oz_dx+1
+    bpl @z_set_past             ; moving right & ob_x >= player_x -> passed!
+@z_tk:
+    lda frames
+    and #1
+    bne @z_cull
+    dec ob_t0,x
+    beq @z_go_sink
+    bne @z_cull
+@z_set_past:
+    lda #1
+    sta ob_step,x
+    bne @z_cull
+@z_past:
+    dec ob_t1,x
+    beq @z_go_sink
 @z_cull:
     jmp offscreen_cull
+@z_go_sink:
+    lda #3
+    sta ob_state,x
+    lda #0
+    sta ob_flags,x              ; invuln while sinking
+    lda #36                     ; 36F sink
+    sta ob_t0,x
+    lda #<rf_5245
+    ldy #>rf_5245
+    jmp set_anim
 @z_sink:
+    dec ob_t0,x
+    bne @z_ret
     jmp free_slot
 
-; 7. Grey Stone Pillar ($12, Stage 3):
-;    Shielded (ofl_shield) while waiting; when player within Y +-48 and timer expires,
-;    drops shield for 72 frames and fires horizontal shot ($05, 2.0 px/f).
+.segment "BANK15"
+; 7. Grey Stone Pillar ($12, Stage 3, Arcade $D3CC-$D5A0):
+;    25-entry x 4F wait table ($57B5) with dual independent upper (Y+7) / lower (Y-16) timers;
+;    shielded while waiting; unshielded 72F firing window (supports single & $0104 double-shot);
+;    never flips ob_mirror!
 u_pillar:
     lda ob_state,x
-    beq @init
+    beq @pl_init
     cmp #1
-    beq @wait
-    jmp @fire_st
-@init:
-    inc ob_state,x
+    beq @pl_wait
+    jmp @pl_fire
+@pl_init:
+    lda #1
+    sta ob_state,x
     jsr face_player
     lda #ofl_alive | ofl_shoot | ofl_touch | ofl_shield
     sta ob_flags,x
-    lda #64
-    sta ob_t0,x
-    jsr @set_frame
-    rts
-@set_frame:
+    lda #0
+    sta ob_mirror,x
+    sta ob_aux,x                ; table index 0..24
+    jsr @pl_next_t
+    sta ob_t0,x                 ; upper mouth timer (+7)
+    jsr @pl_next_t
+    sta ob_t1,x                 ; lower mouth timer (-16)
+@pl_frame:
+    lda #0
+    sta ob_mirror,x
     lda ob_dir,x
-    beq @fr_r
+    beq :+
     lda #<rf_57A1
     ldy #>rf_57A1
     jmp set_anim
-@fr_r:
+:
     lda #<rf_5795
     ldy #>rf_5795
     jmp set_anim
-@wait:
+@pl_wait:
     jsr in_view
-    bcs @p_ret
+    bcs @pl_ret
     jsr face_player
-    ; Check player Y within +-48
     jsr calc_dy_player
-    lda oz_dy
-    clc
-    adc #48
-    tay
-    lda oz_dy+1
-    adc #0
-    bne @p_ret
-    cpy #96
-    bcs @p_ret
+    lda #48
+    jsr abs_dy_le
+    bcc @pl_ret
+    lda #0
+    sta ob_step,x               ; bit 0 = upper due, bit 1 = lower due
     dec ob_t0,x
-    bne @p_ret
-    ; Drop shield and enter firing state (72 frames)
+    bne :+
+    lda #1
+    sta ob_step,x
+:
+    dec ob_t1,x
+    bne :+
+    lda ob_step,x
+    ora #2
+    sta ob_step,x
+:
+    lda ob_step,x
+    beq @pl_ret
+    ; Drop shield for 72F firing window (single or simultaneous double-shot!)
     lda #2
     sta ob_state,x
     lda #ofl_alive | ofl_shoot | ofl_touch
     sta ob_flags,x
     lda #72
-    sta ob_t0,x
-    jsr @set_frame
-@p_ret:
+    sta ob_t2,x
+    jmp @pl_frame
+@pl_ret:
     rts
-@fire_st:
-    ; Animate Stone Pillar mouth opening / glowing during unshielded firing phase
-    lda ob_t0,x
-    and #7
-    bne :+
-    lda ob_mirror,x
-    eor #$40
-    sta ob_mirror,x
-:
-    lda ob_t0,x
+@pl_fire:
+    lda ob_t2,x
     cmp #48
     bcs :+
     cmp #36
     bcc :+
     lda #1
-    sta ob_flash,x              ; visual open-mouth charge cue before firing
+    sta ob_flash,x
 :
-    lda ob_t0,x
+    lda ob_t2,x
     cmp #42
-    bne @no_shot
-    ; Fire horizontal stone shot (2.0 px/f) from Y + 7 (or Y - 16 alternating)
-    inc ob_aux,x
-    lda ob_aux,x
+    bne @pl_ns
+    lda ob_step,x
     and #1
-    beq @hi_shot
-    lda #$f0                    ; -16
-    bne @do_sh
-@hi_shot:
-    lda #7
-@do_sh:
+    beq @pl_chk_lo
+    lda #7                      ; upper shot (Y + 7)
     jsr fire_pillar_shot
     ldx oz_i
-@no_shot:
-    dec ob_t0,x
-    bne @p_ret
+    jsr @pl_next_t
+    sta ob_t0,x
+@pl_chk_lo:
+    lda ob_step,x
+    and #2
+    beq @pl_ns
+    lda #$f0                    ; lower shot (Y - 16)
+    jsr fire_pillar_shot
+    ldx oz_i
+    jsr @pl_next_t
+    sta ob_t1,x
+@pl_ns:
+    dec ob_t2,x
+    bne @pl_ret
     lda #1
     sta ob_state,x
     lda #ofl_alive | ofl_shoot | ofl_touch | ofl_shield
     sta ob_flags,x
-    lda #96
-    sta ob_t0,x
+    jmp @pl_frame
+@pl_next_t:
+    ldy ob_aux,x
+    lda @pl_tbl,y
+    asl a
+    asl a                       ; * 4 frames
+    iny
+    cpy #25
+    bcc :+
+    ldy #0
+:
+    sty oz_t0
+    lda oz_t0
+    sta ob_aux,x
+    lda @pl_tbl,y
+    asl a
+    asl a
     rts
+@pl_tbl:
+    .byte 16, 8,20,12,24,10,18, 6,22,14,16, 8,20,12,26,10,18, 8,22,14,16,10,20,12,18
 
-; 8. Fire Pillar ($0E, Stage 4):
-;    Invulnerable (absorbs shots); cycles idle (rf_55EC) -> mid (rf_5602) -> tall (rf_5631, lethal!) -> mid -> idle.
+; 8. Fire Pillar ($0E, Stage 4, Arcade $E4C8):
+;    Global 32F clock + 9-entry interval table (4,6,2,6,4,6,8,2,6 x 32F);
+;    127F eruption with 3 Form-10 lethal rf_5631 pulses (78-84, 92-101, 106-108F,
+;    aborted early when interval == 2).
 u_fire:
     lda ob_state,x
-    beq @init
-    jsr in_view
-    bcc :+
-    rts
-:
-    ; Flicker mirror every 4 frames for lively flame animation
-    lda oz_rng
-    and #$40
-    sta ob_mirror,x
-    dec ob_t0,x
-    beq :+
-    rts
-:
-    lda ob_state,x
-    cmp #1
-    beq @to_mid_up
-    cmp #2
-    beq @to_tall
-    cmp #3
-    bne :+
-    jmp @to_mid_dn
-:
-    ; Back to idle
-    lda #1
-    sta ob_state,x
-    lda #ofl_alive | ofl_shoot  ; harmless when idle
-    sta ob_flags,x
-    lda #96
-    sta ob_t0,x
-    lda ob_by_l,x
-    sta ob_yl,x
-    lda ob_by_h,x
-    sta ob_yh,x
-    lda #<rf_55EC
-    ldy #>rf_55EC
-    jmp set_anim
-@init:
+    bne @fr_act
     lda ob_yl,x
     sta ob_by_l,x
     lda ob_yh,x
@@ -1931,73 +2713,124 @@ u_fire:
     sta ob_state,x
     lda #ofl_alive | ofl_shoot
     sta ob_flags,x
+    ; Stagger table index 0..8 using initial ob_t0
     lda ob_t0,x
-    bne :+
-    lda #64
-    sta ob_t0,x
-:
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    and #7
+    sta ob_aux,x
+    tay
+    lda @fr_int,y
+    sta ob_t1,x                 ; 32F-tick countdown
     lda #<rf_55EC
     ldy #>rf_55EC
     jmp set_anim
-@to_mid_up:
+@fr_act:
+    jsr in_view
+    bcs @fr_ret
+    lda oz_rng
+    and #$40
+    sta ob_mirror,x
+    lda ob_state,x
+    cmp #1
+    bne @fr_erupt
+    ; Wait on global 32F clock
+    lda frames
+    and #31
+    bne @fr_ret
+    dec ob_t1,x
+    bne @fr_ret
+    ; Start 127F eruption
     lda #2
     sta ob_state,x
-    lda #28
+    lda #0
     sta ob_t0,x
-    lda ob_by_l,x
-    clc
-    adc #8
-    sta ob_yl,x
-    lda ob_by_h,x
-    adc #0
-    sta ob_yh,x
+    ldy ob_aux,x
+    lda @fr_int,y
+    sta ob_step,x               ; remember interval (2 = short abort!)
+    iny
+    cpy #9
+    bcc :+
+    ldy #0
+:
+    tya
+    sta ob_aux,x
+    lda @fr_int,y
+    sta ob_t1,x
+@fr_ret:
+    rts
+@fr_erupt:
+    inc ob_t0,x
+    lda ob_t0,x
+    cmp #127
+    bcs @fr_end
+    ; Interval 2 aborts early at frame 76 (no tall lethal pulses)
+    ldy ob_step,x
+    cpy #2
+    bne @fr_full
+    cmp #76
+    bcs @fr_end
+@fr_full:
+    cmp #32
+    bcc @fr_lo
+    cmp #78
+    bcc @fr_mid
+    cmp #85
+    bcc @fr_tall                ; pulse 1: 78..84
+    cmp #92
+    bcc @fr_mid
+    cmp #102
+    bcc @fr_tall                ; pulse 2: 92..101
+    cmp #106
+    bcc @fr_mid
+    cmp #109
+    bcc @fr_tall                ; pulse 3: 106..108
+@fr_mid:
+    lda #ofl_alive | ofl_shoot
+    sta ob_flags,x
+    lda #8
+    jsr @fr_set_y
     lda #<rf_5602
     ldy #>rf_5602
     jmp set_anim
-@to_tall:
-    lda #3
-    sta ob_state,x
-    lda #ofl_alive | ofl_shoot | ofl_touch  ; LETHAL at peak height!
+@fr_tall:
+    lda #ofl_alive | ofl_shoot | ofl_touch
     sta ob_flags,x
-    lda #36
-    sta ob_t0,x
-    lda ob_by_l,x
-    clc
-    adc #16
-    sta ob_yl,x
-    lda ob_by_h,x
-    adc #0
-    sta ob_yh,x
+    lda #16
+    jsr @fr_set_y
     lda #<rf_5631
     ldy #>rf_5631
     jmp set_anim
-@to_mid_dn:
-    lda #4
+@fr_end:
+    lda #1
     sta ob_state,x
+@fr_lo:
     lda #ofl_alive | ofl_shoot
     sta ob_flags,x
-    lda #20
-    sta ob_t0,x
-    lda ob_by_l,x
+    lda #0
+    jsr @fr_set_y
+    lda #<rf_55EC
+    ldy #>rf_55EC
+    jmp set_anim
+@fr_set_y:
     clc
-    adc #8
+    adc ob_by_l,x
     sta ob_yl,x
     lda ob_by_h,x
     adc #0
     sta ob_yh,x
-    lda #<rf_5602
-    ldy #>rf_5602
-    jmp set_anim
-@f_ret:
     rts
+@fr_int: .byte 4, 6, 2, 6, 4, 6, 8, 2, 6
 
-; 9. Dragon Boss ($0C, Stages 3 & 4):
-;    var = 0: Head (6 HP), var = 1: Body (7 segs), var = 2: Tail (1 seg).
-;    Head records (X, Y) in 64-entry ring buffer; body/tail follow at 7-frame intervals.
+; 9. Dragon Boss ($0C, Stages 3 & 4, Arcade $D691-$D9E0):
+;    Exact segment lag table (10,17,24,31,38,45,52,58F), 60F coiling intro,
+;    curved 48F 16-dir U-turns at screen edges, 3/16 player-Y aiming,
+;    1/4-per-32F fire breath at (X+-10, Y-5) at +-3.125 px/F.
 spawn_dragon_boss:
     lda #1
     sta oz_boss_seen
-    ; Clear non-boss objects so Fire Pillars / stage enemies cannot starve the 9 Dragon slots.
     ldx #ob_max - 1
     lda #0
 :
@@ -2012,7 +2845,6 @@ spawn_dragon_boss:
     bpl :-
     lda #snd_song_boss
     jsr call_bank8_play_song
-    ; Allocate head
     jsr alloc
     bcc :+
     rts
@@ -2025,14 +2857,13 @@ spawn_dragon_boss:
     sta ob_hp,x
     lda #0
     sta ob_var,x
-    sta ob_state,x
-    lda #10                     ; Initial steering countdown (avoid 0->255 wrap)
+    sta ob_state,x              ; State 0: 60F coiling intro ($D6D1)
+    lda #60
     sta ob_t0,x
     lda #8                      ; Direction 8 = Left
     sta ob_aux,x
     lda #1                      ; Facing left
     sta ob_dir,x
-    ; Position at right side of boss arena
     lda camera_low
     clc
     adc #224
@@ -2052,7 +2883,7 @@ spawn_dragon_boss:
     lda #<rf_5352
     ldy #>rf_5352
     jsr set_anim
-    ; Prefill 64-entry ring buffer with initial head position trailing right
+    ; Prefill 64-entry ring buffer
     ldx s34_drg_head_slot
     lda ob_xl,x
     sta oz_t0
@@ -2076,8 +2907,6 @@ spawn_dragon_boss:
     bpl @fill_ring
     lda #0
     sta s34_drg_idx
-    ; Allocate 8 trailing segments (0..6 = body, 7 = tail)
-    lda #0
     sta s34_drg_len
 @seg_lp:
     jsr alloc
@@ -2088,18 +2917,16 @@ spawn_dragon_boss:
     lda #ok_dragon
     sta ob_kind,x
     inc oz_kind_cnt+ok_dragon
-    lda #0                      ; 1 HP (any hit destroys trailing segment)
+    lda #0
     sta ob_hp,x
-    lda #1                      ; var 1 = body
+    lda #1
     cpy #7
     bne :+
-    lda #2                      ; var 2 = tail
+    lda #2
 :
     sta ob_var,x
     tya
-    clc
-    adc #1
-    sta ob_aux2,x               ; segment index 1..8
+    sta ob_aux2,x               ; segment index 0..7 -> drg_lags[y]
     lda oz_t0
     sta ob_xl,x
     lda oz_t1
@@ -2132,17 +2959,11 @@ spawn_dragon_boss:
 u_dragon:
     lda ob_var,x
     beq @u_head
-    ; Body or tail segment: read ring buffer at (s34_drg_idx - seg_idx * 7) & 63
-    lda ob_aux2,x               ; 1..8
-    asl a
-    asl a
-    asl a                       ; * 8
-    sec
-    sbc ob_aux2,x               ; * 7
-    sta oz_t0
+    ; Body or tail: exact arcade lag drg_lags[0..7] = 10,17,24,31,38,45,52,58
+    ldy ob_aux2,x
     lda s34_drg_idx
     sec
-    sbc oz_t0
+    sbc drg_lags,y
     and #63
     tay
     lda s34_drg_hx,y
@@ -2154,30 +2975,20 @@ u_dragon:
     lda s34_drg_hyh,y
     sta ob_yh,x
     rts
-
 @u_head:
-    ; If spawned by scheduler instead of trigger, init segments via spawn_dragon_boss
     cpx s34_drg_head_slot
     beq @head_go
-    ; Already have a dragon? Free duplicate.
     lda s34_drg_head_slot
     bpl @dup_free
     jsr free_slot
     jmp spawn_dragon_boss
 @dup_free:
     jmp free_slot
-
 @head_go:
-    ; Step 16-direction velocity
-    ldy ob_aux,x
-    lda drg_vxi,y
-    sta ob_vxi,x
-    lda drg_vxf,y
-    sta ob_vxf,x
-    lda drg_vyi,y
-    sta ob_vyi,x
-    lda drg_vyf,y
-    sta ob_vyf,x
+    ; Step 2.0 px/F velocity via load_vdir(48)
+    lda ob_aux,x
+    ldy #48
+    jsr load_vdir
     jsr move_x
     jsr move_y
     ; Record head position into ring buffer
@@ -2194,7 +3005,32 @@ u_dragon:
     sta s34_drg_hy,y
     lda ob_yh,x
     sta s34_drg_hyh,y
-
+    ; State 0: 60F coiling intro ($D6D1)
+    lda ob_state,x
+    bne @dh_active
+    lda ob_t0,x
+    and #7
+    bne :+
+    lda ob_aux,x
+    clc
+    adc #1
+    and #15
+    sta ob_aux,x
+:
+    dec ob_t0,x
+    bne @dh_ret0
+    lda #1
+    sta ob_state,x
+    lda #8
+    sta ob_aux,x
+    lda #1
+    sta ob_dir,x
+    lda #16
+    sta ob_t0,x
+    jmp @set_head_anim
+@dh_ret0:
+    rts
+@dh_active:
     ; Fire mouth animation restore
     lda ob_t2,x
     beq @no_mouth
@@ -2202,21 +3038,17 @@ u_dragon:
     bne @no_mouth
     jsr @set_head_anim
 @no_mouth:
-    ; Periodically breathe horizontal fire (every 64 frames if Y within +-72)
-    inc ob_t1,x
-    lda ob_t1,x
-    and #$3f
+    ; Every 32F: 1/4 random chance to breathe flame if player Y within +-72
+    lda frames
+    and #31
+    bne @no_fire
+    jsr rng
+    and #3
     bne @no_fire
     jsr calc_dy_player
-    lda oz_dy
-    clc
-    adc #72
-    tay
-    lda oz_dy+1
-    adc #0
-    bne @no_fire
-    cpy #144
-    bcs @no_fire
+    lda #72
+    jsr abs_dy_le
+    bcc @no_fire
     jsr fire_dragon_flame
     ldx oz_i
     lda #12
@@ -2233,37 +3065,73 @@ u_dragon:
     jsr set_anim
 @no_fire:
     ldx oz_i
-    ; Steering every 10 frames
+    ; State 2: smooth curved 48F U-turn (8 steps x 6F)
+    lda ob_state,x
+    cmp #2
+    bne @dh_flight
     dec ob_t0,x
-    beq :+
-    rts
-:
-    lda #10
+    bne @dh_ret0
+    lda #6
     sta ob_t0,x
-    ; Check horizontal turn-around relative to camera bounds [cam + 24, cam + 232]
+    lda ob_aux,x
+    clc
+    adc ob_by_l,x               ; +1 or -1 ($FF)
+    and #15
+    sta ob_aux,x
+    dec ob_step,x
+    lda ob_step,x
+    cmp #4
+    bne :+
+    lda ob_dir,x
+    eor #1
+    sta ob_dir,x
+    jsr @set_head_anim
+:
+    lda ob_step,x
+    bne @dh_ret0
+    lda #1
+    sta ob_state,x
+    lda #16
+    sta ob_t0,x
+    rts
+@dh_flight:
+    ; Check horizontal turn-around at camera edges [cam+28, cam+228] -> curved U-turn!
     lda ob_xl,x
     sec
     sbc camera_low
     sta oz_t0
     lda ob_xh,x
     sbc camera_high
-    sta oz_t1
-    bmi @turn_right
-    bne @turn_left
+    bmi @start_uturn_r
+    beq :+
+    jmp @start_uturn_l
+:
     lda oz_t0
     cmp #28
-    bcc @turn_right
+    bcc @start_uturn_r
     cmp #228
-    bcs @turn_left
-    ; Normal sinusoidal vertical steering toward player height
-    jsr calc_dy_player
-    lda oz_dy+1
-    bmi @steer_up
-    bne @steer_dn
-    lda oz_dy
-    cmp #96
+    bcc :+
+    jmp @start_uturn_l
+:
+    ; Steering every 16F: 3/16 player-Y aiming, else gentle wave
+    dec ob_t0,x
+    beq :+
+    rts
+:
+    lda #16
+    sta ob_t0,x
+    jsr rng
+    and #15
+    cmp #3
+    bcc @dh_aim_y
+    ; Clamp Y within [camy+32, camy+200]
+    lda ob_yl,x
+    sec
+    sbc oz_camy
+    cmp #40
+    bcc @steer_up
+    cmp #196
     bcs @steer_dn
-    ; Gentle wave in current facing direction
     jsr rng
     and #3
     tay
@@ -2276,34 +3144,64 @@ u_dragon:
     lda @drg_r_dirs,y
     sta ob_aux,x
     rts
+@dh_aim_y:
+    jsr calc_dy_player
+    lda oz_dy+1
+    bmi @steer_up
+    bpl @steer_dn
 @steer_up:
     lda ob_dir,x
     beq :+
-    lda #10                     ; up-left
+    lda #10
     bne @set_d
 :
-    lda #14                     ; up-right
+    lda #14
     bne @set_d
 @steer_dn:
     lda ob_dir,x
     beq :+
-    lda #6                      ; down-left
+    lda #6
     bne @set_d
 :
-    lda #2                      ; down-right
+    lda #2
 @set_d:
     sta ob_aux,x
     rts
-@turn_right:
-    lda #0
-    sta ob_dir,x
-    sta ob_aux,x
-    jmp @set_head_anim
-@turn_left:
-    lda #1
-    sta ob_dir,x
+@start_uturn_r:
+    lda ob_dir,x
+    beq @dh_ret1                ; already heading right
+    lda #2
+    sta ob_state,x
+    lda #8                      ; 8 steps of +-1 -> 180 deg curve
+    sta ob_step,x
+    lda #6
+    sta ob_t0,x
+    lda #1                      ; CW if low, CCW if high
+    ldy ob_yl,x
+    cpy #128
+    bcc :+
+    lda #$ff
+:
+    sta ob_by_l,x
+@dh_ret1:
+    rts
+@start_uturn_l:
+    lda ob_dir,x
+    bne @dh_ret1                ; already heading left
+    lda #2
+    sta ob_state,x
     lda #8
-    sta ob_aux,x
+    sta ob_step,x
+    lda #6
+    sta ob_t0,x
+    lda #$ff
+    ldy ob_yl,x
+    cpy #128
+    bcc :+
+    lda #1
+:
+    sta ob_by_l,x
+    rts
 @set_head_anim:
     lda ob_dir,x
     beq :+
@@ -2314,12 +3212,18 @@ u_dragon:
     lda #<rf_5344
     ldy #>rf_5344
     jmp set_anim
-
 @drg_l_dirs: .byte 7, 8, 9, 8
 @drg_r_dirs: .byte 15, 0, 1, 0
 
+.segment "BANK51"
 ; --- Projectiles, Items, Effects, Key -------------------------------------------------
+; 16-dir aimed shot at 2.26 px/F (6-shot cap + snd_se_efire).
 fire_aimed_shot:
+    lda oz_kind_cnt+ok_shot
+    cmp #6
+    bcc :+
+    rts
+:
     jsr alloc
     bcc :+
     rts
@@ -2338,39 +3242,53 @@ fire_aimed_shot:
     sta ob_yh,x
     lda #ofl_alive | ofl_touch
     sta ob_flags,x
-    jsr face_player
-    lda #1
-    ldy ob_dir,x
-    beq :+
-    lda #$fe
-:
-    sta ob_vxi,x
-    lda #$80
-    sta ob_vxf,x
-    jsr calc_dy_player
-    lda oz_dy+1
-    bmi @up
-    lda #$ff
-    sta ob_vyi,x
-    lda #$80
-    bne @sy
-@up:
-    lda #0
-    sta ob_vyi,x
-    lda #$80
-@sy:
-    sta ob_vyf,x
+    jsr dir_to_player16
+    ldy #0                      ; 2.26 px/F
+    jsr load_vdir
     lda #<rf_FD02
     ldy #>rf_FD02
-    jmp set_anim
+    jsr set_anim
+    lda #snd_se_efire
+    jmp call_bank8_play_se
 
-; Woody Pig horizontal spear (rf_FD12 R / rf_FD19 L, 2.0 px/F).
+; Woody Pig spear: horizontal 2.27 px/F (rf_FD12/19) OR straight down 2.27 px/F (rf_FD27).
 fire_spear_shot:
     jsr fire_aimed_shot
+    lda ob_kind,x
+    cmp #ok_shot
+    bne @sp_out
+    ldy oz_i
+    lda ob_dir,y
+    sta ob_dir,x
     lda #0
-    sta ob_vyi,x
-    sta ob_vyf,x
     sta ob_mirror,x
+    ; Check if player is directly below (oz_dy > 16 and |oz_dx| <= 32)
+    jsr calc_dy_player
+    lda oz_dy+1
+    bmi @sp_horiz
+    bne @sp_chk_dx
+    lda oz_dy
+    cmp #16
+    bcc @sp_horiz
+@sp_chk_dx:
+    jsr calc_dx_player
+    lda #32
+    jsr abs_dx_le
+    bcc @sp_horiz
+    lda #0
+    sta ob_vxi,x
+    sta ob_vxf,x
+    lda #$fd                    ; -2.27 px/F straight down ($FD.$BB)
+    sta ob_vyi,x
+    lda #$bb
+    sta ob_vyf,x
+    lda #<rf_FD27
+    ldy #>rf_FD27
+    jmp set_anim
+@sp_horiz:
+    lda #$45                    ; 2.27 px/F ($02.$45)
+    ldy #2
+    jsr set_vx_dir
     lda ob_dir,x
     bne @sp_l
     lda #<rf_FD12
@@ -2380,13 +3298,27 @@ fire_spear_shot:
     lda #<rf_FD19
     ldy #>rf_FD19
     jmp set_anim
+@sp_out:
+    rts
 
-; Red Arremer fireball (rf_FDD7, aimed).
+; Red Arremer fireball (rf_FDD7, 16-dir 2.26 px/F from Y+16).
 fire_arremer_shot:
     jsr fire_aimed_shot
+    lda ob_kind,x
+    cmp #ok_shot
+    bne @ar_so
+    lda ob_yl,x
+    clc
+    adc #16
+    sta ob_yl,x
+    bcc :+
+    inc ob_yh,x
+:
     lda #<rf_FDD7
     ldy #>rf_FDD7
     jmp set_anim
+@ar_so:
+    rts
 
 ; --- Dynamic Stage 4 eyeball moving platforms (all 16 arcade support $05 entries) ---
 s4_sync_platforms:
@@ -2501,9 +3433,14 @@ s4_plat_zones:
     .byte 2, <1008, >1008, <168, >168, 96, 16, 0
     .byte 2, <1040, >1040, <136, >136, 96, 48, 1
 
-; A = signed Y offset from pillar
+; A = signed Y offset from pillar (6-shot cap + snd_se_efire)
 fire_pillar_shot:
     sta oz_t2
+    lda oz_kind_cnt+ok_shot
+    cmp #6
+    bcc :+
+    rts
+:
     jsr alloc
     bcc :+
     rts
@@ -2534,27 +3471,28 @@ fire_pillar_shot:
     ldy oz_i
     lda ob_dir,y
     sta ob_dir,x
-    lda #2
-    ldy ob_dir,x
-    beq :+
-    lda #$fe
-:
-    sta ob_vxi,x
     lda #0
-    sta ob_vxf,x
-    sta ob_vyi,x
-    sta ob_vyf,x
+    ldy #2
+    jsr set_vx_dir
     lda ob_dir,x
     bne @pil_l
     lda #<rf_FD32               ; arcade $FD32: Stone Pillar shot Right
     ldy #>rf_FD32
-    jmp set_anim
+    jmp @pil_set
 @pil_l:
     lda #<rf_FD40               ; arcade $FD40: Stone Pillar shot Left
     ldy #>rf_FD40
-    jmp set_anim
+@pil_set:
+    jsr set_anim
+    lda #snd_se_efire
+    jmp call_bank8_play_se
 
 fire_dragon_flame:
+    lda oz_kind_cnt+ok_shot
+    cmp #6
+    bcc :+
+    rts
+:
     jsr alloc
     bcc :+
     rts
@@ -2563,10 +3501,30 @@ fire_dragon_flame:
     sta ob_kind,x
     inc oz_kind_cnt+ok_shot
     ldy oz_i
+    lda ob_dir,y
+    sta ob_dir,x
+    ; Spawn at (X +- 10, Y - 5)
     lda ob_xl,y
+    ldy ob_dir,x
+    bne @df_xl
+    clc
+    adc #10
     sta ob_xl,x
+    ldy oz_i
     lda ob_xh,y
+    adc #0
     sta ob_xh,x
+    jmp @df_y
+@df_xl:
+    sec
+    sbc #10
+    sta ob_xl,x
+    ldy oz_i
+    lda ob_xh,y
+    sbc #0
+    sta ob_xh,x
+@df_y:
+    ldy oz_i
     lda ob_yl,y
     sec
     sbc #5
@@ -2576,25 +3534,14 @@ fire_dragon_flame:
     sta ob_yh,x
     lda #ofl_alive | ofl_touch
     sta ob_flags,x
-    lda ob_dir,y
-    sta ob_dir,x
-    beq @fl_r
-    lda #$fc                    ; -3.125 px/f
-    sta ob_vxi,x
-    lda #$e0
-    bne @fl_vx
-@fl_r:
-    lda #3                      ; +3.125 px/f
-    sta ob_vxi,x
-    lda #$20
-@fl_vx:
-    sta ob_vxf,x
-    lda #0
-    sta ob_vyi,x
-    sta ob_vyf,x
+    lda #$20                    ; +-3.125 px/F
+    ldy #3
+    jsr set_vx_dir
     lda #<rf_FD9C
     ldy #>rf_FD9C
-    jmp set_anim
+    jsr set_anim
+    lda #snd_se_efire
+    jmp call_bank8_play_se
 
 u_shot:
     jsr move_x
@@ -2670,16 +3617,49 @@ u_item:
 
 u_boom:
     dec ob_t0,x
-    bne :+
+    bne @ub_ret
+    lda ob_var,x
+    beq @ub_free
+    ; Morph into score popup (var 1=Arremer 1000, var 3=Dragon 1000 + Boss Key!)
+    dec oz_kind_cnt+ok_boom
+    lda #ok_popup
+    sta ob_kind,x
+    inc oz_kind_cnt+ok_popup
+    lda #0
+    sta ob_mirror,x
+    lda #63
+    sta ob_t0,x
+    lda #<rf_E878
+    ldy #>rf_E878
+    jmp set_anim
+@ub_free:
     jmp free_slot
-:
+@ub_ret:
     rts
 
 u_popup:
     dec ob_t0,x
-    bne :+
+    bne @up_ret
+    lda ob_var,x
+    cmp #3
+    bne @up_free
+    ; Dragon Boss Key drop after 22F boom + 63F popup!
+    dec oz_kind_cnt+ok_popup
+    lda #ok_key
+    sta ob_kind,x
+    inc oz_kind_cnt+ok_key
+    lda #0
+    sta ob_state,x
+    lda #ofl_alive
+    sta ob_flags,x
+    lda oz_py
+    sta ob_yl,x
+    lda oz_py+1
+    sta ob_yh,x
+    rts
+@up_free:
     jmp free_slot
-:
+@up_ret:
     rts
 
 u_disc:
@@ -2820,6 +3800,13 @@ check_player_hit:
     lda ok_pyhi,y
     sec
     sbc ok_pylo,y
+    ldy ap_crouch               ; crouching lowers Arthur's top edge by 6 px
+    beq :+
+    sec
+    sbc #6
+    bcs :+
+    lda #0
+:
     cmp oz_t0
     bcc @ph_ret
     lda ob_xl,x
@@ -2915,12 +3902,16 @@ shot_check:
     sta oz_t0
     lda oz_dy+1
     sbc #$ff
-    bne @sh_nx
+    beq :+
+    jmp @sh_nx
+:
     lda ok_syhi,y
     sec
     sbc ok_sylo,y
     cmp oz_t0
-    bcc @sh_nx
+    bcs :+
+    jmp @sh_nx
+:
     ; HIT! Check Fire Pillar (invulnerable, absorbs shot)
     cpy #ok_fire
     beq @sh_absorb
@@ -2942,10 +3933,34 @@ shot_check:
     beq @normal_dmg
     jmp @dragon_body_hit
 @normal_dmg:
+    ; Sleeping Red Arremer wakes freely with HP reset to 2 (3 hits)
+    cpy #ok_arremer
+    bne @nd_chk_hp
+    lda ob_state,x
+    bne @nd_chk_hp
+    lda #1
+    sta ob_state,x
+    lda #2
+    sta ob_hp,x
+    lda #0
+    sta ob_aux,x
+    lda #90
+    sta ob_t0,x
+    lda #72
+    sta ob_t1,x
+    lda #<rf_4C53
+    ldy #>rf_4C53
+    jsr set_anim
+    lda #snd_se_hit
+    jsr call_bank8_play_se
+    ldx oz_si
+    sec
+    rts
+@nd_chk_hp:
     lda ob_hp,x
     beq @kill
     dec ob_hp,x
-    lda #6
+    lda #5                      ; 5F flash/stun (Arremer hit-stun)
     sta ob_flash,x
     lda #snd_se_hit
     jsr call_bank8_play_se
@@ -2968,7 +3983,21 @@ shot_check:
     jsr drop_item
 @no_drop:
     ldx oz_i
+    lda ob_kind,x
+    cmp #ok_arremer
+    beq @kill_arr
     jsr make_boom
+    jmp @kill_se
+@kill_arr:
+    jsr make_boom
+    lda #36                     ; Arremer 36F rf_5CA0 + 1000 popup
+    sta ob_t0,x
+    lda #1
+    sta ob_var,x
+    lda #<rf_5CA0
+    ldy #>rf_5CA0
+    jsr set_anim
+@kill_se:
     lda #snd_se_kill
     jsr call_bank8_play_se
     ldx oz_si
@@ -3020,20 +4049,16 @@ shot_check:
 @dh_key:
     lda #$ff
     sta s34_drg_head_slot
-    ; Turn head slot into Boss Key!
+    ; Morph Dragon head into 22F boss explosion (rf_5C7A) -> 63F 1000 popup -> Boss Key!
     ldx oz_i
-    lda #ok_key
-    sta ob_kind,x
-    lda #0
-    sta ob_state,x
-    sta ob_flags,x
-    lda #ofl_alive
-    sta ob_flags,x
-    ; Drop key at player's ground Y
-    lda oz_py
-    sta ob_yl,x
-    lda oz_py+1
-    sta ob_yh,x
+    jsr make_boom
+    lda #22
+    sta ob_t0,x
+    lda #3                      ; var 3 = spawn Boss Key after 1000 popup
+    sta ob_var,x
+    lda #<rf_5C7A
+    ldy #>rf_5C7A
+    jsr set_anim
     lda #snd_se_boss_die
     jsr call_bank8_play_se
     ldx oz_si
@@ -3054,6 +4079,7 @@ make_boom:
     inc oz_kind_cnt+ok_boom
     lda #0
     sta ob_flags,x
+    sta ob_var,x
     lda #18
     sta ob_t0,x
     lda #<rf_E7A3

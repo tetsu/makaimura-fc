@@ -300,12 +300,16 @@ read_map_cell:
     clc
     adc map_ptr
     sta map_ptr
+    bcc :+
+    inc map_ptr+1
+:
     lda map_tmp
     lsr a
     lsr a
     lsr a
     lsr a
     lsr a
+    clc
     adc map_ptr+1
     sta map_ptr+1
 @nib_ptr_ok:

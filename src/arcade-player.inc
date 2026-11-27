@@ -2062,8 +2062,10 @@ ap_air_rise:
     clc
     adc #1
     jsr ap_add_player_y
+.ifndef REVG_STAGE1
     jsr ap_air_ceiling
     bcs @air_rise_done
+.endif
     ; vx += accel, vy -= gravity ($94EA). The rise ends when vy is below the gravity.
     jsr ap_air_table
     lda ap_vx+2
@@ -2529,7 +2531,11 @@ ap_move_right_1px:
 :
     lda player_x
     clc
+.ifdef REVG_STAGE1
+    adc #8
+.else
     adc #6
+.endif
     sta ap_probe_x
     lda player_x+1
     adc #0
@@ -2573,7 +2579,11 @@ ap_move_left_1px:
     dec player_x
     lda player_x
     sec
+.ifdef REVG_STAGE1
+    sbc #8
+.else
     sbc #6
+.endif
     sta ap_probe_x
     lda player_x+1
     sbc #0
@@ -2588,6 +2598,24 @@ ap_move_left_1px:
     rts
 
 ap_check_side_wall:
+.ifdef REVG_STAGE1
+    ; Arcade $8B7D (right wall) / $8BAF (left wall) probe a single height: player_Y - 8.
+    ; Because map rows are stored 1 row above visual tiles and player_feet + arcade_Y = const,
+    ; arcade_Y - 8 maps exactly to FC map_row = (player_feet - 9) / 16.
+    ; Probing higher (e.g. -22) falsely blocks stepped castle overhangs in Stage 5 and Stage 6.
+    lda player_feet
+    sec
+    sbc #9
+    sta ap_probe_y
+    lda ap_player_y_hi
+    sbc #0
+    sta ap_probe_y_hi
+    jsr ap_tile_type_at
+    cmp #tile_type_solid
+    beq @wall_hit
+    clc
+    rts
+.else
     lda player_feet
     sec
     sbc #2
@@ -2630,6 +2658,7 @@ ap_check_side_wall:
 @wall_clear:
     clc
     rts
+.endif
 @wall_hit:
     sec
     rts

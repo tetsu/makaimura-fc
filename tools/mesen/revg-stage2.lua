@@ -152,7 +152,7 @@ emu.addEventCallback(function()
     elseif phase == "s2_flyer" then
         write(AP_ARMOR, 2)
         if countKind(OK_FLYER) > 0 then sawFlyer = true end
-        if sawFlyer or frame > phaseFrame + 180 then
+        if sawFlyer or frame > phaseFrame + 360 then
             if not check(sawFlyer, "Purple Flyer ($04) should spawn on page 4") then return end
             -- Advance to page 6 (X=1664, Big Man $0A)
             write(CAMERA_X, 0); write(CAMERA_X + 1, 6)

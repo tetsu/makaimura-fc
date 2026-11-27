@@ -646,6 +646,8 @@ oz_range_check:
     beq @keep
     cmp #ok_arremer
     beq @keep
+    cmp #ok_plant               ; arcade Plant never despawns offscreen
+    beq @keep
     cmp #ok_key
     beq @keep
     lda ob_xl,x
@@ -1201,6 +1203,11 @@ oz_kill:
     cpy #ok_arremer
     bne :+
     lda #1
+    sta ob_aux,x
+:
+    cpy #ok_magician            ; arcade Magician shows 2000-pt popup (rf_E87C)
+    bne :+
+    lda #2
     sta ob_aux,x
 :
     cpy #ok_unicorn
@@ -2154,6 +2161,13 @@ oz_crow:
     ldy #>rf_4A42
     jsr oz_anim_lr
 :
+    ; Arcade $A450: only count sit timer while on screen
+    lda ob_xl,x
+    sec
+    sbc camera_low
+    lda ob_xh,x
+    sbc camera_high
+    bne @out
     dec ob_t0,x
     bne @out
     ; Fly off the way it faces.
@@ -2181,12 +2195,17 @@ oz_crow:
     rts
 @flying:
     jsr ob_move
-    ; Y = base + amplitude * sin, half a period in about 21 frames.
+    ; Y = base + amplitude * sin; update amplitude on every half-period (bit 7 flip, ~21F).
     lda ob_aux,x
     clc
     adc #6
+    sta oz_t0
+    eor ob_aux,x
+    php
+    lda oz_t0
     sta ob_aux,x
-    bcc :+
+    plp
+    bpl :+
     jsr oz_random
     and #15
     tay
@@ -2783,6 +2802,9 @@ oz_knight:
     sta ob_by_h,x
     lda #1
     sta ob_dir,x
+    jsr oz_random
+    and #$80                    ; random initial up/down arc phase
+    sta ob_aux,x
     lda #$10                    ; 1.06 px
     ldy #1
     jsr ob_set_vx_dir
@@ -2794,6 +2816,10 @@ oz_knight:
     lda ob_aux,x
     clc
     adc #3
+    sta oz_t0
+    eor ob_aux,x
+    sta oz_t1                   ; bit 7 set on every 43F half-period crossing!
+    lda oz_t0
     sta ob_aux,x
     ldy #50
     jsr oz_swing
@@ -2810,20 +2836,19 @@ oz_knight:
 :
     tya
     sta ob_flags,x
-    ; The two frames of the swing: rising and falling.
+    ; Toggle rising/falling sprite on every 43F half-period crossing (bit 7 flip).
+    bit oz_t1
+    bpl @fk_done
     lda ob_aux,x
-    cmp #3
-    bne :+
+    bmi @fk_fall
     lda #<rf_AEB5
     ldy #>rf_AEB5
     jmp ob_anim
-:
-    cmp #129
-    bne :+
+@fk_fall:
     lda #<rf_AEBF
     ldy #>rf_AEBF
     jmp ob_anim
-:
+@fk_done:
     rts
 
 ; --- Red Arremer (type $05) -------------------------------------------------------------
@@ -3444,13 +3469,13 @@ oz_arremer_swoop:
 @up_done:
     jmp oz_arremer_start_down
 
-; --- powering up ($0104): 80 frames blinking, not hit ---
+; --- powering up ($0104): 80 frames blinking, non-colliding ---
 oz_arremer_start_power:
     lda #10
     sta ob_state,x
     lda #80
     sta ob_t2,x
-    lda #ofl_harmful
+    lda #0                      ; arcade -$10 = 2: non-colliding during 80F blink
     sta ob_flags,x
     lda #1
     sta ob_var,x
@@ -3839,21 +3864,23 @@ oz_unicorn_charge:
 :
     jsr oz_rel_player
     lda ob_dir,x
-    beq :+
-    ; Charging left: until 16 px left of the player.
+    beq @chg_right
+    ; Charging left: stop once 16 px LEFT of player (oz_dx = player_x - ob_x >= +16).
+    lda oz_dx+1
+    bmi @chg_cont
+    bne @stop
+    lda oz_dx
+    cmp #16
+    bcs @stop
+@chg_cont:
+    rts
+@chg_right:
+    ; Charging right: stop once 16 px RIGHT of player (oz_dx = player_x - ob_x <= -16 -> oz_dx+16 < 0).
     lda oz_dx
     clc
     adc #16
     lda oz_dx+1
     adc #0
-    bmi @stop
-    rts
-:
-    lda oz_dx
-    sec
-    sbc #16
-    lda oz_dx+1
-    sbc #0
     bmi @stop
     rts
 @stop:
