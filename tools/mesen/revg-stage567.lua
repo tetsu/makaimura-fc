@@ -21,6 +21,7 @@ local AP_BOUNCE_BACK = 0x60cf
 local AP_CLEAR_SEQ = 0x6102
 local REVG_BG_ACTIVE = 0x6118
 local OB_KIND = 0x699b
+local OB_STATE = 0x69af
 local OB_XL = 0x6a27
 local OB_XH = 0x6a3b
 local OB_YL = 0x6a63
@@ -188,8 +189,10 @@ emu.addEventCallback(function()
             sawS5Key = true
             local kx = read(OB_XL + kidx) + 256 * read(OB_XH + kidx)
             local ky = read(OB_YL + kidx) + 256 * read(OB_YH + kidx)
-            -- Wait for 30F sparkle + descent to boss floor before picking up key.
-            if ky <= 1110 then
+            if not check(kx == 549, string.format("Stage 5 boss key X must be arcade 549 ($0225), got %d", kx)) then return end
+            -- Wait for 30F sparkle + descent to fixed boss floor (Y=1104) before picking up key.
+            if read(OB_STATE + kidx) == 2 then
+                if not check(ky == 1104, string.format("Stage 5 boss key must land at Y=1104, got %d", ky)) then return end
                 local fcY = 1200 - ky
                 write(PLAYER_X, kx % 256); write(PLAYER_X + 1, math.floor(kx / 256))
                 write(PLAYER_FEET, fcY % 256); write(PLAYER_Y_HI, math.floor(fcY / 256))
@@ -243,6 +246,9 @@ emu.addEventCallback(function()
     elseif phase == "s6_satans_init" then
         if frame >= phaseFrame + 15 and scene == PLAY and read(CAMPAIGN_STAGE) == 6 then
             write(AP_WEAPON, WPN_CROSS)
+            -- Lower clock to 1:00 before crossing vertical checkpoint so we verify reset to 3:40.
+            write(0x70, 0) -- checkpoint_reached = 0
+            write(0x17, 0x1c); write(0x18, 0x1b); write(0x19, 0x1b)
             -- Warp to top floor (pan_y_page=0, X=300, Y=112) to fight 2x Satan!
             write(PLAYER_X, 300 % 256); write(PLAYER_X + 1, math.floor(300 / 256))
             write(CAMERA_X, 256 % 256); write(CAMERA_X + 1, math.floor(256 / 256))
@@ -255,6 +261,11 @@ emu.addEventCallback(function()
         end
     elseif phase == "s6_satans" then
         write(AP_ARMOR, 2)
+        if frame == phaseFrame + 2 then
+            if not check(read(0x70) == 1 and read(0x17) == 0x1e and read(0x18) == 0x1f and read(0x19) == 0x1b,
+                string.format("Stage 6 vertical checkpoint must reset clock to 3:40 (cp=%d clk=%02X:%02X%02X)",
+                    read(0x70), read(0x17), read(0x18), read(0x19))) then return end
+        end
         local nsat, sidx = countKind(OK_SATAN)
         if nsat >= 2 then sawS6TwoSatans = true end
         if nsat > 0 then
@@ -273,8 +284,10 @@ emu.addEventCallback(function()
             sawS6Key = true
             local kx = read(OB_XL + kidx) + 256 * read(OB_XH + kidx)
             local ky = read(OB_YL + kidx) + 256 * read(OB_YH + kidx)
-            -- Wait for 30F sparkle + descent to boss floor before picking up key.
-            if ky <= 1110 then
+            if not check(kx == 293, string.format("Stage 6 boss key X must be arcade 293 ($0125), got %d", kx)) then return end
+            -- Wait for 30F sparkle + descent to fixed boss floor (Y=1104) before picking up key.
+            if read(OB_STATE + kidx) == 2 then
+                if not check(ky == 1104, string.format("Stage 6 boss key must land at Y=1104, got %d", ky)) then return end
                 local fcY = 1200 - ky
                 write(PLAYER_X, kx % 256); write(PLAYER_X + 1, math.floor(kx / 256))
                 write(PLAYER_FEET, fcY % 256); write(PLAYER_Y_HI, math.floor(fcY / 256))

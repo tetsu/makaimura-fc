@@ -252,10 +252,17 @@ emu.addEventCallback(function()
             if not sk then
                 input = {right = true}
             else
-                -- Stand near Skull to wake it and watch it complete 2 hops + leap (ob_step == 2)!
+                -- First verify arcade +-32 Y box: at |dx|=0, |dy|=36 (jumping on floor below) Skull MUST stay dormant!
                 local sx = read(OB_XL + sk) + 256 * read(OB_XH + sk)
                 local sy = read(OB_YL + sk) + 256 * read(OB_YH + sk)
-                if read(OB_STATE + sk) <= 1 then
+                if not skullBelowStart then skullBelowStart = frame end
+                if frame < skullBelowStart + 10 then
+                    local fcYBelow = 1200 - (sy - 36)
+                    write(PLAYER_X, sx & 255); write(PLAYER_X + 1, sx >> 8)
+                    write(PLAYER_FEET, fcYBelow & 255); write(PLAYER_Y_HI, fcYBelow >> 8)
+                    if not check(read(OB_STATE + sk) <= 1,
+                        "Stage 5 Floor Skull woke up at |dy|=36 (must stay dormant outside arcade +-32 box)") then return end
+                elseif read(OB_STATE + sk) <= 1 then
                     local fcY = 1200 - sy
                     write(PLAYER_X, (sx - 20) & 255); write(PLAYER_X + 1, (sx - 20) >> 8)
                     write(PLAYER_FEET, fcY & 255); write(PLAYER_Y_HI, fcY >> 8)

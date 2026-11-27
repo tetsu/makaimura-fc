@@ -1070,6 +1070,7 @@ ap_update_frame:
 @vert_cp_hit:
     lda #1
     sta checkpoint_reached
+    jsr reset_campaign_clock
     inc campaign_hud_dirty
 @check_vert_goal:
     lda sd_flags
@@ -3021,7 +3022,10 @@ ap_update_shots:
 :
     lda ps_kind,x
     cmp #ap_weapon_lance
+    beq @revg_straight
+    cmp #ap_weapon_dagger
     bne @revg_not_lance
+@revg_straight:
     jsr ap_step_lance
     ldx ap_loop_idx
     bcc :+
@@ -3032,7 +3036,7 @@ ap_update_shots:
     sta ps_timer,x
     jmp @next_shot
 :
-    ; The lance passes through the ground; only tombstones and enemies stop it.
+    ; Lance and dagger pass through the ground ($9B3A); only tombstones and enemies stop them.
     jsr ap_shot_hits_tombstone
     ldx ap_loop_idx
     bcs @revg_reclaim
@@ -3283,6 +3287,8 @@ ap_shot_thrown = 4              ; ps_active: thrown in this update, not moved ye
 ap_shot_spent = 3               ; ps_active: out of range, waiting ps_timer updates
 ap_lance_speed = $0430          ; $9C73: 4 3/16 px per update
 ap_lance_range = 192            ; $9C51
+ap_dagger_speed = $05a0         ; $9C7F: 5 5/8 px per update
+ap_dagger_range = 197           ; $9C55
 
 ; $8F71, called by the player update on the ground, crouching and in the air. A press of
 ; the shot button throws when the pose timer is 5 or less; the pose then lasts 15 updates,
@@ -3385,17 +3391,23 @@ ap_throw_shot:
     sta ap_shoot_lock
     rts
 
-; $9B3A: move the lance, keeping the fraction of the slot. C set once it is 192 px or more
-; from where it was thrown (X - start + 192 >= 384, unsigned).
+; $9B3A: move lance ($0430, 192 px) or dagger ($05A0, 197 px), keeping the slot fraction.
+; C set once it reaches its arcade range (X - start + range >= 2*range, unsigned).
 ap_step_lance:
+    ldy #0
+    lda ps_kind,x
+    cmp #ap_weapon_dagger
+    bne :+
+    iny
+:
     lda ps_vx,x
     bmi @left
     lda ps_x_frac,x
     clc
-    adc #<ap_lance_speed
+    adc @spd_lo,y
     sta ps_x_frac,x
     lda ps_x_lo,x
-    adc #>ap_lance_speed
+    adc @spd_hi,y
     sta ps_x_lo,x
     bcc @range
     inc ps_x_hi,x
@@ -3403,10 +3415,10 @@ ap_step_lance:
 @left:
     lda ps_x_frac,x
     sec
-    sbc #<ap_lance_speed
+    sbc @spd_lo,y
     sta ps_x_frac,x
     lda ps_x_lo,x
-    sbc #>ap_lance_speed
+    sbc @spd_hi,y
     sta ps_x_lo,x
     bcs @range
     dec ps_x_hi,x
@@ -3420,16 +3432,21 @@ ap_step_lance:
     sta ap_tmp1
     lda ap_tmp0
     clc
-    adc #<ap_lance_range
+    adc @rng_lo,y
     sta ap_tmp0
     lda ap_tmp1
-    adc #>ap_lance_range
-    cmp #>(2 * ap_lance_range)
+    adc #0
+    cmp @rng2_hi,y
     bne :+
     lda ap_tmp0
-    cmp #<(2 * ap_lance_range)
+    cmp @rng2_lo,y
 :
     rts
+@spd_lo:  .byte <ap_lance_speed, <ap_dagger_speed
+@spd_hi:  .byte >ap_lance_speed, >ap_dagger_speed
+@rng_lo:  .byte ap_lance_range, ap_dagger_range
+@rng2_lo: .byte <(2 * ap_lance_range), <(2 * ap_dagger_range)
+@rng2_hi: .byte >(2 * ap_lance_range), >(2 * ap_dagger_range)
 
 ap_revg_max_shots: .byte 3, 3, 2, 3, 2 ; lance, dagger, torch, cross, axe ($9E0F)
 
@@ -3996,10 +4013,10 @@ ap_test_contact_at_probe:
 ; Lance, dagger, torch, cross (shield), axe. The axe (game build) is thrown up like the
 ; torch, higher, and passes through enemies; the cross flies a short way.
 ap_weapon_max_shots: .byte 2, 3, 2, 2, 2
-ap_weapon_vx_pos:    .byte 3, 5, 2, 4, 2
-ap_weapon_vx_neg:    .byte $fd, $fb, $fe, $fc, $fe
+ap_weapon_vx_pos:    .byte 3, 5, 4, 4, 4
+ap_weapon_vx_neg:    .byte $fd, $fb, $fc, $fc, $fc
 ap_weapon_vy_init:   .byte 0, 0, $fc, 0, $fb
-ap_weapon_life:      .byte 48, 48, 56, 26, 64
+ap_weapon_life:      .byte 48, 38, 40, 26, 44
 
 ap_kb_delta:
     .byte $fe, $fe, $ff, $ff, $ff, $00, $00, $00

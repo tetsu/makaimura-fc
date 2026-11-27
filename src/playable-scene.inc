@@ -606,6 +606,9 @@ mark_checkpoint:
     beq checkpoint_marked
     ldx checkpoint_reached
     bne checkpoint_marked
+    lda #1
+    sta checkpoint_reached
+    jsr reset_campaign_clock    ; arcade $ECA4: crossing checkpoint resets timer to $6EC3
     inc campaign_hud_dirty
 checkpoint_marked:
 .endif

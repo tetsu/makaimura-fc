@@ -2735,37 +2735,16 @@ u_zombie:
 @z_rise:
     dec ob_t0,x
     lda ob_t0,x
-    cmp #57
-    bne @z_r_chk3
-    lda ob_dir,x
-    bne :+
-    lda #<rf_5245
-    ldy #>rf_5245
-    jmp set_anim
-:
-    lda #<rf_527B
-    ldy #>rf_527B
-    jmp set_anim
-@z_r_chk3:
-    cmp #32
+    cmp #17                     ; 70F of 16px frames (rf_523C..rf_5249) done -> 32px rf_524D/rf_5283
     bne @z_r_chk0
-    ; Switching to 32px-tall rise3: restore arcade Y by +8 px
+    ; Switching to 32px-tall rise frames: restore arcade Y by +8 px (let anim advance naturally).
     lda ob_yl,x
     clc
     adc #8
     sta ob_yl,x
-    bcc :+
+    bcc @z_ret
     inc ob_yh,x
-:
-    lda ob_dir,x
-    bne :+
-    lda #<rf_524D
-    ldy #>rf_524D
-    jmp set_anim
-:
-    lda #<rf_5283
-    ldy #>rf_5283
-    jmp set_anim
+    rts
 @z_r_chk0:
     cmp #0
     bne @z_ret
@@ -2838,43 +2817,35 @@ u_zombie:
 @z_cull:
     jmp offscreen_cull
 @z_go_sink:
-    ; Lower arcade Y by 8 px for 16px-tall sink1/sink2 shapes (flush with ground)
-    lda ob_yl,x
-    sec
-    sbc #8
-    sta ob_yl,x
-    bcs :+
-    dec ob_yh,x
-:
+    ; Start sink on 32px rf_5259/rf_528F (6F), then lower Y by 8px for 16px rf_525F..rf_526D (30F).
     lda #3
     sta ob_state,x
     lda #0
     sta ob_flags,x              ; invuln while sinking
-    lda #36                     ; 36F 2-stage sink
+    lda #36                     ; 36F full 6-frame arcade sink
     sta ob_t0,x
     lda ob_dir,x
     bne :+
-    lda #<rf_525F
-    ldy #>rf_525F
+    lda #<rf_5259
+    ldy #>rf_5259
     jmp set_anim
 :
-    lda #<rf_5295
-    ldy #>rf_5295
+    lda #<rf_528F
+    ldy #>rf_528F
     jmp set_anim
 @z_sink:
     dec ob_t0,x
     lda ob_t0,x
-    cmp #18
+    cmp #30                     ; 6F of 32px rf_5259/rf_528F done -> 16px rf_525F/rf_5295
     bne @z_sk_chk0
-    lda ob_dir,x
-    bne :+
-    lda #<rf_5267
-    ldy #>rf_5267
-    jmp set_anim
-:
-    lda #<rf_529D
-    ldy #>rf_529D
-    jmp set_anim
+    lda ob_yl,x
+    sec
+    sbc #8
+    sta ob_yl,x
+    bcs @z_sk_ret
+    dec ob_yh,x
+@z_sk_ret:
+    rts
 @z_sk_chk0:
     cmp #0
     beq :+

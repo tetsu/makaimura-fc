@@ -140,6 +140,13 @@ emu.addEventCallback(function()
                 local zy = read(OB_YL + i) + 256 * read(OB_YH + i)
                 if not check(zy <= 144,
                         string.format("Stage 3 Zombie spawned in mid-air (y=%d)", zy)) then return end
+                -- Rising zombie (ob_state==1) must NEVER play sink frames (rf_5259..rf_526D / rf_528F..rf_52A3)!
+                if read(0x69af + i) == 1 then
+                    local fid = read(0x6adb + i) + 256 * read(0x6aef + i)
+                    local isSink = (fid >= 0x13a9 and fid <= 0x13fd) or (fid >= 0x1489 and fid <= 0x14dd)
+                    if not check(not isSink,
+                        string.format("Rising Zombie played sink frame $%04X (must walk before rf_5259/rf_528F)", fid)) then return end
+                end
             end
         end
         if frame == phaseFrame + 100 then
@@ -195,6 +202,8 @@ emu.addEventCallback(function()
             if not check(read(PAN_Y_PAGE) == 0, "Stage 4 must be 1-page (pan_y_page=0)") then return end
             if not check(read(REVG_BG_ACTIVE) == 2, "Stage 4 must use revg_bg_active=2") then return end
             if not check(readWord(PLAYER_X) == 48 and y == 176, "Stage 4 must start at (48, 176)") then return end
+            if not check(read(0x17) == 0x1d and read(0x18) == 0x1e and read(0x19) == 0x1b,
+                string.format("Stage 4 must start with arcade 2:30 clock, got %02X:%02X%02X", read(0x17), read(0x18), read(0x19))) then return end
             if not check(countArcadeBgTiles(0x000) > 100, "Stage 4 nametable must have arcade bridge tiles") then return end
             phaseFrame = frame
             phase = "s4_enemies"

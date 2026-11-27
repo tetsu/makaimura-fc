@@ -160,6 +160,41 @@ emu.addEventCallback(function()
             local ok, msg = checkHud()
             if not check(ok, "HUD check failed: " .. msg) then return end
             saveShot("verify_s1_hud.png")
+            -- Verify arcade Dagger speed ($05A0 = 5.625 px/F, range 197 px) and Torch speed (4 px/F)
+            write(0x601a, 1) -- ap_weapon = dagger
+            write(0x6026, 0); write(0x6027, 0); write(0x6028, 0)
+            phaseFrame = frame
+            phase = "s1_dagger_chk"
+        end
+    elseif phase == "s1_dagger_chk" then
+        write(AP_INVULN, 20)
+        local dt = frame - phaseFrame
+        if dt == 1 then input = {b = true} end
+        if dt == 3 then daggerX0 = read(0x602c) + 256 * read(0x602f) end
+        if dt == 13 then
+            local x1 = read(0x602c) + 256 * read(0x602f)
+            local dist = x1 - (daggerX0 or 0)
+            if not check(read(0x6026) == 1 and dist >= 55,
+                string.format("Dagger must fly at arcade 5.625 px/F (10F dist=%d, active=%d)", dist, read(0x6026))) then return end
+        end
+        if dt == 44 then
+            if not check(read(0x6026) == 0,
+                string.format("Dagger must despawn after arcade 197px range (~38F), still active=%d", read(0x6026))) then return end
+            write(0x601a, 2) -- ap_weapon = torch
+            phaseFrame = frame
+            phase = "s1_torch_chk"
+        end
+    elseif phase == "s1_torch_chk" then
+        write(AP_INVULN, 20)
+        local dt = frame - phaseFrame
+        if dt == 1 then input = {b = true} end
+        if dt == 3 then torchX0 = read(0x602c) + 256 * read(0x602f) end
+        if dt == 13 then
+            local x1 = read(0x602c) + 256 * read(0x602f)
+            local dist = x1 - (torchX0 or 0)
+            if not check(dist >= 36,
+                string.format("Torch must fly at arcade ~4 px/F (10F dist=%d)", dist)) then return end
+            write(0x601a, 0) -- restore lance
             -- Move to Stage 1 boss gate (page 13: cam=13*256, player_x=3420)
             write(PLAYER_X, 3420 & 255); write(PLAYER_X + 1, 3420 >> 8)
             phaseFrame = frame

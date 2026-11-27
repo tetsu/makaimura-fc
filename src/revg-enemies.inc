@@ -1964,37 +1964,20 @@ oz_zombie:
     bne @not_rising
     dec ob_t0,x
     lda ob_t0,x
-    cmp #57
+    cmp #17                     ; 70F of 16px frames (rf_523C..rf_5249) done -> 32px rf_524D/rf_5283
     bne :+
-    lda #<rf_527B
-    ldy #>rf_527B
-    sta oz_t2
-    sty oz_t3
-    lda #<rf_5245
-    ldy #>rf_5245
-    jsr ob_anim_dir
-:
-    lda ob_t0,x
-    cmp #32
-    bne :+
-    ; Switching from 16px rise2 (+7) to 32px rise3 (+15): restore arcade Y by +8 px.
+    ; Switching from 16px rise (+7) to 32px rise (+15): restore arcade Y by +8 px.
+    ; Let rs_anim_step advance naturally through rf_524D (11F) -> rf_5253 (6F) = 17F.
     lda ob_yl,x
     clc
     adc #8
     sta ob_yl,x
-    bcc @rise3_anim
+    bcc :+
     inc ob_yh,x
-@rise3_anim:
-    lda #<rf_5283
-    ldy #>rf_5283
-    sta oz_t2
-    sty oz_t3
-    lda #<rf_524D
-    ldy #>rf_524D
-    jsr ob_anim_dir
 :
     lda ob_t0,x
     bne :+
+    ; Exact end of rf_5253/rf_5289 (87F total): walk immediately before sink frame rf_5259 plays!
     jmp oz_zombie_walk_start
 :
     rts
@@ -2054,14 +2037,7 @@ oz_zombie:
     bcc @sink
     rts
 @sink:
-    ; Switching from 32px walk (+15) to 16px sink1/sink2 (+7): lower arcade Y by 8 px.
-    lda ob_yl,x
-    sec
-    sbc #8
-    sta ob_yl,x
-    bcs :+
-    dec ob_yh,x
-:
+    ; Start sink on 32px rf_5259/rf_528F (6F), then lower Y by 8px for 16px rf_525F..rf_526D (30F).
     lda #3
     sta ob_state,x
     lda #36
@@ -2069,25 +2045,24 @@ oz_zombie:
     lda #0
     sta ob_flags,x
     jsr ob_stop
-    lda #<rf_5295
-    ldy #>rf_5295
+    lda #<rf_528F
+    ldy #>rf_528F
     sta oz_t2
     sty oz_t3
-    lda #<rf_525F
-    ldy #>rf_525F
+    lda #<rf_5259
+    ldy #>rf_5259
     jmp ob_anim_dir
 @sinking:
     dec ob_t0,x
     lda ob_t0,x
-    cmp #18
+    cmp #30                     ; 6F of 32px rf_5259/rf_528F done -> 16px rf_525F/rf_5295
     bne :+
-    lda #<rf_529D
-    ldy #>rf_529D
-    sta oz_t2
-    sty oz_t3
-    lda #<rf_5267
-    ldy #>rf_5267
-    jsr ob_anim_dir
+    lda ob_yl,x
+    sec
+    sbc #8
+    sta ob_yl,x
+    bcs :+
+    dec ob_yh,x
 :
     lda ob_t0,x
     bne :+

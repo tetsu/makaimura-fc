@@ -157,6 +157,10 @@ emu.addEventCallback(function()
         input = {right = true}
         if x >= CHECKPOINT_X then
             if not check(read(CHECKPOINT) == 1, "checkpoint not reached at X 1920") then return end
+            -- Arcade $ECA4: crossing Stage 1 checkpoint resets clock to 2:00 ($1B+2, $1B, $1B)
+            local m, s10, s1 = read(0x17), read(0x18), read(0x19)
+            if not check(m == 0x1d and s10 == 0x1b and s1 == 0x1b,
+                string.format("Stage 1 checkpoint must reset clock to 2:00, got %02X:%02X%02X", m, s10, s1)) then return end
             phase = "pit"
         end
     elseif phase == "pit" then

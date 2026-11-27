@@ -2228,8 +2228,10 @@ u_skull:
     ldy #>rf_CB80
     jmp set_anim
 @sk_dormant:
-    lda #40
-    ldy #40
+    jsr check_onscreen_xy       ; arcade $CB5A: C=0 if on-screen
+    bcs @sk_ret
+    lda #32                     ; arcade $CB5E-$CB76: |dx|<=32 and |dy|<=32
+    ldy #32
     jsr rel_box_le
     bcc @sk_ret
     lda #2
@@ -4725,23 +4727,24 @@ u_popup:
     sta ob_mirror,x
     lda #ofl_alive
     sta ob_flags,x
-    lda camera_low
-    clc
-    adc #144
+    ; Arcade $73EF-$7421: fixed per-stage key X = Xmax+37 (S5: 549=$0225, S6: 293=$0125),
+    ; spawn Y = 1168 ($0490, FC screen Y=32 below HUD), landing floor Y = 1104 ($0450).
+    lda #$25
     sta ob_xl,x
-    lda camera_high
-    adc #0
+    lda #$02                    ; Stage 5: 512 + 37 = 549 ($0225)
+    ldy campaign_stage
+    cpy #6
+    bne :+
+    lda #$01                    ; Stage 6: 256 + 37 = 293 ($0125)
+:
     sta ob_xh,x
-    lda oz_py
-    sta ob_t1,x                 ; target landing floor Y lo
-    lda oz_py+1
-    sta ob_t2,x                 ; target landing floor Y hi
-    lda oz_camy
-    clc
-    adc #192                    ; screen Y=48 (visibly below HUD on top floor!)
+    lda #$50                    ; top boss floor Y = 1104 ($0450)
+    sta ob_t1,x
+    lda #$04
+    sta ob_t2,x
+    lda #$90                    ; spawn Y = 1168 ($0490, screen Y=32)
     sta ob_yl,x
-    lda oz_camy+1
-    adc #0
+    lda #$04
     sta ob_yh,x
     lda #30
     sta ob_t0,x
